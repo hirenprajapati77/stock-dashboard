@@ -92,95 +92,103 @@ def detect_levels_for_df(df: pd.DataFrame, tf: str):
 
 @app.get("/api/v1/dashboard")
 async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
-    # 0. Normalize Symbol
-    norm_symbol = MarketDataService.normalize_symbol(symbol)
+    try:
+        # 0. Normalize Symbol
+        norm_symbol = MarketDataService.normalize_symbol(symbol)
 
-    # 1. Get Data
-    df = MarketDataService.get_ohlcv(norm_symbol, tf)
-    if df.empty:
-        return {"status": "error", "message": f"No data found for {symbol}. Try another symbol or timeframe."}
-        
-    cmp = df['close'].iloc[-1]
-    
-    # 2. Extract Levels (Primary)
-    supports, resistances = detect_levels_for_df(df, tf)
-    
-    # 3. Extract MTF Levels
-    higher_tfs = []
-    if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
-    elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
-    elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
-    elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
-    elif tf == "4H": higher_tfs = ["1D", "1W", "1M"]
-    elif tf == "75m": higher_tfs = ["1D", "1W", "1M"]
-    elif tf == "1D": higher_tfs = ["1W", "1M"]
-    elif tf == "1W": higher_tfs = ["1M"]
-    
-    mtf_levels = {"supports": [], "resistances": []}
-    for htf in higher_tfs:
-        try:
-            hdf = MarketDataService.get_ohlcv(norm_symbol, htf)
-            hs, hr = detect_levels_for_df(hdf, htf)
-            mtf_levels["supports"].extend(hs)
-            mtf_levels["resistances"].extend(hr)
-        except Exception as e:
-            print(f"MTF error for {htf}: {e}")
+        # 1. Get Data
+        df = MarketDataService.get_ohlcv(norm_symbol, tf)
+        if df.empty:
+            return {"status": "error", "message": f"No data found for {symbol}. Try another symbol or timeframe."}
             
-    # 4. Get Insights
-    # Get Global AI Insights
-    ai_analysis = ai_engine.get_insights(df)
-    
-    # Get Fundamentals
-    fundamentals = FundamentalService.get_fundamentals(norm_symbol)
+        cmp = df['close'].iloc[-1]
+        
+        # 2. Extract Levels (Primary)
+        supports, resistances = detect_levels_for_df(df, tf)
+        
+        # 3. Extract MTF Levels
+        higher_tfs = []
+        if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
+        elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
+        elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
+        elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
+        elif tf == "4H": higher_tfs = ["1D", "1W", "1M"]
+        elif tf == "75m": higher_tfs = ["1D", "1W", "1M"]
+        elif tf == "1D": higher_tfs = ["1W", "1M"]
+        elif tf == "1W": higher_tfs = ["1M"]
+        
+        mtf_levels = {"supports": [], "resistances": []}
+        for htf in higher_tfs:
+            try:
+                hdf = MarketDataService.get_ohlcv(norm_symbol, htf)
+                hs, hr = detect_levels_for_df(hdf, htf)
+                mtf_levels["supports"].extend(hs)
+                mtf_levels["resistances"].extend(hr)
+            except Exception as e:
+                print(f"MTF error for {htf}: {e}")
+                
+        # 4. Get Insights
+        # Get Global AI Insights
+        ai_analysis = ai_engine.get_insights(df)
+        
+        # Get Fundamentals
+        fundamentals = FundamentalService.get_fundamentals(norm_symbol)
 
-    insights = {
-        "inside_candle": InsightEngine.is_inside_candle(df),
-        "retest": InsightEngine.detect_retest(df, supports + resistances),
-        "ema_bias": InsightEngine.get_ema_bias(df),
-        "hammer": InsightEngine.detect_hammer(df),
-        "engulfing": InsightEngine.detect_engulfing(df),
-        "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0
-    }
-    
-    # 5. Format OHLCV for Chart
-    ohlcv = []
-    for i in range(len(df)):
-        ohlcv.append({
-            "time": int(df.index[i].timestamp()),
-            "open": float(round(df['open'].iloc[i], 2)),
-            "high": float(round(df['high'].iloc[i], 2)),
-            "low": float(round(df['low'].iloc[i], 2)),
-            "close": float(round(df['close'].iloc[i], 2))
-        })
+        insights = {
+            "inside_candle": InsightEngine.is_inside_candle(df),
+            "retest": InsightEngine.detect_retest(df, supports + resistances),
+            "ema_bias": InsightEngine.get_ema_bias(df),
+            "hammer": InsightEngine.detect_hammer(df),
+            "engulfing": InsightEngine.detect_engulfing(df),
+            "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0
+        }
+        
+        # 5. Format OHLCV for Chart
+        ohlcv = []
+        for i in range(len(df)):
+            ohlcv.append({
+                "time": int(df.index[i].timestamp()),
+                "open": float(round(df['open'].iloc[i], 2)),
+                "high": float(round(df['high'].iloc[i], 2)),
+                "low": float(round(df['low'].iloc[i], 2)),
+                "close": float(round(df['close'].iloc[i], 2))
+            })
 
-    # 6. Response Structure
-    return {
-        "meta": {
-            "symbol": norm_symbol,
-            "tf": tf,
-            "cmp": float(round(cmp, 2)),
-            "data_version": "v1.3.0"
-        },
-        "summary": {
-            "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
-            "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
-            "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
-            "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
-            "stop_loss": float(round(supports[0]['price'] * 0.99, 2)) if supports else float(round(cmp * 0.98, 2)),
-            "risk_reward": f"1:{round((resistances[0]['price'] - cmp)/(cmp - supports[0]['price']), 1)}" if supports and resistances and (cmp - supports[0]['price']) > 0 else "1:2.0"
-        },
-        "levels": {
-            "primary": {
-                "supports": supports,
-                "resistances": resistances
+        # 6. Response Structure
+        return {
+            "meta": {
+                "symbol": norm_symbol,
+                "tf": tf,
+                "cmp": float(round(cmp, 2)),
+                "data_version": "v1.3.0"
             },
-            "mtf": mtf_levels
-        },
-        "insights": insights,
-        "ai_analysis": ai_analysis,
-        "fundamentals": fundamentals,
-        "ohlcv": ohlcv
-    }
+            "summary": {
+                "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
+                "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
+                "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
+                "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
+                "stop_loss": float(round(supports[0]['price'] * 0.99, 2)) if supports else float(round(cmp * 0.98, 2)),
+                "risk_reward": f"1:{round((resistances[0]['price'] - cmp)/(cmp - supports[0]['price']), 1)}" if supports and resistances and (cmp - supports[0]['price']) > 0 else "1:2.0"
+            },
+            "levels": {
+                "primary": {
+                    "supports": supports,
+                    "resistances": resistances
+                },
+                "mtf": mtf_levels
+            },
+            "insights": insights,
+            "ai_analysis": ai_analysis,
+            "fundamentals": fundamentals,
+            "ohlcv": ohlcv
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "message": f"Server Error: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
 
 @app.get("/api/v1/screener")
 async def run_screener():
