@@ -8,9 +8,7 @@ import requests
 import uvicorn
 import os
 
-# ... (imports)
-
-app = FastAPI(title="Support & Resistance Dashboard")
+from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
 from app.services.screener import ScreenerService
 from app.engine.swing import SwingEngine
