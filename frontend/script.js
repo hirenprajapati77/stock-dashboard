@@ -1,9 +1,9 @@
 const IS_LOCAL_FILE = window.location.protocol === 'file:';
 const API_BASE = IS_LOCAL_FILE ? "http://localhost:8000" : ""; // Use relative path if hosted, else localhost
-export const API_URL = `${API_BASE}/api/v1/dashboard`;
-export const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
-export const SCREENER_URL = `${API_BASE}/api/v1/screener`;
-export const SEARCH_URL = `${API_BASE}/api/v1/search`;
+const API_URL = `${API_BASE}/api/v1/dashboard`;
+const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
+const SCREENER_URL = `${API_BASE}/api/v1/screener`;
+const SEARCH_URL = `${API_BASE}/api/v1/search`;
 
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
