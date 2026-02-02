@@ -249,26 +249,25 @@ try:
     # 1. Docker/Production Path (frontend copied to /app/frontend, main in /app/app/main.py)
     #    BASE_DIR is /app
     
-    # Current File: .../backend/app/main.py
+    # Current File: .../app/main.py
     current_file = Path(__file__).resolve()
     
-    # Local: .../backend/app/main.py -> .../frontend
+    # 1. Docker Path: /app/app/main.py -> /app/frontend
+    # Parent of main.py is /app/app. Parent of that is /app.
+    frontend_docker = current_file.parent.parent / "frontend"
+    
+    # 2. Local Path: .../backend/app/main.py -> .../frontend
+    # Parent of main.py is app. Parent is backend. Parent is root.
     frontend_local = current_file.parent.parent.parent / "frontend"
     
-    # Docker: /app/app/main.py -> /app/frontend
-    frontend_docker = current_file.parent.parent.parent / "frontend" 
-    
-    # We will copy frontend to the ROOT of the container workdir or similar. 
-    # Let's assume standard structure:
-    # /app
-    #   /app (backend code)
-    #   /frontend (static files)
-    
-    if frontend_local.exists():
+    if frontend_docker.exists():
+        app.mount("/", StaticFiles(directory=str(frontend_docker), html=True), name="frontend")
+        print(f"Mounted frontend from Docker path: {frontend_docker}")
+    elif frontend_local.exists():
         app.mount("/", StaticFiles(directory=str(frontend_local), html=True), name="frontend")
-        print(f"Mounted frontend from {frontend_local}")
+        print(f"Mounted frontend from Local path: {frontend_local}")
     else:
-        print(f"Frontend directory not found at {frontend_local}")
+        print(f"Frontend directory not found at {frontend_docker} or {frontend_local}")
 
 except Exception as e:
     print(f"Failed to mount frontend: {e}")
