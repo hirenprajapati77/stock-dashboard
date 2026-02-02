@@ -2,10 +2,8 @@ fastapi
 uvicorn
 pandas
 numpy
-pydantic
-python-binance
-redis
-websockets
 yfinance
 scikit-learn
 joblib
+requests
+lxml
