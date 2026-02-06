@@ -4,6 +4,7 @@ const API_URL = `${API_BASE}/api/v1/dashboard`;
 const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
 const SCREENER_URL = `${API_BASE}/api/v1/screener`;
 const SEARCH_URL = `${API_BASE}/api/v1/search`;
+const ROTATION_URL = `${API_BASE}/api/v1/sector-rotation`;
 
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
@@ -12,9 +13,13 @@ if (IS_LOCAL_FILE) {
 
 let chart, candlestickSeries;
 let levelsLayer = [];
+let rotationApp; // Added for sector rotation
 
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
+    console.log('Initializing chart, container:', chartContainer);
+    console.log('Container dimensions:', chartContainer.clientWidth, 'x', chartContainer.clientHeight);
+
     chart = LightweightCharts.createChart(chartContainer, {
         layout: {
             background: { color: '#0b0e11' },
@@ -43,6 +48,8 @@ function initChart() {
         wickDownColor: '#f6465d',
     });
 
+    console.log('Chart initialized successfully');
+
     window.addEventListener('resize', () => {
         chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
     });
@@ -68,7 +75,7 @@ async function runScreener() {
     count.textContent = 'SCANNING...';
 
     try {
-        const response = await fetch(SCREENER_URL);
+        const response = await fetch(`${SCREENER_URL}?_=${Date.now()}`);
         const data = await response.json();
 
         if (data.status === 'success') {
@@ -117,19 +124,21 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData() {
+async function fetchData(isBackground = false) {
     const loader = document.getElementById('loading-overlay');
+    const showLoader = isBackground !== true;
 
     try {
-        if (loader) loader.classList.remove('hidden');
+        if (loader && showLoader) loader.classList.remove('hidden');
 
         const symbolInput = document.getElementById('symbol-input');
         const symbol = symbolInput.value.toUpperCase() || "RELIANCE";
         const tf = document.getElementById('tf-selector').value;
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}`);
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&_=${Date.now()}`);
         const data = await response.json();
 
         if (data.meta) {
+            window.lastReceivedData = data;
             updateUI(data);
         } else {
             throw new Error(data.message || "Invalid response from server");
@@ -158,11 +167,42 @@ async function fetchData() {
 }
 
 function updateUI(data) {
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = symbolMap[data.meta.currency] || data.meta.currency + ' ';
+
     // 1. Meta & Summary
-    document.getElementById('cmp').textContent = `₹${data.meta.cmp}`;
-    document.getElementById('nearest-support').textContent = data.summary.nearest_support ? `₹${data.summary.nearest_support}` : '—';
-    document.getElementById('nearest-resistance').textContent = data.summary.nearest_resistance ? `₹${data.summary.nearest_resistance}` : '—';
-    document.getElementById('stop-loss').textContent = data.summary.stop_loss ? `₹${data.summary.stop_loss}` : '—';
+    document.getElementById('cmp').textContent = `${currencySym}${data.meta.cmp}`;
+    if (data.meta.data_version) {
+        document.getElementById('ver-tag').textContent = data.meta.data_version;
+    }
+    if (data.meta.last_update) {
+        document.getElementById('sync-time').textContent = `Last updated: ${data.meta.last_update}`;
+    }
+
+    // Pulse live indicator and price
+    const liveInd = document.getElementById('live-indicator');
+    const cmpEl = document.getElementById('cmp');
+
+    liveInd.classList.add('text-blue-300');
+    cmpEl.classList.add('text-blue-400');
+
+    setTimeout(() => {
+        liveInd.classList.remove('text-blue-300');
+        cmpEl.classList.remove('text-blue-400');
+    }, 500);
+
+    // Update Price Change %
+    if (data.ohlcv && data.ohlcv.length > 1) {
+        const prevClose = data.ohlcv[data.ohlcv.length - 2].close;
+        const change = ((data.meta.cmp - prevClose) / prevClose) * 100;
+        const changeEl = document.getElementById('price-change');
+        changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+        changeEl.className = `text-xs font-medium ${change >= 0 ? 'text-up' : 'text-down'}`;
+    }
+
+    document.getElementById('nearest-support').textContent = data.summary.nearest_support ? `${currencySym}${data.summary.nearest_support}` : '—';
+    document.getElementById('nearest-resistance').textContent = data.summary.nearest_resistance ? `${currencySym}${data.summary.nearest_resistance}` : '—';
+    document.getElementById('stop-loss').textContent = data.summary.stop_loss ? `${currencySym}${data.summary.stop_loss}` : '—';
     document.getElementById('risk-reward').textContent = data.summary.risk_reward || '—';
 
     // 2. Insights
@@ -201,12 +241,15 @@ function updateUI(data) {
             }`;
         document.getElementById('ai-regime-reason').textContent = ai.regime.reason;
 
-        // Reliability
-        const adj = ai.reliability ? ai.reliability.ai_adjustment : 0;
-        const relText = document.getElementById('ai-reliability-adjustment');
-        relText.textContent = `Score Mod: ${adj > 0 ? '+' : ''}${adj}`;
-        relText.className = `text-[10px] font-bold mono ${adj > 0 ? 'text-up' : adj < 0 ? 'text-down' : 'text-gray-400'}`;
-        relText.title = ai.reliability ? ai.reliability.reason : "No adjustments";
+
+        // Reliability adjustment element was removed during layout reorganization
+        // const adj = ai.reliability ? ai.reliability.ai_adjustment : 0;
+        // const relText = document.getElementById('ai-reliability-adjustment');
+        // if (relText) {
+        //     relText.textContent = `Score Mod: ${adj > 0 ? '+' : ''}${adj}`;
+        //     relText.className = `text-[10px] font-bold mono ${adj > 0 ? 'text-up' : adj < 0 ? 'text-down' : 'text-gray-400'}`;
+        //     relText.title = ai.reliability ? ai.reliability.reason : "No adjustments";
+        // }
     }
 
     // 4. Clear and Render Level Lists (Primary + MTF)
@@ -273,7 +316,12 @@ function updateUI(data) {
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
-    const container = document.getElementById(containerId);
+    const list = document.getElementById(containerId);
+    if (!list || !levels || !Array.isArray(levels)) return;
+
+    const data = window.lastReceivedData; // Get currency from cached data
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = data ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
     levels.forEach((level, index) => {
         const div = document.createElement('div');
@@ -282,14 +330,14 @@ function renderLevelList(containerId, levels, color, isMTF) {
         div.innerHTML = `
             <div>
                 <p class="text-[9px] text-gray-500 font-medium">${isMTF ? 'MTF' : 'L' + (index + 1)}</p>
-                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">₹${level.price.toFixed(2)}</p>
+                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">${currencySym}${level.price.toFixed(2)}</p>
             </div>
             <div class="text-right">
                 <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 uppercase">${level.timeframe}</span>
                 <p class="text-[9px] text-gray-600 mt-1">${level.touches}T</p>
             </div>
         `;
-        container.appendChild(div);
+        list.appendChild(div);
     });
 }
 
@@ -363,6 +411,19 @@ function drawLevelsOnChart(levels) {
     }
 }
 
+// Rotation Data Fetching
+async function fetchRotation() {
+    try {
+        const res = await fetch(`${ROTATION_URL}?t=${Date.now()}`);
+        const result = await res.json();
+        if (result.status === 'success' && rotationApp) {
+            rotationApp.setData(result.data, result.alerts);
+        }
+    } catch (e) {
+        console.error("Failed to fetch rotation data", e);
+    }
+}
+
 // Initialize
 window.onload = function () {
     try {
@@ -372,14 +433,48 @@ window.onload = function () {
         initChart();
         fetchData();
 
+        // Force chart resize after a short delay to ensure container has proper dimensions
+        setTimeout(() => {
+            if (chart) {
+                const chartContainer = document.getElementById('tv-chart');
+                chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+            }
+        }, 100);
+
+        // Initialize Rotation App
+        if (typeof RotationDashboard !== 'undefined') {
+            rotationApp = new RotationDashboard('rotation-canvas');
+        }
+
+        // Rotation Toggle Logic
+        document.getElementById('rotation-toggle').addEventListener('change', (e) => {
+            const std = document.getElementById('standard-dashboard');
+            const rot = document.getElementById('rotation-section');
+            const scrTog = document.getElementById('screener-toggle');
+
+            if (e.target.checked) {
+                rot.classList.remove('hidden');
+                std.classList.add('hidden');
+                scrTog.checked = false;
+                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                fetchRotation();
+                if (rotationApp) rotationApp.resize();
+            } else {
+                rot.classList.add('hidden');
+                std.classList.remove('hidden');
+            }
+        });
+
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
         const resultsDiv = document.getElementById('search-results');
         let searchTimeout;
+        let selectedIndex = -1;
 
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
             clearTimeout(searchTimeout);
+            selectedIndex = -1;
 
             if (query.length < 1) {
                 resultsDiv.classList.add('hidden');
@@ -394,9 +489,10 @@ window.onload = function () {
                     resultsDiv.innerHTML = '';
                     if (results.length > 0) {
                         resultsDiv.classList.remove('hidden');
-                        results.forEach(item => {
+                        results.forEach((item, index) => {
                             const div = document.createElement('div');
-                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0";
+                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0 search-item";
+                            div.dataset.index = index;
                             div.innerHTML = `
                                 <div>
                                     <span class="font-bold text-sm text-white">${item.symbol}</span>
@@ -419,6 +515,39 @@ window.onload = function () {
                 }
             }, 300);
         });
+
+        searchInput.addEventListener('keydown', function (e) {
+            const items = resultsDiv.getElementsByClassName('search-item');
+            if (resultsDiv.classList.contains('hidden') || items.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedIndex = (selectedIndex + 1) % items.length;
+                updateSelection(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+                updateSelection(items);
+            } else if (e.key === 'Enter') {
+                if (selectedIndex >= 0) {
+                    e.preventDefault();
+                    items[selectedIndex].click();
+                }
+            }
+        });
+
+        function updateSelection(items) {
+            for (let i = 0; i < items.length; i++) {
+                if (i === selectedIndex) {
+                    items[i].classList.add('bg-blue-900/40');
+                    items[i].classList.add('border-blue-500/50');
+                    items[i].scrollIntoView({ block: 'nearest' });
+                } else {
+                    items[i].classList.remove('bg-blue-900/40');
+                    items[i].classList.remove('border-blue-500/50');
+                }
+            }
+        }
 
         // Close dropdown when clicking outside
         document.addEventListener('click', function (e) {
@@ -445,7 +574,14 @@ window.onload = function () {
             }
         });
 
-        setInterval(fetchData, 10000); // Auto-sync every 10s
+        setInterval(() => {
+            const isRotationActive = document.getElementById('rotation-toggle').checked;
+            if (isRotationActive) {
+                fetchRotation();
+            } else {
+                fetchData(true);
+            }
+        }, 2000); // Live auto-sync every 2s
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
