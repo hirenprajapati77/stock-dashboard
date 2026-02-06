@@ -6,7 +6,7 @@ def test_tf(symbol, tf):
     print(f"Testing {symbol} {tf}...")
     start = time.time()
     try:
-        df = MarketDataService.get_ohlcv(symbol, tf)
+        df, currency = MarketDataService.get_ohlcv(symbol, tf)
         end = time.time()
         print(f"  Success! {len(df)} candles found in {end-start:.2f}s")
         return True
