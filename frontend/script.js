@@ -5,6 +5,7 @@ const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
 const SCREENER_URL = `${API_BASE}/api/v1/screener`;
 const SEARCH_URL = `${API_BASE}/api/v1/search`;
 const ROTATION_URL = `${API_BASE}/api/v1/sector-rotation`;
+const HITS_URL = `${API_BASE}/api/v1/momentum-hits`;
 
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
@@ -14,6 +15,8 @@ if (IS_LOCAL_FILE) {
 let chart, candlestickSeries;
 let levelsLayer = [];
 let rotationApp; // Added for sector rotation
+let intelligenceApp; // Added for market intelligence
+let fetchController = null; // To abort previous fetches
 
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
@@ -129,199 +132,238 @@ async function fetchData(isBackground = false) {
     const showLoader = isBackground !== true;
 
     try {
-        if (loader && showLoader) loader.classList.remove('hidden');
+        if (loader && showLoader) {
+            loader.classList.remove('hidden');
+            loader.style.display = 'flex';
+        }
 
         const symbolInput = document.getElementById('symbol-input');
-        const symbol = symbolInput.value.toUpperCase() || "RELIANCE";
-        const tf = document.getElementById('tf-selector').value;
+        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "RELIANCE";
+        const tfSelector = document.getElementById('tf-selector');
+        const tf = tfSelector ? tfSelector.value : '1D';
+
+        console.log(`[Fetch] ${symbol} @ ${tf} (Background: ${isBackground})`);
+
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&_=${Date.now()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
         const data = await response.json();
 
-        if (data.meta) {
+        if (data && data.meta) {
             window.lastReceivedData = data;
             updateUI(data);
         } else {
-            throw new Error(data.message || "Invalid response from server");
+            throw new Error(data.message || "Malformed API response");
         }
     } catch (error) {
-        console.error("Fetch error:", error);
-        // Show non-destructive error toast or badge if we already have a chart
-        const chartParent = document.getElementById('chart-parent');
-        if (!chart || chartParent.innerHTML.includes('Failed to load data')) {
-            chartParent.innerHTML = `
-                <div class="h-full w-full flex flex-col items-center justify-center p-6 text-center">
-                    <p class="text-red-500 font-bold mb-2">Failed to load data</p>
-                    <code class="text-xs bg-gray-800 p-2 rounded text-left w-full overflow-auto max-h-40">
-                        ${error.message}<br>
-                        Is the backend running on port 8000?
-                    </code>
-                    <button onclick="fetchData()" class="mt-4 px-4 py-2 bg-blue-600 rounded text-sm font-bold hover:bg-blue-500">Retry</button>
-                </div>
-            `;
-        } else {
-            console.warn("Background update failed, keeping current data.");
+        console.error("Fetch failed:", error);
+
+        if (!isBackground) {
+            const chartParent = document.getElementById('chart-parent');
+            if (chartParent) {
+                // If we don't have a chart yet, show error in the area
+                if (!chart || chartParent.innerHTML.includes('Failed to load data')) {
+                    const tvChart = document.getElementById('tv-chart');
+                    if (tvChart) tvChart.classList.add('hidden');
+
+                    let errDiv = document.getElementById('chart-error-msg');
+                    if (!errDiv) {
+                        errDiv = document.createElement('div');
+                        errDiv.id = 'chart-error-msg';
+                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/50 z-20';
+                        chartParent.appendChild(errDiv);
+                    }
+                    errDiv.classList.remove('hidden');
+                    errDiv.innerHTML = `
+                        <p class="text-red-500 font-bold mb-2">Sync Error</p>
+                        <p class="text-[10px] text-gray-400 mb-4">${error.message}</p>
+                        <button onclick="window.fetchData()" class="px-4 py-2 bg-indigo-600 rounded text-xs font-bold hover:bg-indigo-500">RETRY SYNC</button>
+                     `;
+                }
+            }
         }
     } finally {
-        if (loader) loader.classList.add('hidden');
+        if (loader && showLoader) {
+            loader.classList.add('hidden');
+            loader.style.display = 'none';
+        }
     }
 }
+window.fetchData = fetchData;
 
 function updateUI(data) {
-    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-    const currencySym = symbolMap[data.meta.currency] || data.meta.currency + ' ';
+    try {
+        // Hide error message if it exists
+        const errDiv = document.getElementById('chart-error-msg');
+        if (errDiv) errDiv.classList.add('hidden');
+        const tvChart = document.getElementById('tv-chart');
+        if (tvChart) tvChart.classList.remove('hidden');
 
-    // 1. Meta & Summary
-    document.getElementById('cmp').textContent = `${currencySym}${data.meta.cmp}`;
-    if (data.meta.data_version) {
-        document.getElementById('ver-tag').textContent = data.meta.data_version;
-    }
-    if (data.meta.last_update) {
-        document.getElementById('sync-time').textContent = `Last updated: ${data.meta.last_update}`;
-    }
+        const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+        const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
-    // Pulse live indicator and price
-    const liveInd = document.getElementById('live-indicator');
-    const cmpEl = document.getElementById('cmp');
+        const formatWithCurrency = (val) => {
+            if (val === undefined || val === null || val === '—') return '—';
+            return `${currencySym}${val}`;
+        };
 
-    liveInd.classList.add('text-blue-300');
-    cmpEl.classList.add('text-blue-400');
+        // 1. Meta & Summary
+        const cmpEl = document.getElementById('cmp');
+        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp);
 
-    setTimeout(() => {
-        liveInd.classList.remove('text-blue-300');
-        cmpEl.classList.remove('text-blue-400');
-    }, 500);
+        const verTag = document.getElementById('ver-tag');
+        if (verTag) verTag.textContent = "v1.4.1";
 
-    // Update Price Change %
-    if (data.ohlcv && data.ohlcv.length > 1) {
-        const prevClose = data.ohlcv[data.ohlcv.length - 2].close;
-        const change = ((data.meta.cmp - prevClose) / prevClose) * 100;
-        const changeEl = document.getElementById('price-change');
-        changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-        changeEl.className = `text-xs font-medium ${change >= 0 ? 'text-up' : 'text-down'}`;
-    }
+        const syncTime = document.getElementById('sync-time');
+        if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;
 
-    document.getElementById('nearest-support').textContent = data.summary.nearest_support ? `${currencySym}${data.summary.nearest_support}` : '—';
-    document.getElementById('nearest-resistance').textContent = data.summary.nearest_resistance ? `${currencySym}${data.summary.nearest_resistance}` : '—';
-    document.getElementById('stop-loss').textContent = data.summary.stop_loss ? `${currencySym}${data.summary.stop_loss}` : '—';
-    document.getElementById('risk-reward').textContent = data.summary.risk_reward || '—';
-
-    // 2. Insights
-    document.getElementById('inside-candle').textContent = data.insights.inside_candle ? "YES" : "NO";
-    document.getElementById('retest').textContent = data.insights.retest ? "CONFIRMED" : "NONE";
-    document.getElementById('upside-pct').textContent = `+${data.insights.upside_pct}%`;
-
-    const biasBadge = document.getElementById('bias-badge');
-    biasBadge.textContent = data.insights.ema_bias;
-    biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
-        data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-        }`;
-
-    // 3. AI Insights (Unified from dashboard response)
-    if (data.ai_analysis && data.ai_analysis.status === "success") {
-        const ai = data.ai_analysis;
-        // Priority
-        const pBadge = document.getElementById('ai-priority-badge');
-        pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
-        pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-            ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
-            }`;
-
-        // Breakout
-        const bBadge = document.getElementById('ai-breakout-badge');
-        bBadge.textContent = ai.breakout.breakout_quality;
-        bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-            ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-            }`;
-        document.getElementById('ai-breakout-reason').textContent = ai.breakout.reason;
-
-        // Regime
-        const rBadge = document.getElementById('ai-regime-badge');
-        rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
-        rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
-            }`;
-        document.getElementById('ai-regime-reason').textContent = ai.regime.reason;
-
-
-        // Reliability adjustment element was removed during layout reorganization
-        // const adj = ai.reliability ? ai.reliability.ai_adjustment : 0;
-        // const relText = document.getElementById('ai-reliability-adjustment');
-        // if (relText) {
-        //     relText.textContent = `Score Mod: ${adj > 0 ? '+' : ''}${adj}`;
-        //     relText.className = `text-[10px] font-bold mono ${adj > 0 ? 'text-up' : adj < 0 ? 'text-down' : 'text-gray-400'}`;
-        //     relText.title = ai.reliability ? ai.reliability.reason : "No adjustments";
-        // }
-    }
-
-    // 4. Clear and Render Level Lists (Primary + MTF)
-    const supportList = document.getElementById('support-list');
-    const resistanceList = document.getElementById('resistance-list');
-    supportList.innerHTML = '';
-    resistanceList.innerHTML = '';
-
-    renderLevelList('support-list', data.levels.primary.supports, 'blue', false);
-    renderLevelList('support-list', data.levels.mtf.supports, 'blue', true);
-
-    renderLevelList('resistance-list', data.levels.primary.resistances, 'green', false);
-    renderLevelList('resistance-list', data.levels.mtf.resistances, 'green', true);
-
-    // 5. Render Chart Data
-    if (data.ohlcv && data.ohlcv.length > 0) {
-        candlestickSeries.setData(data.ohlcv);
-    }
-
-    // 6. Fundamental Health UI
-    const fundCard = document.getElementById('fundamentals-card');
-    if (data.fundamentals) {
-        fundCard.classList.remove('hidden');
-        const f = data.fundamentals;
-
-        document.getElementById('fund-sector').textContent = f.sector || '—';
-        document.getElementById('fund-mcap').textContent = f.market_cap || '—';
-        document.getElementById('fund-pe').textContent = f.pe_ratio || '—';
-
-        // Color code PE
-        const peEl = document.getElementById('fund-pe');
-        if (f.pe_ratio) {
-            peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
-        } else {
-            peEl.className = 'text-sm font-bold text-white';
+        // Pulse indicators
+        const liveInd = document.getElementById('live-indicator');
+        if (liveInd && cmpEl) {
+            liveInd.classList.add('text-blue-300');
+            cmpEl.classList.add('text-blue-400');
+            setTimeout(() => {
+                liveInd.classList.remove('text-blue-300');
+                cmpEl.classList.remove('text-blue-400');
+            }, 500);
         }
 
-        document.getElementById('fund-roe').textContent = f.roe ? `${f.roe}%` : '—';
-        document.getElementById('fund-div').textContent = f.dividend_yield ? `${f.dividend_yield}%` : '—';
-
-        const high = f['52w_high'] || 0;
-        const low = f['52w_low'] || 0;
-        const cmp = data.meta.cmp;
-
-        document.getElementById('fund-52h').textContent = high || '—';
-        document.getElementById('fund-52l').textContent = low || '—';
-
-        if (high && low && high > low) {
-            let pct = ((cmp - low) / (high - low)) * 100;
-            pct = Math.max(0, Math.min(100, pct));
-
-            const bar = document.getElementById('fund-range-bar');
-            bar.style.width = `${pct}%`;
-            bar.className = 'h-full rounded-full transition-all duration-500 ' +
-                (pct > 80 ? 'bg-down' : pct < 20 ? 'bg-up' : 'bg-blue-600');
+        // Update Price Change %
+        if (data.ohlcv && data.ohlcv.length > 1) {
+            const prevClose = data.ohlcv[data.ohlcv.length - 2].close;
+            const change = ((data.meta.cmp - prevClose) / prevClose) * 100;
+            const changeEl = document.getElementById('price-change');
+            if (changeEl) {
+                changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+                changeEl.className = `text-xs font-medium ${change >= 0 ? 'text-up' : 'text-down'}`;
+            }
         }
-    } else {
-        if (fundCard) fundCard.classList.add('hidden');
-    }
 
-    // Draw Levels on Chart
-    window.lastReceivedData = data; // Cache for toggle
-    drawLevelsOnChart(data.levels);
+        // Summary details
+        const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = formatWithCurrency(val);
+        };
+        setVal('nearest-support', data.summary.nearest_support);
+        setVal('nearest-resistance', data.summary.nearest_resistance);
+        setVal('stop-loss', data.summary.stop_loss);
+        const rrEl = document.getElementById('risk-reward');
+        if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
+
+        // 2. Insights
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+        setTxt('inside-candle', data.insights.inside_candle ? "YES" : "NO");
+        setTxt('retest', data.insights.retest ? "CONFIRMED" : "NONE");
+        setTxt('upside-pct', `+${data.insights.upside_pct}%`);
+
+        const biasBadge = document.getElementById('bias-badge');
+        if (biasBadge) {
+            biasBadge.textContent = data.insights.ema_bias;
+            biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
+                data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                }`;
+        }
+
+        // 3. AI Insights
+        if (data.ai_analysis && data.ai_analysis.status === "success") {
+            const ai = data.ai_analysis;
+            const pBadge = document.getElementById('ai-priority-badge');
+            if (pBadge) {
+                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+                    }`;
+            }
+
+            const bBadge = document.getElementById('ai-breakout-badge');
+            if (bBadge) {
+                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
+            const bR = document.getElementById('ai-breakout-reason');
+            if (bR) bR.textContent = ai.breakout.reason;
+
+            const rBadge = document.getElementById('ai-regime-badge');
+            if (rBadge) {
+                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
+            const rR = document.getElementById('ai-regime-reason');
+            if (rR) rR.textContent = ai.regime.reason;
+        }
+
+        // 4. Levels
+        const sL = document.getElementById('support-list');
+        const rL = document.getElementById('resistance-list');
+        if (sL && rL) {
+            sL.innerHTML = '';
+            rL.innerHTML = '';
+            renderLevelList('support-list', data.levels.primary.supports, 'blue', false);
+            renderLevelList('support-list', data.levels.mtf.supports, 'blue', true);
+            renderLevelList('resistance-list', data.levels.primary.resistances, 'green', false);
+            renderLevelList('resistance-list', data.levels.mtf.resistances, 'green', true);
+        }
+
+        // 5. Chart
+        if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
+            candlestickSeries.setData(data.ohlcv);
+        }
+
+        // 6. Fundamentals
+        const fundCard = document.getElementById('fundamentals-card');
+        if (data.fundamentals && fundCard) {
+            fundCard.classList.remove('hidden');
+            const f = data.fundamentals;
+            const sectorEl = document.getElementById('fund-sector');
+            if (sectorEl) sectorEl.textContent = f.sector || '—';
+
+            const mcapEl = document.getElementById('fund-mcap');
+            if (mcapEl) mcapEl.textContent = f.market_cap || '—';
+
+            const peEl = document.getElementById('fund-pe');
+            if (peEl) {
+                peEl.textContent = f.pe_ratio || '—';
+                if (f.pe_ratio) {
+                    peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
+                }
+            }
+
+            setTxt('fund-roe', f.roe ? `${f.roe}%` : '—');
+            setTxt('fund-div', f.dividend_yield ? `${f.dividend_yield}%` : '—');
+            setTxt('fund-52h', f['52w_high'] || '—');
+            setTxt('fund-52l', f['52w_low'] || '—');
+
+            const rB = document.getElementById('fund-range-bar');
+            if (rB && f['52w_high'] && f['52w_low']) {
+                let p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
+                rB.style.width = `${Math.max(0, Math.min(100, p))}%`;
+            }
+        } else if (fundCard) {
+            fundCard.classList.add('hidden');
+        }
+
+        // 7. Finally draw levels on chart
+        window.lastReceivedData = data;
+        drawLevelsOnChart(data.levels);
+
+    } catch (e) {
+        console.error("UI Update Error:", e);
+    }
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
     const list = document.getElementById(containerId);
     if (!list || !levels || !Array.isArray(levels)) return;
 
-    const data = window.lastReceivedData; // Get currency from cached data
+    const data = window.lastReceivedData;
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-    const currencySym = data ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
+    const currencySym = (data && data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
     levels.forEach((level, index) => {
         const div = document.createElement('div');
@@ -447,22 +489,49 @@ window.onload = function () {
             rotationApp = new RotationDashboard('rotation-canvas');
         }
 
-        // Rotation Toggle Logic
-        document.getElementById('rotation-toggle').addEventListener('change', (e) => {
-            const std = document.getElementById('standard-dashboard');
-            const rot = document.getElementById('rotation-section');
-            const scrTog = document.getElementById('screener-toggle');
+        // Initialize Intelligence App
+        if (typeof MarketIntelligence !== 'undefined') {
+            intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
+        }
 
+        // Toggle Handlers
+        const std = document.getElementById('standard-dashboard');
+        const rot = document.getElementById('rotation-section');
+        const intel = document.getElementById('intelligence-section');
+        const rotTog = document.getElementById('rotation-toggle');
+        const intelTog = document.getElementById('intelligence-toggle');
+        const scrTog = document.getElementById('screener-toggle');
+
+        // Rotation Toggle Logic
+        rotTog.addEventListener('change', (e) => {
             if (e.target.checked) {
                 rot.classList.remove('hidden');
                 std.classList.add('hidden');
+                intel.classList.add('hidden');
+                intelTog.checked = false;
                 scrTog.checked = false;
                 document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
                 fetchRotation();
                 if (rotationApp) rotationApp.resize();
             } else {
                 rot.classList.add('hidden');
-                std.classList.remove('hidden');
+                if (!intelTog.checked) std.classList.remove('hidden');
+            }
+        });
+
+        // Intelligence Toggle Logic
+        intelTog.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                intel.classList.remove('hidden');
+                std.classList.add('hidden');
+                rot.classList.add('hidden');
+                rotTog.checked = false;
+                scrTog.checked = false;
+                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                fetchIntelligence();
+            } else {
+                intel.classList.add('hidden');
+                if (!rotTog.checked) std.classList.remove('hidden');
             }
         });
 
@@ -584,8 +653,12 @@ window.onload = function () {
 
         setInterval(() => {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
+            const isIntelligenceActive = document.getElementById('intelligence-toggle').checked;
+
             if (isRotationActive) {
                 fetchRotation();
+            } else if (isIntelligenceActive) {
+                fetchIntelligence();
             } else {
                 fetchData(true);
             }
@@ -603,3 +676,34 @@ window.onload = function () {
         }
     }
 };
+
+async function fetchIntelligence() {
+    try {
+        const tf = document.getElementById('tf-selector').value;
+        const now = Date.now();
+
+        // Fetch in parallel
+        const [hitsRes, sectorRes] = await Promise.all([
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`),
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`)
+        ]);
+
+        const [hitsData, sectorData] = await Promise.all([
+            hitsRes.json(),
+            sectorRes.json().catch(() => ({ data: {} })) // Guard JSON parse
+        ]);
+
+        if (intelligenceApp) {
+            if (hitsData && hitsData.data) {
+                intelligenceApp.updateHits(hitsData.data);
+            }
+            if (sectorData && sectorData.data) {
+                window.lastSectorData = sectorData.data;
+                intelligenceApp.updateSectors(sectorData.data);
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch intelligence data", e);
+    }
+}
+window.fetchIntelligence = fetchIntelligence;

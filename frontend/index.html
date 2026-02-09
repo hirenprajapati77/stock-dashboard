@@ -104,6 +104,31 @@
                 opacity: 0;
             }
         }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        .border-l-up {
+            border-left-color: #00c076;
+        }
+
+        .border-l-down {
+            border-left-color: #f6465d;
+        }
     </style>
 </head>
 
@@ -137,6 +162,18 @@
                     <input type="checkbox" id="rotation-toggle" class="sr-only peer">
                     <div
                         class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600">
+                    </div>
+                </label>
+            </div>
+
+            <!-- Intelligence Toggle -->
+            <div
+                class="flex items-center space-x-3 bg-gray-900 px-3 py-1.5 rounded-xl border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]">
+                <span class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Intelligence</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="intelligence-toggle" class="sr-only peer">
+                    <div
+                        class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600">
                     </div>
                 </label>
             </div>
@@ -191,7 +228,7 @@
         </div>
     </header>
 
-    <main class="p-6 max-w-[1600px] mx-auto space-y-6">
+    <main id="dashboard-main" class="p-6 max-w-[1600px] mx-auto space-y-6 transition-all duration-500">
         <!-- Strategy Screener Results -->
         <div id="screener-panel"
             class="hidden border border-indigo-900 bg-indigo-950/20 rounded-2xl p-4 animate-in slide-in-from-top duration-300">
@@ -210,330 +247,329 @@
             </div>
         </div>
 
-        <main id="dashboard-main" class="p-6 transition-all duration-500">
-            <!-- Rotation Dashboard Section -->
-            <section id="rotation-section" class="hidden animate-in">
-                <div class="grid grid-cols-1 gap-6">
-                    <div class="card p-0 overflow-hidden relative" style="height: 700px;">
-                        <div class="absolute top-6 left-6 z-10">
-                            <h2 class="text-xl font-bold">Sector Rotation <span class="text-blue-500">Live</span></h2>
-                            <p class="text-xs text-gray-500">Relative Strength vs Momentum</p>
-                        </div>
-
-                        <div id="rotation-tooltip" class="glass"></div>
-                        <div id="hud-alert" class="hud-alert"></div>
-
-                        <div class="absolute top-6 right-6 z-10 flex items-center space-x-4">
-                            <div
-                                class="bg-gray-900/80 backdrop-blur border border-gray-700 p-2 rounded-lg flex items-center space-x-4">
-                                <span class="text-[10px] font-bold uppercase text-gray-500">Playback</span>
-                                <input type="range" id="playback-slider" min="0" max="29" value="29"
-                                    class="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-                                <span id="playback-date"
-                                    class="text-[10px] font-mono text-white min-w-[70px]">Today</span>
-                            </div>
-                            <button onclick="zoomReset()"
-                                class="p-2 bg-gray-900/80 border border-gray-700 rounded-lg text-gray-400 hover:text-white">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
-                                    </path>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <canvas id="rotation-canvas" class="w-full h-full cursor-grab"></canvas>
-
-                        <!-- Alert Log Sidebar -->
-                        <div id="alert-log-panel"
-                            class="absolute top-24 right-6 w-64 glass rounded-2xl overflow-hidden border border-gray-800 flex flex-col max-h-[400px]">
-                            <div
-                                class="px-4 py-3 border-b border-gray-800 bg-gray-900/50 flex justify-between items-center">
-                                <h3 class="text-[10px] font-bold uppercase tracking-widest text-indigo-400">Rotation
-                                    Alerts</h3>
-                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            </div>
-                            <div id="alert-list" class="flex-grow overflow-y-auto p-2 space-y-2">
-                                <p class="text-[10px] text-gray-500 italic text-center py-4">Waiting for transitions...
+        <!-- Market Intelligence Section -->
+        <section id="intelligence-section" class="hidden animate-in">
+            <div class="grid grid-cols-12 gap-6">
+                <!-- Left: Hits & Sectors Table (7 cols) -->
+                <div class="col-span-12 lg:col-span-7 space-y-6">
+                    <div class="glass rounded-2xl overflow-hidden border border-gray-800">
+                        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
+                            <div>
+                                <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400">Momentum
+                                    Hits (1D/2D/3D)</h2>
+                                <p class="text-[10px] text-gray-500">Price > 2% | Vol > 1.5x | Consecutive Momentum
                                 </p>
                             </div>
-                        </div>
-
-                        <!-- AI Commentary Detail Panel (Hidden by default) -->
-                        <div id="ai-detail-panel"
-                            class="absolute top-24 left-6 w-80 glass rounded-2xl overflow-hidden border border-indigo-500/30 flex flex-col hidden animate-in slide-in-from-left duration-500">
-                            <div
-                                class="px-4 py-3 border-b border-gray-800 bg-indigo-900/20 flex justify-between items-center">
-                                <h3 id="ai-detail-title"
-                                    class="text-[10px] font-bold uppercase tracking-widest text-white">Sector Analysis
-                                </h3>
-                                <button onclick="document.getElementById('ai-detail-panel').classList.add('hidden')"
-                                    class="text-gray-500 hover:text-white">&times;</button>
-                            </div>
-                            <div class="p-4">
-                                <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
-                                    Overall Strength
-                                </div>
-                                <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">
-                                    Loading analysis...
-                                </p>
-                            </div>
-                            <div class="px-4 py-2 bg-gray-900/40 border-t border-gray-800 flex justify-between">
-                                <span class="text-[8px] text-gray-500">AI AGENTIC INSIGHT</span>
-                                <span class="text-[8px] text-indigo-400 font-bold uppercase">Decision Support</span>
+                            <div id="hits-sync-status"
+                                class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
+                                <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                                LIVE SYNC
                             </div>
                         </div>
-
-                        <!-- Legends -->
-                        <div class="absolute bottom-6 left-6 grid grid-cols-2 gap-2 text-[9px] font-bold">
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 rounded-full bg-[#00C853]"></div><span
-                                    class="text-green-500 tracking-widest uppercase">LEADING</span>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 rounded-full bg-[#FFD600]"></div><span
-                                    class="text-yellow-500 tracking-widest uppercase">WEAKENING</span>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 rounded-full bg-[#D50000]"></div><span
-                                    class="text-red-500 tracking-widest uppercase">LAGGING</span>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 rounded-full bg-[#2979FF]"></div><span
-                                    class="text-blue-500 tracking-widest uppercase">IMPROVING</span>
-                            </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-[11px]">
+                                <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
+                                    <tr>
+                                        <th class="px-4 py-3 font-bold">Symbol</th>
+                                        <th class="px-4 py-3 font-bold">Price</th>
+                                        <th class="px-4 py-3 font-bold">Change %</th>
+                                        <th class="px-4 py-3 font-bold text-center">Hits</th>
+                                        <th class="px-4 py-3 font-bold">Vol Ratio</th>
+                                        <th class="px-4 py-3 font-bold text-right">Sector</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="momentum-hits-body" class="divide-y divide-gray-800/50">
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">Scanning
+                                            market for momentum hits...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
-
-                        <!-- Axes Labels -->
-                        <div
-                            class="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] font-bold text-gray-600 uppercase tracking-widest">
-                            Relative Strength →</div>
-                        <div
-                            class="absolute left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] font-bold text-gray-600 uppercase tracking-widest">
-                            Relative Momentum →</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Existing Dashboard View -->
-            <div id="standard-dashboard">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="summary-container">
-                    <!-- Price Card -->
-                    <div class="glass p-4 rounded-2xl">
-                        <p
-                            class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1 flex justify-between items-center">
-                            Price
-                            <span id="live-indicator"
-                                class="flex items-center gap-1 text-[9px] text-blue-400 font-bold">
-                                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
-                                LIVE
-                            </span>
-                        </p>
-                        <div class="flex items-baseline gap-2">
-                            <span id="cmp" class="text-2xl font-bold mono">—</span>
-                            <span id="price-change" class="text-xs font-medium">+0.00%</span>
-                        </div>
-                    </div>
-                    <!-- Support Card -->
-                    <div class="glass p-4 rounded-2xl border-l-4 border-l-blue-500">
-                        <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Nearest Support</p>
-                        <span id="nearest-support" class="text-2xl font-bold mono text-blue-400">—</span>
-                    </div>
-                    <!-- Resistance Card -->
-                    <div class="glass p-4 rounded-2xl border-l-4 border-l-green-500">
-                        <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Nearest Resistance
-                        </p>
-                        <span id="nearest-resistance" class="text-2xl font-bold mono text-green-400">—</span>
-                    </div>
-                    <!-- SL Card -->
-                    <div class="glass p-4 rounded-2xl border-l-4 border-l-orange-500">
-                        <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Logical SL (Swing)
-                        </p>
-                        <span id="stop-loss" class="text-2xl font-bold mono text-orange-400">—</span>
-                    </div>
-                    <!-- R:R Card -->
-                    <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
-                        <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Est. Risk Reward</p>
-                        <span id="risk-reward" class="text-2xl font-bold mono text-purple-400">—</span>
                     </div>
                 </div>
 
-                <!-- Middle Section: Chart and Tables -->
-                <!-- Main Content Grid: Chart + Levels Side by Side -->
-                <div class="grid grid-cols-3 gap-6">
-                    <!-- Chart Section (2/3 width) -->
-                    <div class="col-span-2 space-y-6">
-                        <div class="glass rounded-2xl overflow-hidden p-2 relative" style="height: 500px;"
-                            id="chart-parent">
-                            <div id="loading-overlay"
-                                class="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center z-10 hidden">
-                                <div class="flex flex-col items-center">
-                                    <div
-                                        class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin">
-                                    </div>
-                                    <p class="text-xs text-blue-400 font-bold mt-3 tracking-widest animate-pulse">
-                                        ANALYZING...
-                                    </p>
-                                </div>
-                            </div>
-                            <div id="tv-chart" class="w-full h-full"></div>
-                        </div>
-
-                        <!-- Insights Table -->
-                        <div class="glass rounded-2xl overflow-hidden">
-                            <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                                <h3 class="font-bold">Price Action Insights</h3>
-                                <span id="bias-badge"
-                                    class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-gray-800">Neutral</span>
-                            </div>
-                            <div class="grid grid-cols-3 divide-x divide-gray-800 text-center p-6">
-                                <div>
-                                    <p class="text-gray-400 text-xs mb-1">Inside Candle</p>
-                                    <p id="inside-candle" class="text-lg font-bold">—</p>
-                                </div>
-                                <div>
-                                    <p class="text-gray-400 text-xs mb-1">Level Retest</p>
-                                    <p id="retest" class="text-lg font-bold">—</p>
-                                </div>
-                                <div>
-                                    <p class="text-gray-400 text-xs mb-1">Upside Target</p>
-                                    <p id="upside-pct" class="text-lg font-bold text-up">—</p>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- AI Insights Table (PHASE 2) -->
+                <!-- Right: Sector Insight Cards (5 cols) -->
+                <div class="col-span-12 lg:col-span-5 space-y-4">
+                    <div class="flex items-center justify-between px-2">
+                        <h2 class="text-[11px] font-bold uppercase tracking-widest text-blue-400">Sector
+                            Intelligence</h2>
+                        <span class="text-[9px] text-gray-500 italic">Sorted by Momentum Score</span>
+                    </div>
+                    <div id="sector-intelligence-list"
+                        class="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                         <div
-                            class="glass rounded-2xl overflow-hidden border border-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.05)]">
-                            <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-indigo-500/5">
-                                <div class="flex items-center gap-2">
-                                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                    </svg>
-                                    <h3 class="font-bold text-sm tracking-tight text-indigo-100 uppercase italic">AI
-                                        Strategic
-                                        Context</h3>
-                                </div>
-                                <span id="ai-priority-badge"
-                                    class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-500">PRIORITY:
-                                    —</span>
+                            class="glass p-8 rounded-2xl flex flex-col items-center justify-center text-center opacity-50">
+                            <div
+                                class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4">
                             </div>
-                            <div class="grid grid-cols-2 divide-x divide-gray-800">
-                                <!-- Breakout Module -->
-                                <div class="p-5 space-y-3">
-                                    <div class="flex items-center justify-between">
-                                        <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest">
-                                            Breakout Filter
-                                        </p>
-                                        <span id="ai-breakout-badge"
-                                            class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
-                                    </div>
-                                    <p id="ai-breakout-reason" class="text-xs text-gray-400 leading-relaxed italic">
-                                        Analyzing
-                                        price velocity and volume confirmation...</p>
-                                </div>
-                                <!-- Regime Module -->
-                                <div class="p-5 space-y-3">
-                                    <div class="flex items-center justify-between">
-                                        <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest">Market
-                                            Regime
-                                        </p>
-                                        <span id="ai-regime-badge"
-                                            class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
-                                    </div>
-                                    <p id="ai-regime-reason" class="text-xs text-gray-400 leading-relaxed italic">
-                                        Calculating
-                                        EMA-50 slope and volatility compression...</p>
-                                </div>
-                            </div>
-                            <!-- Reliability Note -->
-                            <div class="p-3 bg-indigo-500/5 border-t border-gray-800 flex items-center justify-between">
-                                <p class="text-[10px] text-gray-500"><span class="text-indigo-400">NOTE:</span> AI
-                                    adjustments
-                                    are assistive contextual notes.</p>
-                                <span class="text-[8px] text-indigo-600 font-bold uppercase">AGENTIC INSIGHTS</span>
-                            </div>
+                            <p class="text-xs text-blue-400 font-mono italic">CALCULATING SHIFT METRICS...</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-                        <!-- Fundamental Health (PHASE 3) -->
-                        <div class="glass rounded-2xl overflow-hidden border border-gray-800 hidden"
-                            id="fundamentals-card">
-                            <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
-                                <h3 class="font-bold text-sm tracking-tight text-gray-300 uppercase">Fundamental Health
-                                </h3>
-                                <span id="fund-sector"
-                                    class="text-[10px] font-bold uppercase tracking-widest text-gray-500">—</span>
+        <!-- Rotation Dashboard Section -->
+        <section id="rotation-section" class="hidden animate-in">
+            <div class="grid grid-cols-1 gap-6">
+                <div class="card p-0 overflow-hidden relative" style="height: 700px;">
+                    <div class="absolute top-6 left-6 z-10">
+                        <h2 class="text-xl font-bold">Sector Rotation <span class="text-blue-500">Live</span></h2>
+                        <p class="text-xs text-gray-500">Relative Strength vs Momentum</p>
+                    </div>
+
+                    <div id="rotation-tooltip" class="glass"></div>
+                    <div id="hud-alert" class="hud-alert"></div>
+
+                    <div class="absolute top-6 right-6 z-10 flex items-center space-x-4">
+                        <div
+                            class="bg-gray-900/80 backdrop-blur border border-gray-700 p-2 rounded-lg flex items-center space-x-4">
+                            <span class="text-[10px] font-bold uppercase text-gray-500">Playback</span>
+                            <input type="range" id="playback-slider" min="0" max="29" value="29"
+                                class="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                            <span id="playback-date" class="text-[10px] font-mono text-white min-w-[70px]">Today</span>
+                        </div>
+                        <button onclick="zoomReset()"
+                            class="p-2 bg-gray-900/80 border border-gray-700 rounded-lg text-gray-400 hover:text-white">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                                </path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <canvas id="rotation-canvas" class="w-full h-full cursor-grab"></canvas>
+
+                    <!-- Alert Log Sidebar -->
+                    <div id="alert-log-panel"
+                        class="absolute top-24 right-6 w-64 glass rounded-2xl overflow-hidden border border-gray-800 flex flex-col max-h-[400px]">
+                        <div
+                            class="px-4 py-3 border-b border-gray-800 bg-gray-900/50 flex justify-between items-center">
+                            <h3 class="text-[10px] font-bold uppercase tracking-widest text-indigo-400">Rotation
+                                Alerts</h3>
+                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        </div>
+                        <div id="alert-list" class="flex-grow overflow-y-auto p-2 space-y-2">
+                            <p class="text-[10px] text-gray-500 italic text-center py-4">Waiting for transitions...
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- AI Commentary Detail Panel -->
+                    <div id="ai-detail-panel"
+                        class="absolute top-24 left-6 w-80 glass rounded-2xl overflow-hidden border border-indigo-500/30 flex flex-col hidden animate-in slide-in-from-left duration-500">
+                        <div
+                            class="px-4 py-3 border-b border-gray-800 bg-indigo-900/20 flex justify-between items-center">
+                            <h3 id="ai-detail-title" class="text-[10px] font-bold uppercase tracking-widest text-white">
+                                Sector Analysis</h3>
+                            <button onclick="document.getElementById('ai-detail-panel').classList.add('hidden')"
+                                class="text-gray-500 hover:text-white">&times;</button>
+                        </div>
+                        <div class="p-4">
+                            <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
+                                Overall Strength</div>
+                            <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">Loading
+                                analysis...</p>
+                        </div>
+                        <div class="px-4 py-2 bg-gray-900/40 border-t border-gray-800 flex justify-between">
+                            <span class="text-[8px] text-gray-500">AI AGENTIC INSIGHT</span>
+                            <span class="text-[8px] text-indigo-400 font-bold uppercase">Decision Support</span>
+                        </div>
+                    </div>
+
+                    <!-- Legends -->
+                    <div class="absolute bottom-6 left-6 grid grid-cols-2 gap-2 text-[9px] font-bold">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 rounded-full bg-[#00C853]"></div><span
+                                class="text-green-500 tracking-widest uppercase">LEADING</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 rounded-full bg-[#FFD600]"></div><span
+                                class="text-yellow-500 tracking-widest uppercase">WEAKENING</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 rounded-full bg-[#D50000]"></div><span
+                                class="text-red-500 tracking-widest uppercase">LAGGING</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 rounded-full bg-[#2979FF]"></div><span
+                                class="text-blue-500 tracking-widest uppercase">IMPROVING</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Standard Dashboard View -->
+        <div id="standard-dashboard">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="summary-container">
+                <!-- Cards same as before... -->
+                <div class="glass p-4 rounded-2xl">
+                    <p
+                        class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1 flex justify-between items-center">
+                        Price
+                        <span id="live-indicator" class="flex items-center gap-1 text-[9px] text-blue-400 font-bold">
+                            <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> LIVE
+                        </span>
+                    </p>
+                    <div class="flex items-baseline gap-2">
+                        <span id="cmp" class="text-2xl font-bold mono">—</span>
+                        <span id="price-change" class="text-xs font-medium">+0.00%</span>
+                    </div>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-blue-500">
+                    <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Nearest Support</p>
+                    <span id="nearest-support" class="text-2xl font-bold mono text-blue-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-green-500">
+                    <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Nearest Resistance</p>
+                    <span id="nearest-resistance" class="text-2xl font-bold mono text-green-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-orange-500">
+                    <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Logical SL</p>
+                    <span id="stop-loss" class="text-2xl font-bold mono text-orange-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                    <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Risk Reward</p>
+                    <span id="risk-reward" class="text-2xl font-bold mono text-purple-400">—</span>
+                </div>
+            </div>
+
+            <!-- Middle Section -->
+            <div class="grid grid-cols-3 gap-6 mt-6">
+                <!-- Chart Section -->
+                <div class="col-span-2 space-y-6">
+                    <div class="glass rounded-2xl overflow-hidden p-2 relative" style="height: 500px;"
+                        id="chart-parent">
+                        <div id="tv-chart" class="w-full h-full"></div>
+                    </div>
+
+                    <!-- Price Action Insights -->
+                    <div class="glass rounded-2xl overflow-hidden">
+                        <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                            <h3 class="font-bold text-sm">Price Action Insights</h3>
+                            <span id="bias-badge"
+                                class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-gray-800">Neutral</span>
+                        </div>
+                        <div class="grid grid-cols-3 divide-x divide-gray-800 text-center p-6">
+                            <div>
+                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Inside Candle</p>
+                                <p id="inside-candle" class="text-lg font-bold">—</p>
                             </div>
-                            <div class="grid grid-cols-2 md:grid-cols-4 divide-x divide-gray-800 text-center p-4">
-                                <div class="p-2">
-                                    <p class="text-[10px] text-gray-500 uppercase mb-1">Market Cap</p>
-                                    <p id="fund-mcap" class="text-sm font-bold text-white">—</p>
-                                </div>
-                                <div class="p-2">
-                                    <p class="text-[10px] text-gray-500 uppercase mb-1">PE Ratio</p>
-                                    <p id="fund-pe" class="text-sm font-bold text-white">—</p>
-                                </div>
-                                <div class="p-2">
-                                    <p class="text-[10px] text-gray-500 uppercase mb-1">ROE</p>
-                                    <p id="fund-roe" class="text-sm font-bold text-white">—</p>
-                                </div>
-                                <div class="p-2">
-                                    <p class="text-[10px] text-gray-500 uppercase mb-1">Div Yield</p>
-                                    <p id="fund-div" class="text-sm font-bold text-white">—</p>
-                                </div>
+                            <div>
+                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Level Retest</p>
+                                <p id="retest" class="text-lg font-bold">—</p>
                             </div>
-                            <div class="border-t border-gray-800 p-4 flex justify-between items-center text-xs">
-                                <div class="flex flex-col">
-                                    <span class="text-gray-500 text-[9px] uppercase">52W Low</span>
-                                    <span id="fund-52l" class="font-mono text-down font-bold">—</span>
-                                </div>
-                                <div class="flex-grow mx-4 h-1.5 bg-gray-800 rounded-full relative overflow-hidden">
-                                    <div id="fund-range-bar" class="h-full bg-blue-600 rounded-full" style="width: 50%">
-                                    </div>
-                                </div>
-                                <div class="flex flex-col text-right">
-                                    <span class="text-gray-500 text-[9px] uppercase">52W High</span>
-                                    <span id="fund-52h" class="font-mono text-up font-bold">—</span>
-                                </div>
+                            <div>
+                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Upside Target</p>
+                                <p id="upside-pct" class="text-lg font-bold text-up">—</p>
                             </div>
                         </div>
                     </div>
 
-
-                    <!-- Levels Sidebar (1/3 width) - INSIDE THE GRID -->
-                    <div class="space-y-6">
-                        <div class="glass rounded-2xl overflow-hidden">
-                            <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                                <h3 class="font-bold text-sm">Structural Levels</h3>
+                    <!-- AI Insights -->
+                    <div class="glass rounded-2xl overflow-hidden border border-indigo-500/20">
+                        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-indigo-500/5">
+                            <h3 class="font-bold text-xs tracking-tight text-indigo-100 uppercase italic">AI Strategic
+                                Context</h3>
+                            <span id="ai-priority-badge"
+                                class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-500">PRIORITY:
+                                —</span>
+                        </div>
+                        <div class="grid grid-cols-2 divide-x divide-gray-800">
+                            <div class="p-5 space-y-2">
+                                <span id="ai-breakout-badge"
+                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
+                                <p id="ai-breakout-reason" class="text-xs text-gray-400 leading-relaxed italic">
+                                    Analyzing price velocity...</p>
                             </div>
-                            <div class="p-4 space-y-6">
-                                <div>
-                                    <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2">
-                                        Resistances
-                                        (Supply)</p>
-                                    <div id="resistance-list" class="space-y-2">
-                                        <!-- Dynamic items here -->
-                                    </div>
+                            <div class="p-5 space-y-2">
+                                <span id="ai-regime-badge"
+                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
+                                <p id="ai-regime-reason" class="text-xs text-gray-400 leading-relaxed italic">
+                                    Calculating regime metrics...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fundamental Health -->
+                    <div class="glass rounded-2xl overflow-hidden border border-gray-800 hidden" id="fundamentals-card">
+                        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
+                            <h3 class="font-bold text-sm tracking-tight text-gray-300 uppercase">Fundamental Health</h3>
+                            <span id="fund-sector"
+                                class="text-[10px] font-bold uppercase tracking-widest text-gray-500">—</span>
+                        </div>
+                        <div class="grid grid-cols-4 divide-x divide-gray-800 text-center p-4">
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
+                                <p id="fund-mcap" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">P/E</p>
+                                <p id="fund-pe" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">ROE</p>
+                                <p id="fund-roe" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">DIV</p>
+                                <p id="fund-div" class="text-sm font-bold">—</p>
+                            </div>
+                        </div>
+                        <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
+                            <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
+                                <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
+                                        class="text-down font-bold">—</span>
+                                    <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
+                                        <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
+                                    </div><span id="fund-52h" class="text-up font-bold">—</span>
                                 </div>
-                                <div>
-                                    <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2">
-                                        Supports
-                                        (Demand)</p>
-                                    <div id="support-list" class="space-y-2">
-                                        <!-- Dynamic items here -->
-                                    </div>
-                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Levels Sidebar -->
+                <div class="col-span-1 space-y-6">
+                    <div class="glass rounded-2xl overflow-hidden">
+                        <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                            <h3 class="font-bold text-sm">Structural Levels</h3>
+                        </div>
+                        <div class="p-4 space-y-6">
+                            <div>
+                                <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                                    Resistances</p>
+                                <div id="resistance-list" class="space-y-2"></div>
+                            </div>
+                            <div>
+                                <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                                    Supports</p>
+                                <div id="support-list" class="space-y-2"></div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <!-- END OF GRID -->
-        </main>
+        </div>
+    </main>
 
-        <script src="script.js"></script>
-        <script src="rotation.js"></script>
+    <!-- Global Loading Overlay (Body level for persistence) -->
+    <div id="loading-overlay"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex-col items-center justify-center pointer-events-none">
+        <div class="flex flex-col items-center">
+            <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-indigo-400 font-bold mt-4 tracking-[0.2em] animate-pulse text-xs">ANALYZING MARKET VIBRATIONS
+            </p>
+            <p class="text-gray-500 text-[9px] mt-2 font-mono uppercase">Please wait while we calibrate price action</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    <script src="rotation.js"></script>
+    <script src="dashboard.js"></script>
 </body>
 
 </html>
