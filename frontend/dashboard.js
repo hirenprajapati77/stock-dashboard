@@ -7,7 +7,7 @@ class MarketIntelligence {
     updateHits(hits) {
         if (!this.hitsBody) return;
 
-        if (hits.length === 0) {
+        if (!hits || hits.length === 0) {
             this.hitsBody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">No momentum hits detected in the current session.</td></tr>';
             return;
         }
@@ -33,16 +33,23 @@ class MarketIntelligence {
     updateSectors(sectorData) {
         if (!this.sectorList) return;
 
+        if (!sectorData || Object.keys(sectorData).length === 0) {
+            this.sectorList.innerHTML = '<div class="p-8 text-center text-gray-500 italic border border-gray-800 rounded-2xl">Awaiting sector rotation data...</div>';
+            return;
+        }
+
         // Convert to array and sort by momentum score
         const sectors = Object.entries(sectorData)
             .map(([name, data]) => ({ name, ...data }))
+            .filter(s => s && s.metrics) // Guard against malformed entries
             .sort((a, b) => (b.metrics.momentumScore || 0) - (a.metrics.momentumScore || 0));
 
         this.sectorList.innerHTML = sectors.map(sector => {
-            const shift = sector.metrics.shift || 'NEUTRAL';
+            const metrics = sector.metrics || {};
+            const shift = metrics.shift || 'NEUTRAL';
             const shiftColor = shift === 'GAINING' ? 'text-up' : shift === 'LOSING' ? 'text-down' : 'text-gray-400';
             const bgGradient = shift === 'GAINING' ? 'from-green-500/10 to-transparent' : shift === 'LOSING' ? 'from-red-500/10 to-transparent' : 'from-gray-500/5 to-transparent';
-            const score = sector.metrics.momentumScore || 0;
+            const score = metrics.momentumScore || 0;
             const rank = sector.rank || '—';
 
             return `
@@ -53,14 +60,14 @@ class MarketIntelligence {
                         <div>
                             <div class="flex items-center gap-2 mb-1">
                                 <span class="text-[10px] font-bold text-gray-500 font-mono">#${rank}</span>
-                                <h3 class="font-bold text-sm text-white">${sector.name.replace('NIFTY_', '').replace('_', ' ')}</h3>
+                                <h3 class="font-bold text-sm text-white">${sector.name ? sector.name.replace('NIFTY_', '').replace('_', ' ') : 'Unknown'}</h3>
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="text-[10px] font-bold ${shiftColor} flex items-center gap-1 uppercase tracking-tighter">
                                     <span class="w-1.5 h-1.5 rounded-full ${shift === 'GAINING' ? 'bg-up animate-pulse' : shift === 'LOSING' ? 'bg-down animate-pulse' : 'bg-gray-500'}"></span>
                                     ${shift}
                                 </span>
-                                <span class="text-[10px] text-gray-500 font-medium">Breadth: <span class="text-gray-300">${sector.metrics.breadth}%</span></span>
+                                <span class="text-[10px] text-gray-500 font-medium">Breadth: <span class="text-gray-300">${metrics.breadth || 0}%</span></span>
                             </div>
                         </div>
                         <div class="text-right">
@@ -77,8 +84,8 @@ class MarketIntelligence {
                         <div class="flex items-center gap-2">
                              <div class="flex flex-col text-right">
                                 <span class="text-[8px] text-gray-600 uppercase">Vol Ratio</span>
-                                <span class="font-bold text-gray-300">${sector.metrics.relVolume}x</span>
-                            </div>
+                                <span class="font-bold text-gray-300">${metrics.relVolume || 0}x</span>
+                             </div>
                         </div>
                     </div>
                 </div>
@@ -159,26 +166,5 @@ window.showAICommentary = (sectorName) => {
             rank.textContent = `#${data.rank || '--'} Overall Strength`;
             panel.classList.remove('hidden');
         }
-    }
-};
-
-// Hook into fetchIntelligence to cache sector data
-const originalFetchIntelligence = window.fetchIntelligence;
-window.fetchIntelligence = async function () {
-    try {
-        const tf = document.getElementById('tf-selector').value;
-        const hitsRes = await fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${Date.now()}`);
-        const hitsData = await hitsRes.json();
-        const sectorRes = await fetch(`${ROTATION_URL}?tf=${tf}&t=${Date.now()}`);
-        const sectorData = await sectorRes.json();
-
-        window.lastSectorData = sectorData.data;
-
-        if (intelligenceApp) {
-            intelligenceApp.updateHits(hitsData.data || []);
-            intelligenceApp.updateSectors(sectorData.data || {});
-        }
-    } catch (e) {
-        console.error("Dashboard Intelligence Error:", e);
     }
 };
