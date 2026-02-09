@@ -414,7 +414,8 @@ function drawLevelsOnChart(levels) {
 // Rotation Data Fetching
 async function fetchRotation() {
     try {
-        const res = await fetch(`${ROTATION_URL}?t=${Date.now()}`);
+        const tf = document.getElementById('tf-selector').value;
+        const res = await fetch(`${ROTATION_URL}?tf=${tf}&t=${Date.now()}`);
         const result = await res.json();
         if (result.status === 'success' && rotationApp) {
             rotationApp.setData(result.data, result.alerts);
@@ -556,7 +557,14 @@ window.onload = function () {
             }
         });
 
-        document.getElementById('tf-selector').addEventListener('change', fetchData);
+        document.getElementById('tf-selector').addEventListener('change', () => {
+            const isRotationActive = document.getElementById('rotation-toggle').checked;
+            if (isRotationActive) {
+                fetchRotation();
+            } else {
+                fetchData();
+            }
+        });
         document.getElementById('mtf-toggle').addEventListener('change', () => {
             // Re-render chart levels without re-fetching
             if (window.lastReceivedData) {

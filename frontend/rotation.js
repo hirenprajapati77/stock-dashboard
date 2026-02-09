@@ -257,17 +257,24 @@ class RotationDashboard {
 
             this.processedAlerts.add(alertKey);
 
-            // 1. Visual Reaction
-            const particle = this.particles.find(p => p.name === alert.symbol);
-            if (particle) {
-                this.triggerVisualAlert(particle, alert);
+            const isRecent = (Date.now() / 1000) - alert.timestamp < 60; // 60 seconds
+
+            // 1. Visual Reaction (Only Recent)
+            if (isRecent) {
+                const particle = this.particles.find(p => p.name === alert.symbol);
+                if (particle) {
+                    this.triggerVisualAlert(particle, alert);
+                }
+
+                // 2. HUD Alert
+                this.showHUD(`${alert.symbol.replace("NIFTY_", "")}: ${alert.type.replace("_", " ")}`);
             }
 
-            // 2. HUD Alert
-            this.showHUD(`${alert.symbol.replace("NIFTY_", "")}: ${alert.type.replace("_", " ")}`);
-
-            // 3. Log Update
-            this.addToAlertLog(alert);
+            // 3. Log Update (Filter: Last 7 days only)
+            const daysOld = (Date.now() / 1000 - alert.timestamp) / (24 * 60 * 60);
+            if (daysOld <= 7) {
+                this.addToAlertLog(alert);
+            }
         });
 
         // Cleanup old alerts from set
@@ -298,7 +305,16 @@ class RotationDashboard {
             this.alertList.innerHTML = '';
         }
 
-        const time = new Date(alert.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const alertDate = new Date(alert.timestamp * 1000);
+        const today = new Date();
+        const isToday = alertDate.getDate() === today.getDate() &&
+            alertDate.getMonth() === today.getMonth() &&
+            alertDate.getFullYear() === today.getFullYear();
+
+        const timeDisplay = isToday
+            ? alertDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : alertDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
         const div = document.createElement('div');
         const color = this.getQuadrantColor(alert.rs, alert.rm);
         const priorityColor = alert.priority === "HIGH" ? "border-indigo-500 bg-indigo-500/10" : "border-gray-800 bg-gray-900/40";
@@ -307,7 +323,7 @@ class RotationDashboard {
         div.innerHTML = `
             <div class="flex justify-between items-start mb-1">
                 <span class="font-bold text-[10px] text-white">${alert.symbol.replace("NIFTY_", "")}</span>
-                <span class="text-[8px] text-gray-500 font-mono">${time}</span>
+                <span class="text-[8px] text-gray-500 font-mono">${timeDisplay}</span>
             </div>
             <div class="flex items-center gap-2">
                 <div class="w-1.5 h-1.5 rounded-full" style="background: ${color}"></div>
@@ -329,6 +345,9 @@ class RotationDashboard {
             const data = this.allData[name];
             const weight = data.weight || 0.05;
 
+            const metrics = data.metrics || {};
+            const state = metrics.state || "NEUTRAL";
+
             // Random initial pos near center
             const p = {
                 name: name,
@@ -340,9 +359,12 @@ class RotationDashboard {
                 mass: 1 + weight * 2,
                 targetX: 0,
                 targetY: 0,
-                color: "#FFFFFF",
-                rs: 1.0,
-                rm: 0.0,
+                color: this.getQuadrantColor(data.current.rs, data.current.rm, state),
+                rs: data.current.rs,
+                rm: data.current.rm,
+                shiningState: state,
+                relVolume: metrics.relVolume || 1.0,
+                breadth: metrics.breadth || 50,
                 trail: [],
                 quadrant: "",
                 visualPulse: 0,
@@ -410,7 +432,12 @@ class RotationDashboard {
         return new Date().toISOString().split('T')[0];
     }
 
-    getQuadrantColor(rs, rm) {
+    getQuadrantColor(rs, rm, state = null) {
+        if (state === "SHINING") return "#00E676"; // Neon Green for Shining
+        if (state === "WEAK") return "#424242";    // Dim Grey for Weak
+        if (state === "NEUTRAL") return "#757575"; // Grey for Neutral
+
+        // Fallback to standard quadrant colors if no state provided
         if (rs >= 1.0 && rm >= 0) return "#00C853"; // Leading
         if (rs >= 1.0 && rm < 0) return "#FFD600";  // Weakening
         if (rs < 1.0 && rm < 0) return "#D50000";   // Lagging
@@ -517,16 +544,29 @@ class RotationDashboard {
             }
 
             const isTop = top3.includes(p);
+            const isShining = p.shiningState === "SHINING";
 
-            // Pulse Scale
-            const scale = 1.0 + (p.visualPulse || 0) * 0.5;
+            // Pulse Scale (Stronger for Shining)
+            const pulseBase = isShining ? 0.8 : 0.5;
+            const scale = 1.0 + (p.visualPulse || 0) * pulseBase;
+
+            // Continuous Pulse for Shining
+            let shineScale = 1.0;
+            if (isShining) {
+                shineScale = 1.0 + Math.sin(Date.now() / 200) * 0.1;
+            }
 
             // Glow
             this.ctx.beginPath();
-            const glowRadius = (isTop ? p.radius * 4 : p.radius * 2) * scale;
+            const glowRadius = (isTop || isShining ? p.radius * 4 : p.radius * 2) * scale * shineScale;
             const gradient = this.ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
-            gradient.addColorStop(0, p.color + (isTop ? "66" : "44"));
-            gradient.addColorStop(1, p.color + "00");
+
+            // Neon glow for shining, regular for others
+            const glowColor = isShining ? "#00E676" : p.color;
+            const glowOpacity = isShining ? "44" : (isTop ? "66" : "44");
+
+            gradient.addColorStop(0, glowColor + glowOpacity);
+            gradient.addColorStop(1, glowColor + "00");
             this.ctx.fillStyle = gradient;
             this.ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
             this.ctx.fill();
@@ -534,9 +574,9 @@ class RotationDashboard {
             // Core
             this.ctx.beginPath();
             this.ctx.fillStyle = p.color;
-            if (isTop) {
-                this.ctx.shadowBlur = 20 * scale;
-                this.ctx.shadowColor = p.color;
+            if (isTop || isShining) {
+                this.ctx.shadowBlur = (isShining ? 30 : 20) * scale;
+                this.ctx.shadowColor = isShining ? "#00E676" : p.color;
             } else {
                 this.ctx.shadowBlur = 10 * scale;
                 this.ctx.shadowColor = p.color;
@@ -560,10 +600,17 @@ class RotationDashboard {
                 this.ctx.lineWidth = 2;
                 this.ctx.arc(p.x, p.y, p.radius + 4, 0, Math.PI * 2);
                 this.ctx.stroke();
+
+                // Show floating stats near particle
+                this.ctx.fillStyle = "white";
+                this.ctx.font = "10px monospace";
+                this.ctx.textAlign = "left";
+                this.ctx.fillText(`Vol: ${p.relVolume}x`, p.x + p.radius + 8, p.y);
+                this.ctx.fillText(`Br: ${p.breadth}%`, p.x + p.radius + 8, p.y + 12);
             }
 
             // Label
-            this.ctx.fillStyle = "white";
+            this.ctx.fillStyle = isShining ? "#00E676" : "white";
             this.ctx.font = `bold ${Math.max(8, 10 / this.zoom)}px Inter, sans-serif`;
             this.ctx.textAlign = "center";
             this.ctx.fillText(p.name.replace("NIFTY_", ""), p.x, p.y + p.radius + 15);
@@ -578,11 +625,13 @@ class RotationDashboard {
     }
 }
 
-// Global instance
-let rotationApp;
+// Global instance (Declared in script.js)
+// let rotationApp; 
 
 function initRotation() {
-    rotationApp = new RotationDashboard('rotation-canvas');
+    if (typeof RotationDashboard !== 'undefined') {
+        rotationApp = new RotationDashboard('rotation-canvas');
+    }
 }
 
 function zoomReset() {
