@@ -3,7 +3,6 @@ from functools import lru_cache
 
 class FundamentalService:
     @staticmethod
-    @lru_cache(maxsize=32)
     def get_fundamentals(symbol: str):
         """
         Fetches key fundamental metrics for a given symbol.

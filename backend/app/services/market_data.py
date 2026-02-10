@@ -6,13 +6,6 @@ from functools import lru_cache
 
 class MarketDataService:
     @staticmethod
-    @lru_cache(maxsize=32)
-    def get_ohlcv(symbol="RELIANCE", tf="1D", count=200):
-        """
-        Fetches real OHLCV data using yfinance.
-        Auto-appends .NS for NSE if no suffix is provided.
-        """
-    @staticmethod
     def normalize_symbol(symbol):
         symbol = symbol.upper().strip().replace(" ", "")
 
@@ -26,7 +19,20 @@ class MarketDataService:
             "MIDCAP": "^NSEMDCP50",
             "SENSEX": "^BSESN",
             "VIX": "^VIX",
-            "INDIAVIX": "^VIX"
+            "INDIAVIX": "^VIX",
+            "GOLD_IN": "GOLDBEES.NS",
+            "SILVER_IN": "SILVERBEES.NS",
+            "CRUDE_IN": "SYNTHETIC_CRUDE_INR",
+            "MCX_STOCK": "MCX.NS",
+            "GOLD": "GC=F",
+            "SILVER": "SI=F",
+            "CRUDE": "CL=F",
+            "NIFTYIT": "^CNXIT",
+            "OIL_INDIA": "OIL.NS",
+            "NIFTYPHARMA": "^CNXPHARMA",
+            "NIFTYAUTO": "^CNXAUTO",
+            "NIFTYMETAL": "^CNXMETAL",
+            "USDINR": "USDINR=X"
         }
         
         if symbol in KEYWORD_MAP:
@@ -46,7 +52,6 @@ class MarketDataService:
         return symbol
 
     @staticmethod
-    @lru_cache(maxsize=32)
     def get_ohlcv(symbol="RELIANCE", tf="1D", count=200):
         """
         Fetches real OHLCV data using yfinance.
@@ -79,9 +84,67 @@ class MarketDataService:
         elif tf == "1M": period = "5y"
         
         try:
-            # Fetch Data
+            # NOTE:
+            # Newer versions of yfinance expect their own curl_cffi-based session.
+            # Passing a custom requests.Session now triggers:
+            # "Yahoo API requires curl_cffi session not <class 'requests.sessions.Session'>"
+            # so we let yfinance manage the session internally.
+            #
+            # --- SYNTHETIC SYMBOL HANDLING ---
+            # Indian Crude is a synthetic proxy: Global * USDINR
+            if symbol == "SYNTHETIC_CRUDE_INR":
+                base_ticker = yf.Ticker("CL=F")
+                fx_ticker = yf.Ticker("USDINR=X")
+                
+                df = base_ticker.history(period=period, interval=interval)
+                
+                # Get FX Rate safely
+                try:
+                    fx_rate = fx_ticker.fast_info.get('lastPrice') or fx_ticker.fast_info.get('last_price', 83.1)
+                except Exception:
+                    fx_rate = 83.1
+                
+                if not df.empty:
+                    # Multi-index or single index check
+                    cols_to_mult = ['Open', 'High', 'Low', 'Close', 'open', 'high', 'low', 'close']
+                    for col in cols_to_mult:
+                        if col in df.columns:
+                            df[col] = df[col] * fx_rate
+                    
+                    # Ensure CMP is updated in the last candle
+                    try:
+                        cmp_usd = base_ticker.fast_info.get('lastPrice') or base_ticker.fast_info.get('last_price')
+                        if cmp_usd:
+                            # Use iloc safely
+                            for col_name in ['close', 'Close']:
+                                if col_name in df.columns:
+                                    df.iloc[-1, df.columns.get_loc(col_name)] = cmp_usd * fx_rate
+                    except Exception:
+                        pass
+                    
+                    return df, "INR"
+            
+            # Standard Fetch (let yfinance manage its own session)
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
+            
+            # --- REAL-TIME ENHANCEMENT ---
+            # Use fast_info for true CMP
+            try:
+                fast = ticker.fast_info
+                cmp = fast.get('lastPrice') or fast.get('last_price')
+                
+                # Double check for extremely stale data or empty fast info
+                if cmp and not df.empty:
+                    col = 'Close' if 'Close' in df.columns else 'close'
+                    # Update the very last candle with the most recent price from fast_info
+                    df.iloc[-1, df.columns.get_loc(col)] = cmp
+                elif not cmp and not df.empty:
+                    # Fallback to the last close if fast_info fails
+                    col = 'Close' if 'Close' in df.columns else 'close'
+                    cmp = df[col].iloc[-1]
+            except Exception as fe:
+                print(f"Fast info failed for {symbol}: {fe}")
             
             if df.empty:
                 # Try .BO if .NS failed (simple fallback logic)
@@ -93,7 +156,7 @@ class MarketDataService:
             
             if df.empty:
                 print(f"CRITICAL: No data returned from yfinance for {symbol} (Interval: {interval}, Period: {period})")
-                return pd.DataFrame() # Return empty instead of dummy zero data
+                return pd.DataFrame(), "INR"
                 
             # Formatting
             df.columns = [c.lower() for c in df.columns]
@@ -119,12 +182,18 @@ class MarketDataService:
             # Slice to requested count
             df = df.tail(count)
             
-            return df
+            # Heuristic for currency: If it ends in .NS or .BO, it's INR. If it starts with ^NSE or ^CNX, it's INR.
+            is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY")
+            currency = "INR" if is_inr else "USD"
+            
+            # (Optional) Try fast_info for currency if needed, but heuristic is safer
+            return df, currency
             
         except Exception as e:
             print(f"Error fetching data for {symbol}: {e}")
             # Fallback to a tiny empty DF to prevent backend crash, or re-raise
             # For this dashboard, let's return a single dummy candle to avoid total UI crash
-            return pd.DataFrame({
+            dummy_df = pd.DataFrame({
                 'open': [0], 'high': [0], 'low': [0], 'close': [0], 'volume': [0]
             }, index=[datetime.now()])
+            return dummy_df, "INR"
