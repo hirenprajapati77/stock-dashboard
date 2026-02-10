@@ -2,32 +2,14 @@ class MarketIntelligence {
     constructor(hitsTableId, sectorListId) {
         this.hitsBody = document.getElementById(hitsTableId);
         this.sectorList = document.getElementById(sectorListId);
+        this.allHits = [];
+        this.activeSectorKey = null;
     }
 
     updateHits(hits) {
         if (!this.hitsBody) return;
-
-        if (!hits || hits.length === 0) {
-            this.hitsBody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">No momentum hits detected in the current session.</td></tr>';
-            return;
-        }
-
-        this.hitsBody.innerHTML = hits.map(hit => `
-            <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer" onclick="window.fetchDataForSymbol('${hit.symbol}')">
-                <td class="px-4 py-3 font-bold text-white group-hover:text-blue-400 transition-colors">${hit.symbol}</td>
-                <td class="px-4 py-3 font-mono text-gray-300">₹${hit.price}</td>
-                <td class="px-4 py-3 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'}">${hit.change >= 0 ? '+' : ''}${hit.change}%</td>
-                <td class="px-4 py-3 text-center">
-                    <div class="flex items-center justify-center gap-1">
-                        ${this._renderHits(hit.hits3d, hit.hits2d, hit.hits1d)}
-                    </div>
-                </td>
-                <td class="px-4 py-3 font-mono text-gray-400">${hit.volRatio}x</td>
-                <td class="px-4 py-3 text-right">
-                    <span class="text-[9px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full font-bold uppercase">${hit.sector}</span>
-                </td>
-            </tr>
-        `).join('');
+        this.allHits = Array.isArray(hits) ? hits : [];
+        this._renderHitsTable();
     }
 
     updateSectors(sectorData) {
@@ -38,11 +20,15 @@ class MarketIntelligence {
             return;
         }
 
-        // Convert to array and sort by momentum score
+        // Convert to array and sort by momentum score (SHINING sectors get a small boost)
         const sectors = Object.entries(sectorData)
             .map(([name, data]) => ({ name, ...data }))
             .filter(s => s && s.metrics) // Guard against malformed entries
-            .sort((a, b) => (b.metrics.momentumScore || 0) - (a.metrics.momentumScore || 0));
+            .sort((a, b) => {
+                const aShine = (a.metrics.state === 'SHINING') ? 50 : 0;
+                const bShine = (b.metrics.state === 'SHINING') ? 50 : 0;
+                return (b.metrics.momentumScore || 0) + bShine - ((a.metrics.momentumScore || 0) + aShine);
+            });
 
         this.sectorList.innerHTML = sectors.map(sector => {
             const metrics = sector.metrics || {};
@@ -51,9 +37,12 @@ class MarketIntelligence {
             const bgGradient = shift === 'GAINING' ? 'from-green-500/10 to-transparent' : shift === 'LOSING' ? 'from-red-500/10 to-transparent' : 'from-gray-500/5 to-transparent';
             const score = metrics.momentumScore || 0;
             const rank = sector.rank || '—';
+            const isShining = metrics.state === 'SHINING';
 
             return `
-                <div class="glass p-4 rounded-2xl border-l-4 ${shift === 'GAINING' ? 'border-l-up' : shift === 'LOSING' ? 'border-l-down' : 'border-l-gray-700'} relative overflow-hidden group">
+                <div class="glass p-4 rounded-2xl border-l-4 ${isShining ? 'border-l-up shadow-[0_0_18px_rgba(34,197,94,0.55)]' : shift === 'GAINING' ? 'border-l-up' : shift === 'LOSING' ? 'border-l-down' : 'border-l-gray-700'} relative overflow-hidden group cursor-pointer"
+                     data-sector-key="${sector.name}"
+                     onclick="window.focusSector && window.focusSector('${sector.name}')">
                     <div class="absolute inset-0 bg-gradient-to-r ${bgGradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                     
                     <div class="flex justify-between items-start relative z-10">
@@ -78,10 +67,10 @@ class MarketIntelligence {
                     
                     <div class="mt-4 flex items-center justify-between text-[9px] relative z-10">
                         <div class="flex gap-1.5">
-                            ${sector.commentary ? `<button class="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-md hover:bg-indigo-500/20 transition-colors" onclick="window.showAICommentary('${sector.name}')">AI VIEW</button>` : ''}
-                            <button class="px-2 py-0.5 bg-gray-800 text-gray-400 border border-gray-700 rounded-md hover:bg-gray-700 transition-colors" onclick="window.fetchDataForSymbol('${sector.name}')">DETAILS</button>
+                            ${sector.commentary ? `<button class="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-md hover:bg-indigo-500/20 transition-colors" onclick="event.stopPropagation(); window.showAICommentary('${sector.name}')">AI VIEW</button>` : ''}
+                            <button class="px-2 py-0.5 bg-gray-800 text-gray-400 border border-gray-700 rounded-md hover:bg-gray-700 transition-colors" onclick="event.stopPropagation(); window.fetchDataForSymbol('${sector.name}')">DETAILS</button>
                         </div>
-                        <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2">
                              <div class="flex flex-col text-right">
                                 <span class="text-[8px] text-gray-600 uppercase">Vol Ratio</span>
                                 <span class="font-bold text-gray-300">${metrics.relVolume || 0}x</span>
@@ -91,6 +80,84 @@ class MarketIntelligence {
                 </div>
             `;
         }).join('');
+    }
+
+    _renderHitsTable() {
+        if (!this.hitsBody) return;
+
+        const rows = this.allHits.slice(); // shallow copy
+
+        if (!rows.length) {
+            this.hitsBody.innerHTML = '<tr><td colspan="7" class="px-4 py-10 text-center text-gray-500 italic">No momentum hits detected in the current session.</td></tr>';
+            return;
+        }
+
+        // Filter by active sector if one is selected
+        let working = rows;
+        if (this.activeSectorKey) {
+            working = rows.filter(h => h.sectorKey === this.activeSectorKey);
+        }
+
+        // Rank: Volume Shocker then RS vs Sector then price change
+        working.sort((a, b) => {
+            const av = a.volumeShocker ?? a.volRatio ?? 0;
+            const bv = b.volumeShocker ?? b.volRatio ?? 0;
+            if (bv !== av) return bv - av;
+            const ars = a.rsSector ?? 1;
+            const brs = b.rsSector ?? 1;
+            if (brs !== ars) return brs - ars;
+            return (b.change ?? 0) - (a.change ?? 0);
+        });
+
+        // Limit to top 10 when a sector is focused
+        if (this.activeSectorKey) {
+            working = working.slice(0, 10);
+        }
+
+        this.hitsBody.innerHTML = working.map(hit => {
+            const vol = hit.volumeShocker ?? hit.volRatio ?? 0;
+            const rs = hit.rsSector ?? 1;
+            const shockerBadge = vol >= 2.5 ? '🔥' : vol >= 2.0 ? '⚡' : '';
+            const tradeReady = !!hit.tradeReady;
+            const tradeLabel = tradeReady
+                ? '<span class="ml-2 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest bg-green-600/10 text-green-400 border border-green-500/40">TRADE&nbsp;READY</span>'
+                : '';
+
+            return `
+                <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer" 
+                    data-sector-key="${hit.sectorKey || ''}"
+                    onclick="window.fetchDataForSymbol('${hit.symbol}')">
+                    <td class="px-4 py-3 font-bold text-white group-hover:text-blue-400 transition-colors">
+                        ${hit.symbol}
+                        ${tradeLabel}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-gray-300">₹${hit.price}</td>
+                    <td class="px-4 py-3 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'}">${(hit.change >= 0 ? '+' : '') + (hit.change ?? 0).toFixed(2)}%</td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                            ${this._renderHits(hit.hits3d, hit.hits2d, hit.hits1d)}
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex items-center justify-end gap-1">
+                            <span class="font-mono text-gray-300">${vol.toFixed(2)}x</span>
+                            ${shockerBadge ? `<span class="text-sm">${shockerBadge}</span>` : ''}
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <span class="text-[9px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full font-bold uppercase">${hit.sector}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        // Auto scroll first row into view when focusing a sector
+        if (this.activeSectorKey) {
+            const first = this.hitsBody.querySelector('tr');
+            if (first) {
+                first.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
     }
 
     _renderHits(hits3d, hits2d, hits1d) {
@@ -105,6 +172,27 @@ class MarketIntelligence {
 }
 
 // Global Helpers for dashboard interaction
+window.focusSector = (sectorKey) => {
+    if (!window.intelligenceApp) return;
+    // Toggle behaviour: clicking same sector again clears the filter
+    if (window.intelligenceApp.activeSectorKey === sectorKey) {
+        window.intelligenceApp.activeSectorKey = null;
+    } else {
+        window.intelligenceApp.activeSectorKey = sectorKey;
+    }
+    window.intelligenceApp._renderHitsTable();
+
+    // Visually mark active sector card
+    const cards = document.querySelectorAll('#sector-intelligence-list [data-sector-key]');
+    cards.forEach(card => {
+        if (card.getAttribute('data-sector-key') === window.intelligenceApp.activeSectorKey) {
+            card.classList.add('ring-2', 'ring-green-400/70', 'ring-offset-2', 'ring-offset-gray-900');
+        } else {
+            card.classList.remove('ring-2', 'ring-green-400/70', 'ring-offset-2', 'ring-offset-gray-900');
+        }
+    });
+};
+
 window.fetchDataForSymbol = (symbol) => {
     const input = document.getElementById('symbol-input');
     const intelTog = document.getElementById('intelligence-toggle');
