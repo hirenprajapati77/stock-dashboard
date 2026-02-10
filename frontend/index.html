@@ -206,6 +206,18 @@
                     <span class="ml-2 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">MTF</span>
                 </label>
             </div>
+            <!-- Intraday Intelligence Timeframe Chips -->
+            <div id="intraday-tf-toggle"
+                 class="hidden md:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
+                <button data-tf="5m"
+                        class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
+                    5 MIN
+                </button>
+                <button data-tf="15m"
+                        class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
+                    15 MIN
+                </button>
+            </div>
             <select id="tf-selector"
                 class="bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1 text-sm font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer text-white">
                 <option value="5m">5 min</option>
