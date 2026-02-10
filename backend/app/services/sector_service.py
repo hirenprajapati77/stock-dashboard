@@ -180,8 +180,21 @@ class SectorService:
                 last_row = history.iloc[-1]
                 curr_rs = float(last_row['ema_fast'])
                 curr_rm = float(last_row['rm'])
-                
-                is_shining = (curr_rs > 1.01 and curr_rm > 0 and breadth_ratio >= 0.6 and rel_volume >= 1.2)
+
+                # SHINING definition for intraday / tactical view:
+                # - Strong relative strength vs NIFTY
+                # - Positive momentum on selected timeframe
+                # - Healthy breadth (advancers / total >= 60%)
+                # - Elevated volume vs recent average
+                rs_threshold = 1.2
+                vol_threshold = 1.3
+                is_shining = (
+                    curr_rs >= rs_threshold
+                    and curr_rm > 0
+                    and breadth_ratio >= 0.60
+                    and rel_volume >= vol_threshold
+                )
+
                 state = "SHINING" if is_shining else "WEAK" if (curr_rs < 0.98 and curr_rm < 0) else "NEUTRAL"
 
                 results[name] = {
