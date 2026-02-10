@@ -217,15 +217,19 @@ function updateUI(data) {
         const syncTime = document.getElementById('sync-time');
         if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;
 
-        // Pulse indicators
+        // Pulse indicators only if price changed
         const liveInd = document.getElementById('live-indicator');
-        if (liveInd && cmpEl) {
+        const lastCmp = window.lastCmpValue || 0;
+        const currentCmp = data.meta.cmp;
+
+        if (liveInd && cmpEl && currentCmp !== lastCmp) {
             liveInd.classList.add('text-blue-300');
             cmpEl.classList.add('text-blue-400');
             setTimeout(() => {
                 liveInd.classList.remove('text-blue-300');
                 cmpEl.classList.remove('text-blue-400');
             }, 500);
+            window.lastCmpValue = currentCmp; // Update tracker
         }
 
         // Update Price Change %
@@ -662,7 +666,7 @@ window.onload = function () {
             } else {
                 fetchData(true);
             }
-        }, 2000); // Live auto-sync every 2s
+        }, 10000); // reduced frequency for expensive intelligence calls (10s)
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
