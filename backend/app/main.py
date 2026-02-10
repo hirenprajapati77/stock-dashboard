@@ -7,10 +7,13 @@ import pandas as pd
 import requests
 import uvicorn
 import os
+from datetime import datetime
+from fastapi import FastAPI, Query, Response
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
 from app.services.screener import ScreenerService
+from app.services.sector_service import SectorService
 from app.engine.swing import SwingEngine
 from app.engine.zones import ZoneEngine
 from app.engine.sr import SREngine
@@ -35,7 +38,8 @@ async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: i
     Returns assistive AI insights for the given symbol.
     """
     try:
-        df = MarketDataService.get_ohlcv(symbol, tf)
+        norm_symbol = MarketDataService.normalize_symbol(symbol)
+        df, _ = MarketDataService.get_ohlcv(norm_symbol, tf)
         insights = ai_engine.get_insights(df, base_conf)
         return insights
     except Exception as e:
@@ -53,11 +57,42 @@ async def search_symbols(q: str = Query(..., min_length=1)):
         data = r.json()
         
         results = []
+        
+        # Inject custom keywords
+        custom_keywords = {
+            "GOLD_IN": "Gold Beess ETF (NSE Proxy - ₹130 range)",
+            "SILVER_IN": "Silver Beess ETF (NSE Proxy)",
+            "CRUDE_IN": "Indian Crude Proxy (INR Price based on Global Market)",
+            "GOLD": "Global Gold Spot (GC=F - $2600 range)",
+            "SILVER": "Global Silver Spot (SI=F)",
+            "CRUDE": "Crude Oil Global Futures (CL=F)",
+            "NIFTY": "Nifty 50 Index (NSE)",
+            "BANKNIFTY": "Nifty Bank Index (NSE)",
+            "USDINR": "US Dollar / Indian Rupee (Live)",
+            "OIL_INDIA": "Oil India Ltd (Stock - ₹500 range)"
+        }
+        for kw, desc in custom_keywords.items():
+            # Match if query is in keyword or description
+            if q.upper() in kw or q.lower() in desc.lower():
+                results.append({
+                    "symbol": kw,
+                    "shortname": desc,
+                    "exchange": "CUSTOM"
+                })
+
         if 'quotes' in data:
             for item in data['quotes']:
+                sym = item.get('symbol', '')
+                name = item.get('shortname', item.get('longname', ''))
+                
+                # Enhance naming for clarity
+                if sym == 'GC=F': name = "Global Gold Futures (COMEX)"
+                elif sym == 'SI=F': name = "Global Silver Futures (COMEX)"
+                elif sym == 'CL=F': name = "Global Crude Oil Futures (NYM)"
+                
                 results.append({
-                    "symbol": item.get('symbol'),
-                    "shortname": item.get('shortname', item.get('longname', '')),
+                    "symbol": sym,
+                    "shortname": name,
                     "exchange": item.get('exchange', '')
                 })
         return results
@@ -89,13 +124,14 @@ def detect_levels_for_df(df: pd.DataFrame, tf: str):
     return supports, resistances
 
 @app.get("/api/v1/dashboard")
-async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
+async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D"):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     try:
         # 0. Normalize Symbol
         norm_symbol = MarketDataService.normalize_symbol(symbol)
 
         # 1. Get Data
-        df = MarketDataService.get_ohlcv(norm_symbol, tf)
+        df, currency = MarketDataService.get_ohlcv(norm_symbol, tf)
         if df.empty:
             return {"status": "error", "message": f"No data found for {symbol}. Try another symbol or timeframe."}
             
@@ -118,7 +154,7 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
         mtf_levels = {"supports": [], "resistances": []}
         for htf in higher_tfs:
             try:
-                hdf = MarketDataService.get_ohlcv(norm_symbol, htf)
+                hdf, _ = MarketDataService.get_ohlcv(norm_symbol, htf)
                 hs, hr = detect_levels_for_df(hdf, htf)
                 mtf_levels["supports"].extend(hs)
                 mtf_levels["resistances"].extend(hr)
@@ -133,10 +169,10 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
         fundamentals = FundamentalService.get_fundamentals(norm_symbol)
 
         insights = {
-            "inside_candle": InsightEngine.is_inside_candle(df),
-            "retest": InsightEngine.detect_retest(df, supports + resistances),
+            "inside_candle": bool(InsightEngine.is_inside_candle(df)),
+            "retest": bool(InsightEngine.detect_retest(df, supports + resistances)),
             "ema_bias": InsightEngine.get_ema_bias(df),
-            "hammer": InsightEngine.detect_hammer(df),
+            "hammer": bool(InsightEngine.detect_hammer(df)),
             "engulfing": InsightEngine.detect_engulfing(df),
             "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0
         }
@@ -158,7 +194,9 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
                 "symbol": norm_symbol,
                 "tf": tf,
                 "cmp": float(round(cmp, 2)),
-                "data_version": "v1.3.0"
+                "currency": currency,
+                "last_update": datetime.now().strftime("%H:%M:%S"),
+                "data_version": "v1.4.3"
             },
             "summary": {
                 "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
@@ -248,6 +286,38 @@ async def run_screener():
     ]
     matches = ScreenerService.screen_symbols(watchlist)
     return {"status": "success", "count": len(matches), "matches": matches}
+
+@app.get("/api/v1/sector-rotation")
+async def get_sector_rotation(tf: str = "1D"):
+    """
+    Returns RS and RM data for all NSE sectors for the rotation dashboard.
+    """
+    try:
+        data, alerts = SectorService.get_rotation_data(days=60, timeframe=tf)
+        return {
+            "status": "success",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "data": data,
+            "alerts": alerts
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v1/momentum-hits")
+async def get_momentum_hits(tf: str = "1D"):
+    """
+    Returns stocks with momentum hits (Price > 2%, Volume > 1.5x).
+    """
+    try:
+        from app.services.screener_service import ScreenerService as MomentumScreener
+        data = MomentumScreener.get_screener_data(timeframe=tf)
+        return {
+            "status": "success",
+            "count": len(data),
+            "data": data
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # Mount Frontend - Robust Path Finding
 # Try specific paths for Docker/Render vs Local
