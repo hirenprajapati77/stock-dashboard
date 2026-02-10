@@ -638,6 +638,41 @@ window.onload = function () {
                 fetchData();
             }
         });
+        // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
+        const intradayGroup = document.getElementById('intraday-tf-toggle');
+        if (intradayGroup) {
+            const tfSelector = document.getElementById('tf-selector');
+            const buttons = intradayGroup.querySelectorAll('button[data-tf]');
+            const setActive = (activeTf) => {
+                buttons.forEach(btn => {
+                    if (btn.dataset.tf === activeTf) {
+                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
+                    } else {
+                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.add('text-gray-300', 'hover:bg-gray-800');
+                    }
+                });
+            };
+            buttons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tf = btn.dataset.tf;
+                    if (tfSelector) {
+                        tfSelector.value = tf;
+                        tfSelector.dispatchEvent(new Event('change'));
+                    }
+                    setActive(tf);
+                    // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
+                    if (document.getElementById('intelligence-toggle').checked) {
+                        fetchIntelligence();
+                    }
+                });
+            });
+            // Initialise chip state from selector's default
+            if (tfSelector) {
+                setActive(tfSelector.value);
+            }
+        }
         document.getElementById('mtf-toggle').addEventListener('change', () => {
             // Re-render chart levels without re-fetching
             if (window.lastReceivedData) {
