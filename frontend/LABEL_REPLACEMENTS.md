@@ -132,6 +132,99 @@ After implementation, check:
 
 ---
 
+## Quant & Interaction Specification (Exact Rules)
+
+### 1) Relative Strength (RS) vs Benchmark
+
+Use the same timeframe return for sector and benchmark, then normalize as a ratio:
+
+```text
+sector_return_t = (sector_close_t / sector_close_{t-N}) - 1
+benchmark_return_t = (benchmark_close_t / benchmark_close_{t-N}) - 1
+RS_t = (1 + sector_return_t) / (1 + benchmark_return_t)
+```
+
+- Default benchmark: **NIFTY 50**.
+- If `benchmark_return_t` is close to `-1`, clamp denominator with epsilon to avoid divide-by-zero behavior.
+- Interpretation:
+  - `RS_t = 1.00` → sector matched benchmark
+  - `RS_t > 1.00` → outperformance
+  - `RS_t < 1.00` → underperformance
+
+### 2) Momentum (RM) Computation
+
+Momentum is the slope of RS after smoothing.
+
+```text
+RS_ema_t = EMA(RS_t, span=5)
+RM_t = RS_ema_t - RS_ema_{t-1}
+```
+
+- Interval (`N`) is tied to the selected intelligence timeframe toggle:
+  - `5m` toggle → `N = 5m bars`
+  - `15m` toggle → `N = 15m bars`
+- Smoothing: **EMA(5)** on RS before first-difference slope extraction.
+- Positive RM means strengthening relative trend; negative RM means weakening trend.
+
+### 3) SHINING Threshold (Gate Conditions)
+
+A sector is marked **SHINING** only when all of the following are true:
+
+```text
+RS_t > 1.20
+AND RM_t > 0
+AND breadth >= 60
+AND rel_volume >= 1.30
+```
+
+Fallback labels:
+- `WEAK`: `RS_t < 0.95` **and** `RM_t < 0`
+- `NEUTRAL`: all other cases
+
+### 4) Exact UI Interactions
+
+- **Timeframe toggle (`5 min` / `15 min`)**
+  - Click updates active button style.
+  - Updates `currentIntelTimeframe`.
+  - Triggers `window.fetchIntelligence()` refresh.
+- **SHINING sector chip click**
+  - Applies sector filter to Active Stocks table.
+  - Shows filter banner (`filter-sector`, `filter-timeframe`).
+  - Adds selection ring highlight to clicked chip.
+  - Scrolls/focuses matching sector intelligence card.
+- **Same sector card click again**
+  - Toggle behavior clears active focus/filter.
+- **Clear filter button**
+  - Removes selection ring.
+  - Hides filter banner.
+  - Restores all rows in Active Stocks table.
+- **Filter logic**
+  - Table rows remain visible only when row sector text includes selected sector display name.
+
+### 5) Expected Widget Appearance & Conditions
+
+- **Shining Sectors strip**
+  - Shows top 4 sectors where `metrics.state === 'SHINING'`.
+  - Ordered by descending `momentumScore`.
+  - Empty-state message appears when no sectors pass SHINING gates.
+- **What to Watch Now panel**
+  - Visible only when at least one SHINING sector exists.
+  - Hidden when SHINING list is empty.
+  - Uses top-ranked SHINING sector as primary narrative driver.
+- **Sector Strength cards**
+  - SHINING state: green left border + glow treatment.
+  - GAINING / LOSING shift controls text color and pulse indicator.
+  - Advanced toggle controls visibility for `.sector-advanced-metrics` blocks.
+
+---
+
+### 6) Data Freshness & Labeling Guardrails
+
+- **Momentum Hits rows must represent the latest bar only** for the selected timeframe.
+- If a symbol no longer satisfies conditions on the latest bar, it must not be shown as an active hit.
+- **Do not imply "today" unless data is actually current-session**; show an explicit `as of` date/time when sourced from candle data.
+- RS should be displayed as a **ratio (`x`)** for clarity (e.g., `RS 1.04x`) rather than a price-like percentage.
+
 **Status:** Ready to implement  
 **Impact:** High (30-40% UX improvement)  
 **Risk:** Low (no backend changes)
