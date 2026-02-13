@@ -135,7 +135,7 @@
 <body class="min-h-screen overflow-x-hidden">
     <!-- Header -->
     <header class="h-16 border-b border-gray-800 glass sticky top-0 z-50 px-6 flex items-center justify-between">
-        <div class="flex items-center gap-4">
+        <div class="flex flex-wrap items-center gap-3 justify-between md:justify-end">
             <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white">S</div>
             <div class="flex flex-col -space-y-1">
                 <h1 class="text-xl font-bold tracking-tight">S&R <span class="text-blue-500">PRO</span> <span
@@ -166,16 +166,16 @@
                 </label>
             </div>
 
-            <!-- Intelligence Toggle -->
-            <div
-                class="flex items-center space-x-3 bg-gray-900 px-3 py-1.5 rounded-xl border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]">
-                <span class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Intelligence</span>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="intelligence-toggle" class="sr-only peer">
-                    <div
-                        class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600">
-                    </div>
-                </label>
+            <!-- View Mode Toggle -->
+            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1 rounded-xl border border-gray-700">
+                <button id="view-dashboard"
+                    class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white transition-colors">
+                    Dashboard
+                </button>
+                <button id="view-intelligence"
+                    class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-400 hover:bg-gray-800 transition-colors">
+                    Intelligence
+                </button>
             </div>
 
             <!-- Search Box (Relative for Dropdown) -->
@@ -208,18 +208,18 @@
             </div>
             <!-- Intraday Intelligence Timeframe Chips -->
             <div id="intraday-tf-toggle"
-                 class="hidden md:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
+                class="hidden md:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
                 <button data-tf="5m"
-                        class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
+                    class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
                     5 MIN
                 </button>
                 <button data-tf="15m"
-                        class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
+                    class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
                     15 MIN
                 </button>
             </div>
             <select id="tf-selector"
-                class="bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1 text-sm font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer text-white">
+                class="bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1 text-xs md:text-sm font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer text-white">
                 <option value="5m">5 min</option>
                 <option value="15m">15 min</option>
                 <option value="75m">75 min</option>
@@ -450,7 +450,7 @@
             </div>
 
             <!-- Middle Section -->
-            <div class="grid grid-cols-3 gap-6 mt-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
                 <!-- Chart Section -->
                 <div class="col-span-2 space-y-6">
                     <div class="glass rounded-2xl overflow-hidden p-2 relative" style="height: 500px;"
@@ -582,6 +582,7 @@
     <script src="script.js"></script>
     <script src="rotation.js"></script>
     <script src="dashboard.js"></script>
+    <script src="intelligence_ux.js"></script>
 </body>
 
 </html>

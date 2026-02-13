@@ -507,37 +507,41 @@ window.onload = function () {
         const scrTog = document.getElementById('screener-toggle');
 
         // Rotation Toggle Logic
-        rotTog.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                rot.classList.remove('hidden');
-                std.classList.add('hidden');
-                intel.classList.add('hidden');
-                intelTog.checked = false;
-                scrTog.checked = false;
-                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                fetchRotation();
-                if (rotationApp) rotationApp.resize();
-            } else {
-                rot.classList.add('hidden');
-                if (!intelTog.checked) std.classList.remove('hidden');
-            }
-        });
+        if (rotTog) {
+            rotTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    rot.classList.remove('hidden');
+                    std.classList.add('hidden');
+                    intel.classList.add('hidden');
+                    if (intelTog) intelTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    fetchRotation();
+                    if (rotationApp) rotationApp.resize();
+                } else {
+                    rot.classList.add('hidden');
+                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
+                }
+            });
+        }
 
         // Intelligence Toggle Logic
-        intelTog.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                intel.classList.remove('hidden');
-                std.classList.add('hidden');
-                rot.classList.add('hidden');
-                rotTog.checked = false;
-                scrTog.checked = false;
-                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                fetchIntelligence();
-            } else {
-                intel.classList.add('hidden');
-                if (!rotTog.checked) std.classList.remove('hidden');
-            }
-        });
+        if (intelTog) {
+            intelTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    intel.classList.remove('hidden');
+                    std.classList.add('hidden');
+                    rot.classList.add('hidden');
+                    if (rotTog) rotTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    fetchIntelligence();
+                } else {
+                    intel.classList.add('hidden');
+                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
+                }
+            });
+        }
 
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
@@ -663,7 +667,8 @@ window.onload = function () {
                     }
                     setActive(tf);
                     // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
-                    if (document.getElementById('intelligence-toggle').checked) {
+                    const intelToggle = document.getElementById('intelligence-toggle');
+                    if (intelToggle && intelToggle.checked) {
                         fetchIntelligence();
                     }
                 });
@@ -691,8 +696,10 @@ window.onload = function () {
         });
 
         setInterval(() => {
-            const isRotationActive = document.getElementById('rotation-toggle').checked;
-            const isIntelligenceActive = document.getElementById('intelligence-toggle').checked;
+            const rotToggle = document.getElementById('rotation-toggle');
+            const intelToggle = document.getElementById('intelligence-toggle');
+            const isRotationActive = rotToggle && rotToggle.checked;
+            const isIntelligenceActive = intelToggle && intelToggle.checked;
 
             if (isRotationActive) {
                 fetchRotation();

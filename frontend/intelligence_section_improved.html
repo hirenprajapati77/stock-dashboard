@@ -1,0 +1,130 @@
+<!-- IMPROVED INTELLIGENCE SECTION - Replace lines 262-323 in index.html -->
+
+<!-- Market Intelligence Section -->
+<section id="intelligence-section" class="hidden animate-in">
+    <!-- PRIMARY ENTRY POINT: SHINING SECTORS -->
+    <div
+        class="glass rounded-2xl overflow-hidden border-2 border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)] mb-6">
+        <div class="p-4 border-b border-gray-800 bg-gradient-to-r from-green-900/20 to-transparent">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-green-400">🔥 Shining Sectors (Active
+                        Now)</h2>
+                </div>
+                <!-- Contextual Timeframe Toggle -->
+                <div class="flex items-center gap-2 bg-gray-900/50 px-2 py-1 rounded-lg border border-gray-700">
+                    <span class="text-[9px] text-gray-500 uppercase tracking-widest mr-1">Timeframe:</span>
+                    <button data-intel-tf="5m"
+                        class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded text-gray-400 hover:bg-gray-800 transition-colors">
+                        5 min
+                    </button>
+                    <button data-intel-tf="15m"
+                        class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded bg-green-600 text-white transition-colors">
+                        15 min
+                    </button>
+                </div>
+            </div>
+            <p class="text-[10px] text-gray-400 mt-1">Sectors showing strong intraday strength and participation</p>
+        </div>
+        <div id="shining-sectors-list" class="p-4 flex gap-3 overflow-x-auto">
+            <!-- Dynamic SHINING sector chips -->
+            <div class="text-xs text-gray-500 italic">Scanning for strong sectors...</div>
+        </div>
+    </div>
+
+    <!-- WHAT TO WATCH NOW PANEL -->
+    <div id="watch-now-panel" class="glass rounded-2xl overflow-hidden border border-indigo-500/30 mb-6 hidden">
+        <div class="p-4 border-b border-gray-800 bg-indigo-900/10">
+            <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h3 class="text-xs font-bold uppercase tracking-widest text-indigo-400">📌 What to watch now</h3>
+            </div>
+        </div>
+        <div id="watch-now-content" class="p-4 space-y-2">
+            <p class="text-xs text-gray-300 leading-relaxed">• Analyzing market conditions...</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-6">
+        <!-- Left: Active Stocks Scanner (7 cols) -->
+        <div class="col-span-12 lg:col-span-7 space-y-6">
+            <!-- Filter Banner -->
+            <div id="filter-banner" class="glass rounded-lg p-3 border border-gray-700 hidden">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="text-gray-500">Showing:</span>
+                        <span id="filter-sector" class="font-bold text-green-400">All Sectors</span>
+                        <span class="text-gray-600">•</span>
+                        <span id="filter-timeframe" class="text-gray-400">15m</span>
+                        <span class="text-gray-600">•</span>
+                        <span id="filter-type" class="text-gray-400">High volume stocks</span>
+                    </div>
+                    <button id="clear-filter"
+                        class="text-[9px] text-gray-500 hover:text-white uppercase tracking-widest">
+                        Clear
+                    </button>
+                </div>
+            </div>
+
+            <div class="glass rounded-2xl overflow-hidden border border-gray-800">
+                <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
+                    <div>
+                        <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400">📊 Active Stocks Scanner
+                        </h2>
+                        <p class="text-[10px] text-gray-500">Stocks sorted by current market activity</p>
+                    </div>
+                    <div id="hits-sync-status" class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
+                        <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                        LIVE SYNC
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-[11px]">
+                        <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
+                            <tr>
+                                <th class="px-4 py-3 font-bold">Symbol</th>
+                                <th class="px-4 py-3 font-bold">Price</th>
+                                <th class="px-4 py-3 font-bold">Change %</th>
+                                <th class="px-4 py-3 font-bold text-center"
+                                    title="Activity Score: Combined measure of momentum and volume">Activity</th>
+                                <th class="px-4 py-3 font-bold"
+                                    title="Current trading volume compared to recent average">Volume</th>
+                                <th class="px-4 py-3 font-bold text-right">Sector</th>
+                            </tr>
+                        </thead>
+                        <tbody id="momentum-hits-body" class="divide-y divide-gray-800/50">
+                            <tr>
+                                <td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">Scanning
+                                    market for active stocks...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Sector Strength Change (5 cols) -->
+        <div class="col-span-12 lg:col-span-5 space-y-4">
+            <div class="flex items-center justify-between px-2">
+                <h2 class="text-[11px] font-bold uppercase tracking-widest text-blue-400"
+                    title="Shows how sector strength is changing compared to recent activity">🔄 Sector Strength Change
+                </h2>
+                <button id="toggle-advanced"
+                    class="text-[9px] text-gray-500 hover:text-white uppercase tracking-widest">
+                    Advanced ▼
+                </button>
+            </div>
+            <div id="sector-intelligence-list" class="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
+                <div class="glass p-8 rounded-2xl flex flex-col items-center justify-center text-center opacity-50">
+                    <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4">
+                    </div>
+                    <p class="text-xs text-blue-400 font-mono italic">CALCULATING STRENGTH METRICS...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

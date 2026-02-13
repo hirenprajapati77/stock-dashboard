@@ -80,6 +80,11 @@ class MarketIntelligence {
                 </div>
             `;
         }).join('');
+
+        // Render SHINING sectors primary card (new UX feature)
+        if (window.renderShiningSectors) {
+            window.renderShiningSectors(sectorData);
+        }
     }
 
     _renderHitsTable() {
