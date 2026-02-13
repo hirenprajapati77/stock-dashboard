@@ -41,8 +41,8 @@ class MarketIntelligence {
 
             return `
                 <div class="glass p-4 rounded-2xl border-l-4 ${isShining ? 'border-l-up shadow-[0_0_18px_rgba(34,197,94,0.55)]' : shift === 'GAINING' ? 'border-l-up' : shift === 'LOSING' ? 'border-l-down' : 'border-l-gray-700'} relative overflow-hidden group cursor-pointer"
-                     data-sector-key="${sector.name}"
-                     onclick="window.focusSector && window.focusSector('${sector.name}')">
+                     data-sector-key="${sector.name}">
+
                     <div class="absolute inset-0 bg-gradient-to-r ${bgGradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                     
                     <div class="flex justify-between items-start relative z-10">
@@ -67,8 +67,8 @@ class MarketIntelligence {
                     
                     <div class="mt-4 flex items-center justify-between text-[9px] relative z-10">
                         <div class="flex gap-1.5">
-                            ${sector.commentary ? `<button class="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-md hover:bg-indigo-500/20 transition-colors" onclick="event.stopPropagation(); window.showAICommentary('${sector.name}')">AI VIEW</button>` : ''}
-                            <button class="px-2 py-0.5 bg-gray-800 text-gray-400 border border-gray-700 rounded-md hover:bg-gray-700 transition-colors" onclick="event.stopPropagation(); window.fetchDataForSymbol('${sector.name}')">DETAILS</button>
+                            ${sector.commentary ? `<button class="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-md hover:bg-indigo-500/20 transition-colors" data-action="ai-view" data-sector="${sector.name}">AI VIEW</button>` : ''}
+                            <button class="px-2 py-0.5 bg-gray-800 text-gray-400 border border-gray-700 rounded-md hover:bg-gray-700 transition-colors" data-action="details" data-sector="${sector.name}">DETAILS</button>
                         </div>
                             <div class="flex items-center gap-2">
                              <div class="flex flex-col text-right">
@@ -80,6 +80,30 @@ class MarketIntelligence {
                 </div>
             `;
         }).join('');
+
+        // Bind interaction handlers explicitly (avoid brittle inline-event reliance).
+        this.sectorList.querySelectorAll('[data-sector-key]').forEach((card) => {
+            card.addEventListener('click', () => {
+                const key = card.getAttribute('data-sector-key');
+                if (window.focusSector && key) window.focusSector(key);
+            });
+        });
+
+        this.sectorList.querySelectorAll('[data-action="ai-view"]').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sectorName = btn.getAttribute('data-sector');
+                if (window.showAICommentary && sectorName) window.showAICommentary(sectorName);
+            });
+        });
+
+        this.sectorList.querySelectorAll('[data-action="details"]').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sectorName = btn.getAttribute('data-sector');
+                if (window.fetchDataForSymbol && sectorName) window.fetchDataForSymbol(sectorName);
+            });
+        });
 
         // Render SHINING sectors primary card (new UX feature)
         if (window.renderShiningSectors) {

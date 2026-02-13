@@ -306,10 +306,11 @@ async def get_sector_rotation(tf: str = "1D"):
 @app.get("/api/v1/momentum-hits")
 async def get_momentum_hits(tf: str = "1D"):
     """
-    Returns stocks with momentum hits (Price > 2%, Volume > 1.5x).
+    Returns stocks with momentum hits (price and volume acceleration).
     """
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
+
         data = MomentumScreener.get_screener_data(timeframe=tf)
         return {
             "status": "success",
@@ -317,7 +318,13 @@ async def get_momentum_hits(tf: str = "1D"):
             "data": data
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # Keep response shape stable so UI can render an empty-state instead of hanging.
+        return {
+            "status": "error",
+            "count": 0,
+            "data": [],
+            "message": str(e)
+        }
 
 # Mount Frontend - Robust Path Finding
 # Try specific paths for Docker/Render vs Local
