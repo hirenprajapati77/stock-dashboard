@@ -23,7 +23,23 @@ class SectorService:
         "NIFTY_REALTY": "^CNXREALTY",
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
     }
-    
+
+    # Configurable quant logic constants
+    RS_EPSILON = 1e-6
+    RETURN_LOOKBACK_BARS_BY_TIMEFRAME = {
+        "5m": 1,
+        "15m": 1,
+        "75m": 1,
+        "1H": 1,
+        "2H": 1,
+        "4H": 1,
+        "1D": 1,
+        "1W": 1,
+        "1M": 1,
+    }
+    LEADING_RS_MIN = 1.02
+    LAGGING_RS_MAX = 0.98
+
     # Class-level cache
     _cache = {
         "data": None,
@@ -48,7 +64,8 @@ class SectorService:
             "1H": {"interval": "1h", "period": "1mo"},
             "2H": {"interval": "1h", "period": "1mo"},
             "4H": {"interval": "1h", "period": "3mo"},
-            "1D": {"interval": "1d", "period": "1y"}, # Reverted to 1y for better stability
+            "1D": {"interval": "1d", "period": "1y"},
+            "Daily": {"interval": "1d", "period": "1y"},
             "1W": {"interval": "1wk", "period": "2y"},
             "1M": {"interval": "1mo", "period": "5y"}
         }
@@ -60,7 +77,8 @@ class SectorService:
             (current_time - cls._cache["timestamp"]) < cls.CACHE_TTL):
             return cls._cache["data"], cls._cache["alerts"]
 
-        config = tf_map.get(timeframe, {"interval": "1d", "period": "1y"})
+        normalized_timeframe = "1D" if timeframe == "Daily" else timeframe
+        config = tf_map.get(normalized_timeframe, {"interval": "1d", "period": "1y"})
         interval = config["interval"]
         period = config["period"]
         
@@ -137,19 +155,33 @@ class SectorService:
 
                 if combined.empty: continue
                 
-                # RS and RM
-                combined['rs'] = combined['sector'] / combined['benchmark']
-                combined['ema_fast'] = combined['rs'].ewm(span=14, adjust=False).mean()
-                combined['ema_slow'] = combined['ema_fast'].ewm(span=21, adjust=False).mean()
-                combined['rm'] = combined['ema_fast'] - combined['ema_slow']
-                
+                # RS and momentum rules:
+                # sector_return = (current_close - previous_close) / previous_close
+                # benchmark_return = (current_close - previous_close) / previous_close
+                # RS = sector_return / benchmark_return
+                # momentum = RS(current) - RS(previous)
+                lookback_bars = cls.RETURN_LOOKBACK_BARS_BY_TIMEFRAME.get(normalized_timeframe, 1)
+                combined['sector_return'] = combined['sector'].pct_change(periods=lookback_bars)
+                combined['benchmark_return'] = combined['benchmark'].pct_change(periods=lookback_bars)
+                denominator = combined['benchmark_return']
+                denominator_safe = np.where(
+                    np.abs(denominator) < cls.RS_EPSILON,
+                    np.where(denominator < 0, -cls.RS_EPSILON, cls.RS_EPSILON),
+                    denominator,
+                )
+                combined['rs'] = combined['sector_return'] / denominator_safe
+                combined['rm'] = combined['rs'].diff()
+                combined = combined.dropna(subset=['rs', 'rm'])
+
                 # History (last 30)
                 history = combined.tail(30)
+                if history.empty:
+                    continue
                 history_list = []
                 for hist_idx, hist_row in history.iterrows():
                     history_list.append({
                         "date": hist_idx.strftime("%Y-%m-%d"),
-                        "rs": float(round(hist_row['ema_fast'], 4)),
+                        "rs": float(round(hist_row['rs'], 4)),
                         "rm": float(round(hist_row['rm'], 6))
                     })
                 
@@ -178,24 +210,20 @@ class SectorService:
                 
                 # Final Current Metrics
                 last_row = history.iloc[-1]
-                curr_rs = float(last_row['ema_fast'])
+                curr_rs = float(last_row['rs'])
                 curr_rm = float(last_row['rm'])
 
-                # SHINING definition for intraday / tactical view:
-                # - Strong relative strength vs NIFTY
-                # - Positive momentum on selected timeframe
-                # - Healthy breadth (advancers / total >= 60%)
-                # - Elevated volume vs recent average
-                rs_threshold = 1.2
-                vol_threshold = 1.3
-                is_shining = (
-                    curr_rs >= rs_threshold
-                    and curr_rm > 0
-                    and breadth_ratio >= 0.60
-                    and rel_volume >= vol_threshold
-                )
-
-                state = "SHINING" if is_shining else "WEAK" if (curr_rs < 0.98 and curr_rm < 0) else "NEUTRAL"
+                # State logic is intentionally explicit for trader clarity.
+                if curr_rs > cls.LEADING_RS_MIN and curr_rm > 0:
+                    state = "LEADING"
+                elif curr_rs > cls.LEADING_RS_MIN and curr_rm < 0:
+                    state = "WEAKENING"
+                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm < 0:
+                    state = "LAGGING"
+                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm > 0:
+                    state = "IMPROVING"
+                else:
+                    state = "NEUTRAL"
 
                 results[name] = {
                     "current": history_list[-1],
@@ -209,7 +237,7 @@ class SectorService:
                     }
                 }
                 
-                RotationAlertService.detect_alerts(name, curr_rs, curr_rm, is_shining)
+                RotationAlertService.detect_alerts(name, curr_rs, curr_rm)
 
             except Exception as e:
                 print(f"Error processing sector {name}: {e}")
@@ -274,7 +302,7 @@ class SectorService:
                 "rank": ranks.get(name),
                 "topContributors": cls._get_top_contributors(name),
                 "timeframe": timeframe,
-                "shiningState": results[name]['metrics']['state']
+                "sectorState": results[name]['metrics']['state']
             }
             results[name]['commentary'] = AICommentaryService.generate_commentary(context)
             results[name]['rank'] = ranks.get(name)
@@ -287,11 +315,11 @@ class SectorService:
             "data": results,
             "alerts": all_alerts,
             "timestamp": time.time(),
-            "timeframe": timeframe
+            "timeframe": normalized_timeframe
         }
         
         # Save to Fallback file for persistence across restarts/failures
-        cls._save_fallback(results, all_alerts, timeframe)
+        cls._save_fallback(results, all_alerts, normalized_timeframe)
         
         return results, all_alerts
 
@@ -312,7 +340,7 @@ class SectorService:
             print(f"Error saving fallback: {e}")
 
     @classmethod
-    def _load_fallback(cls, timeframe, error_msg=None): # Modified signature to accept error_msg
+    def _load_fallback(cls, timeframe, error_msg=None):
         try:
             fallback_path = Path(__file__).parent.parent / "data" / "sector_fallback.json"
             if not fallback_path.exists():
@@ -332,9 +360,9 @@ class SectorService:
         # Hardcoded minimal fallback for ephemeral environments (Render)
         print("WARNING: Using hardcoded emergency fallback for Sector Intelligence")
         hard_fallback = {
-            "NIFTY_BANK": {"metrics": {"momentumScore": 150, "breadth": 40, "shift": "NEUTRAL", "relVolume": 1.1, "state": "NEUTRAL"}, "rank": 1, "commentary": "Nifty BANK historical fallback data.", "current": {"rs": 1.05, "rm": 0.001}, "history": []},
-            "NIFTY_IT": {"metrics": {"momentumScore": 120, "breadth": 60, "shift": "GAINING", "relVolume": 0.9, "state": "NEUTRAL"}, "rank": 2, "commentary": "Nifty IT historical fallback data.", "current": {"rs": 1.02, "rm": 0.0005}, "history": []},
-            "NIFTY_PHARMA": {"metrics": {"momentumScore": 90, "breadth": 80, "shift": "LOSING", "relVolume": 1.2, "state": "NEUTRAL"}, "rank": 3, "commentary": "Nifty PHARMA historical fallback data.", "current": {"rs": 0.98, "rm": -0.0002}, "history": []}
+            "NIFTY_BANK": {"metrics": {"momentumScore": 150, "shift": "NEUTRAL", "relVolume": 1.1, "state": "LEADING"}, "rank": 1, "commentary": "Banking is leading as RS remains above neutral and momentum is rising.", "current": {"rs": 1.08, "rm": 0.003}, "history": []},
+            "NIFTY_IT": {"metrics": {"momentumScore": 120, "shift": "NEUTRAL", "relVolume": 1.0, "state": "LAGGING"}, "rank": 2, "commentary": "IT is lagging as RS stays below neutral and momentum is negative.", "current": {"rs": 0.93, "rm": -0.002}, "history": []},
+            "NIFTY_PHARMA": {"metrics": {"momentumScore": 90, "shift": "NEUTRAL", "relVolume": 1.0, "state": "NEUTRAL"}, "rank": 3, "commentary": "Pharma is neutral with RS near benchmark and no directional edge.", "current": {"rs": 1.00, "rm": 0.0}, "history": []}
         }
         # Add status and message if an error occurred
         if error_msg:

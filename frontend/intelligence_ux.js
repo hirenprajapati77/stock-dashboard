@@ -1,23 +1,23 @@
 // UX IMPROVEMENTS - Add to dashboard.js
 
 // ========================================
-// 1. SHINING SECTORS PRIMARY CARD
+// 1. LEADING SECTORS PRIMARY CARD
 // ========================================
 
-function renderShiningSectors(sectorData) {
+function renderActionableSectors(sectorData) {
     const container = document.getElementById('shining-sectors-list');
     if (!container) return;
 
-    // Filter for SHINING sectors only
+    // Filter for LEADING sectors only
     const shiningSectors = Object.entries(sectorData)
-        .filter(([name, data]) => data.metrics?.state === 'SHINING')
+        .filter(([name, data]) => ['LEADING','IMPROVING'].includes(data.metrics?.state))
         .sort((a, b) => (b[1].metrics?.momentumScore || 0) - (a[1].metrics?.momentumScore || 0))
         .slice(0, 4); // Top 4 only
 
     if (shiningSectors.length === 0) {
         container.innerHTML = `
             <div class="text-xs text-gray-500 italic">
-                No sectors currently meeting SHINING criteria (RS ≥ 1.2, RM > 0, Breadth ≥ 60%, Volume ≥ 1.3x)
+                No actionable sectors right now. Watch sectors in LEADING or IMPROVING state for opportunities.
             </div>
         `;
         return;
@@ -30,7 +30,7 @@ function renderShiningSectors(sectorData) {
 
         return `
             <button 
-                onclick="selectShiningSector('${name}')" 
+                onclick="selectActionableSector('${name}')" 
                 class="flex-shrink-0 glass px-4 py-3 rounded-xl border-2 border-green-500/50 hover:border-green-500 transition-all cursor-pointer group min-w-[140px]">
                 <div class="flex items-center gap-2 mb-1">
                     <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -116,7 +116,14 @@ function updateWhatToWatchNow(shiningSectors, allSectorData) {
 
 let selectedSector = null;
 
-function selectShiningSector(sectorName) {
+function selectActionableSector(sectorName) {
+    // Toggle off if the same sector chip is clicked again
+    if (selectedSector === sectorName) {
+        clearFilter();
+        if (window.focusSector) window.focusSector(sectorName);
+        return;
+    }
+
     selectedSector = sectorName;
 
     // Update filter banner
@@ -291,7 +298,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 8. EXPORT FUNCTIONS
 // ========================================
 
-window.renderShiningSectors = renderShiningSectors;
-window.selectShiningSector = selectShiningSector;
+window.renderActionableSectors = renderActionableSectors;
+window.selectActionableSector = selectActionableSector;
 window.clearFilter = clearFilter;
 window.getCurrentIntelTimeframe = getCurrentIntelTimeframe;

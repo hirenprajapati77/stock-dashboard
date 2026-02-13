@@ -362,7 +362,7 @@ class RotationDashboard {
                 color: this.getQuadrantColor(data.current.rs, data.current.rm, state),
                 rs: data.current.rs,
                 rm: data.current.rm,
-                shiningState: state,
+                sectorState: state,
                 relVolume: metrics.relVolume || 1.0,
                 breadth: metrics.breadth || 50,
                 trail: [],
@@ -412,10 +412,11 @@ class RotationDashboard {
     }
 
     getQuadrantName(rs, rm) {
-        if (rs >= 1.0 && rm >= 0) return "Leading";
-        if (rs >= 1.0 && rm < 0) return "Weakening";
-        if (rs < 1.0 && rm < 0) return "Lagging";
-        return "Improving";
+        if (rs > 1.02 && rm > 0) return "LEADING";
+        if (rs > 1.02 && rm < 0) return "WEAKENING";
+        if (rs < 0.98 && rm < 0) return "LAGGING";
+        if (rs < 0.98 && rm > 0) return "IMPROVING";
+        return "NEUTRAL";
     }
 
     showHUD(text) {
@@ -433,15 +434,10 @@ class RotationDashboard {
     }
 
     getQuadrantColor(rs, rm, state = null) {
-        if (state === "SHINING") return "#00E676"; // Neon Green for Shining
-        if (state === "WEAK") return "#424242";    // Dim Grey for Weak
-        if (state === "NEUTRAL") return "#757575"; // Grey for Neutral
-
-        // Fallback to standard quadrant colors if no state provided
-        if (rs >= 1.0 && rm >= 0) return "#00C853"; // Leading
-        if (rs >= 1.0 && rm < 0) return "#FFD600";  // Weakening
-        if (rs < 1.0 && rm < 0) return "#D50000";   // Lagging
-        return "#2979FF";                           // Improving
+        const resolved = state || this.getQuadrantName(rs, rm);
+        if (resolved === "LEADING" || resolved === "IMPROVING") return "#00C853";
+        if (resolved === "WEAKENING" || resolved === "LAGGING") return "#D50000";
+        return "#757575";
     }
 
     animate() {
@@ -544,26 +540,25 @@ class RotationDashboard {
             }
 
             const isTop = top3.includes(p);
-            const isShining = p.shiningState === "SHINING";
+            const isLeading = p.sectorState === "LEADING" || p.sectorState === "IMPROVING";
 
             // Pulse Scale (Stronger for Shining)
-            const pulseBase = isShining ? 0.8 : 0.5;
+            const pulseBase = isLeading ? 0.8 : 0.5;
             const scale = 1.0 + (p.visualPulse || 0) * pulseBase;
 
             // Continuous Pulse for Shining
             let shineScale = 1.0;
-            if (isShining) {
+            if (isLeading) {
                 shineScale = 1.0 + Math.sin(Date.now() / 200) * 0.1;
             }
 
             // Glow
             this.ctx.beginPath();
-            const glowRadius = (isTop || isShining ? p.radius * 4 : p.radius * 2) * scale * shineScale;
+            const glowRadius = (isTop || isLeading ? p.radius * 4 : p.radius * 2) * scale * shineScale;
             const gradient = this.ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
 
-            // Neon glow for shining, regular for others
-            const glowColor = isShining ? "#00E676" : p.color;
-            const glowOpacity = isShining ? "44" : (isTop ? "66" : "44");
+            const glowColor = isLeading ? "#00E676" : p.color;
+            const glowOpacity = isLeading ? "44" : (isTop ? "66" : "44");
 
             gradient.addColorStop(0, glowColor + glowOpacity);
             gradient.addColorStop(1, glowColor + "00");
@@ -574,9 +569,9 @@ class RotationDashboard {
             // Core
             this.ctx.beginPath();
             this.ctx.fillStyle = p.color;
-            if (isTop || isShining) {
-                this.ctx.shadowBlur = (isShining ? 30 : 20) * scale;
-                this.ctx.shadowColor = isShining ? "#00E676" : p.color;
+            if (isTop || isLeading) {
+                this.ctx.shadowBlur = (isLeading ? 30 : 20) * scale;
+                this.ctx.shadowColor = isLeading ? "#00E676" : p.color;
             } else {
                 this.ctx.shadowBlur = 10 * scale;
                 this.ctx.shadowColor = p.color;
@@ -610,7 +605,7 @@ class RotationDashboard {
             }
 
             // Label
-            this.ctx.fillStyle = isShining ? "#00E676" : "white";
+            this.ctx.fillStyle = isLeading ? "#00E676" : "white";
             this.ctx.font = `bold ${Math.max(8, 10 / this.zoom)}px Inter, sans-serif`;
             this.ctx.textAlign = "center";
             this.ctx.fillText(p.name.replace("NIFTY_", ""), p.x, p.y + p.radius + 15);
@@ -618,7 +613,9 @@ class RotationDashboard {
             // Stats
             this.ctx.fillStyle = "#888";
             this.ctx.font = `${8 / this.zoom}px monospace`;
-            this.ctx.fillText(`${p.rs.toFixed(2)}`, p.x, p.y + p.radius + 28);
+            this.ctx.fillText(`${p.sectorState}`, p.x, p.y + p.radius + 28);
+            this.ctx.fillStyle = "#888";
+            this.ctx.fillText(`${((p.rs - 1) * 100).toFixed(2)}% RS`, p.x, p.y + p.radius + 40);
         });
 
         this.ctx.restore();
