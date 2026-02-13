@@ -16,40 +16,38 @@ class MomentumRule:
 
 
 class ScreenerService:
-    """Builds momentum-hit rows consumed by the Intelligence dashboard."""
+    """Builds stock-intelligence rows for the trader intelligence panel."""
 
     TIMEFRAME_MAP: Dict[str, Dict[str, str]] = {
         "5m": {"interval": "5m", "period": "5d"},
         "15m": {"interval": "15m", "period": "5d"},
-        "75m": {"interval": "60m", "period": "1mo"},
-        "1H": {"interval": "60m", "period": "1mo"},
-        "2H": {"interval": "60m", "period": "1mo"},
-        "4H": {"interval": "60m", "period": "3mo"},
         "1D": {"interval": "1d", "period": "6mo"},
-        "1W": {"interval": "1wk", "period": "3y"},
-        "1M": {"interval": "1mo", "period": "8y"},
+        "Daily": {"interval": "1d", "period": "6mo"},
     }
 
-    # Slightly relaxed price threshold on intraday candles; volume threshold stays strict.
     RULES_BY_TF: Dict[str, MomentumRule] = {
         "5m": MomentumRule(change_threshold=0.7, volume_threshold=1.5),
         "15m": MomentumRule(change_threshold=0.9, volume_threshold=1.5),
-        "75m": MomentumRule(change_threshold=1.2, volume_threshold=1.5),
-        "1H": MomentumRule(change_threshold=1.2, volume_threshold=1.5),
-        "2H": MomentumRule(change_threshold=1.5, volume_threshold=1.5),
-        "4H": MomentumRule(change_threshold=1.7, volume_threshold=1.5),
         "1D": MomentumRule(change_threshold=2.0, volume_threshold=1.5),
-        "1W": MomentumRule(change_threshold=3.0, volume_threshold=1.5),
-        "1M": MomentumRule(change_threshold=4.0, volume_threshold=1.5),
+        "Daily": MomentumRule(change_threshold=2.0, volume_threshold=1.5),
     }
 
+    SECTOR_INDEX_BY_KEY: Dict[str, str] = {
+        "NIFTY_BANK": "^NSEBANK",
+        "NIFTY_IT": "^CNXIT",
+        "NIFTY_FMCG": "^CNXFMCG",
+        "NIFTY_METAL": "^CNXMETAL",
+        "NIFTY_PHARMA": "^CNXPHARMA",
+        "NIFTY_ENERGY": "^CNXENERGY",
+        "NIFTY_AUTO": "^CNXAUTO",
+        "NIFTY_REALTY": "^CNXREALTY",
+        "NIFTY_PSU_BANK": "^CNXPSUBANK",
+    }
 
     @staticmethod
     def _find_last_hit_index(cond: pd.Series, lookback_bars: int = 10) -> Optional[int]:
-        """Return the latest index position within lookback where momentum condition is true."""
         if cond is None or cond.empty:
             return None
-
         start = max(0, len(cond) - lookback_bars)
         for pos in range(len(cond) - 1, start - 1, -1):
             if bool(cond.iloc[pos]):
@@ -58,7 +56,6 @@ class ScreenerService:
 
     @staticmethod
     def _compute_streak_flags(cond: pd.Series, idx: int) -> tuple[bool, bool, bool]:
-        """Compute 1D/2D/3D flags ending at the provided bar index."""
         hits1d = bool(cond.iloc[idx])
         hits2d = hits1d and idx - 1 >= 0 and bool(cond.iloc[idx - 1])
         hits3d = hits2d and idx - 2 >= 0 and bool(cond.iloc[idx - 2])
@@ -66,8 +63,9 @@ class ScreenerService:
 
     @classmethod
     def get_screener_data(cls, timeframe: str = "1D") -> List[Dict]:
-        config = cls.TIMEFRAME_MAP.get(timeframe, cls.TIMEFRAME_MAP["1D"])
-        rule = cls.RULES_BY_TF.get(timeframe, cls.RULES_BY_TF["1D"])
+        normalized_tf = "1D" if timeframe == "Daily" else timeframe
+        config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
+        rule = cls.RULES_BY_TF.get(normalized_tf, cls.RULES_BY_TF["1D"])
 
         sector_map = {
             sector_key: symbols
@@ -78,8 +76,14 @@ class ScreenerService:
         if not all_symbols:
             return []
 
+        sector_indices = [
+            cls.SECTOR_INDEX_BY_KEY[sector]
+            for sector in sector_map.keys()
+            if sector in cls.SECTOR_INDEX_BY_KEY
+        ]
+
         try:
-            batch_df = yf.download(
+            stock_batch_df = yf.download(
                 tickers=" ".join(all_symbols),
                 period=config["period"],
                 interval=config["interval"],
@@ -88,11 +92,20 @@ class ScreenerService:
                 auto_adjust=False,
                 threads=True,
             )
+            sector_batch_df = yf.download(
+                tickers=" ".join(sorted(set(sector_indices))),
+                period=config["period"],
+                interval=config["interval"],
+                progress=False,
+                group_by="ticker",
+                auto_adjust=False,
+                threads=True,
+            ) if sector_indices else pd.DataFrame()
         except Exception as e:
             print(f"Momentum screener batch download failed: {e}")
             return []
 
-        if batch_df is None or batch_df.empty:
+        if stock_batch_df is None or stock_batch_df.empty:
             return []
 
         sector_by_symbol = {
@@ -104,7 +117,7 @@ class ScreenerService:
         hits: List[Dict] = []
         for symbol in all_symbols:
             try:
-                symbol_df = batch_df[symbol] if isinstance(batch_df.columns, pd.MultiIndex) else batch_df
+                symbol_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
                 if symbol_df is None or symbol_df.empty:
                     continue
 
@@ -121,11 +134,9 @@ class ScreenerService:
                 pct = close.pct_change() * 100
                 avg_vol = volume.rolling(20, min_periods=5).mean()
                 vol_ratio = (volume / avg_vol).replace([pd.NA, pd.NaT], 0).fillna(0)
+                volume_expansion = vol_ratio > rule.volume_threshold
 
-                cond = (pct > rule.change_threshold) & (vol_ratio > rule.volume_threshold)
-
-                # If no hit on the very last bar (e.g., market closed/quiet),
-                # fall back to the most recent qualifying session within a short lookback.
+                cond = (pct > rule.change_threshold) & volume_expansion
                 hit_idx = cls._find_last_hit_index(cond, lookback_bars=10)
                 if hit_idx is None:
                     continue
@@ -134,30 +145,45 @@ class ScreenerService:
                 if not hits1d:
                     continue
 
-                display_symbol = symbol.replace(".NS", "").replace(".BO", "")
                 sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
+                sector_return = 0.0
+                if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                    sector_symbol = cls.SECTOR_INDEX_BY_KEY[sector_key]
+                    sector_df = sector_batch_df[sector_symbol] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
+                    if sector_df is not None and not sector_df.empty:
+                        sec_close_col = "Close" if "Close" in sector_df.columns else "close"
+                        sector_close = sector_df[sec_close_col].dropna()
+                        if len(sector_close) > hit_idx:
+                            sector_return = float((sector_close.pct_change() * 100).iloc[hit_idx])
+
+                stock_return = float(pct.iloc[hit_idx])
+                rs_sector = (stock_return / sector_return) if abs(sector_return) > 1e-6 else 0.0
+
+                display_symbol = symbol.replace(".NS", "").replace(".BO", "")
                 hit_ts = close.index[hit_idx]
 
                 hits.append(
                     {
                         "symbol": display_symbol,
                         "price": round(float(close.iloc[hit_idx]), 2),
-                        "change": round(float(pct.iloc[hit_idx]), 2),
+                        "change": round(stock_return, 2),
                         "hits1d": hits1d,
                         "hits2d": hits2d,
                         "hits3d": hits3d,
                         "volRatio": round(float(vol_ratio.iloc[hit_idx]), 2),
                         "volumeShocker": round(float(vol_ratio.iloc[hit_idx]), 2),
+                        "volumeExpansion": bool(volume_expansion.iloc[hit_idx]),
                         "sector": sector_key.replace("NIFTY_", "").replace("_", " "),
                         "sectorKey": sector_key,
+                        "sectorReturn": round(sector_return, 4),
+                        "rsSector": round(rs_sector, 4),
                         "tradeReady": hits2d or hits3d,
                         "asOf": str(hit_ts),
                         "isLatestSession": bool(hit_idx == len(close) - 1),
                     }
                 )
             except Exception:
-                # Symbol-level failure should not break the whole intelligence response.
                 continue
 
-        hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["change"], row["volRatio"]), reverse=True)
+        hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
         return hits
