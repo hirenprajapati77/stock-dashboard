@@ -17,7 +17,6 @@ let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
-let intelligenceFetchController = null;
 
 
 function isIntelligenceModeActive() {
@@ -137,19 +136,9 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData(options = {}) {
+async function fetchData(isBackground = false) {
     const loader = document.getElementById('loading-overlay');
-
-    let isBackground = false;
-    let showLoader = true;
-
-    if (typeof options === 'boolean') {
-        isBackground = options;
-        showLoader = options !== true;
-    } else if (options && typeof options === 'object') {
-        isBackground = options.isBackground === true;
-        showLoader = options.showLoader !== undefined ? !!options.showLoader : !isBackground;
-    }
+    const showLoader = isBackground !== true;
 
     try {
         if (loader && showLoader) {
@@ -761,91 +750,33 @@ window.onload = function () {
     }
 };
 
-
-function setIntelligenceSyncStatus(message, tone = 'default') {
-    const el = document.getElementById('hits-sync-status');
-    if (!el) return;
-
-    const toneClass = tone === 'error'
-        ? 'bg-red-500'
-        : tone === 'warning'
-            ? 'bg-yellow-500'
-            : tone === 'busy'
-                ? 'bg-blue-500'
-                : 'bg-indigo-500';
-
-    el.innerHTML = `<span class="w-1.5 h-1.5 ${toneClass} rounded-full animate-pulse"></span>${message}`;
-}
-
-async function fetchJSONWithTimeout(url, timeoutMs = 7000, controller = null) {
-    const localController = controller || new AbortController();
-    const timer = setTimeout(() => localController.abort(), timeoutMs);
-    try {
-        const response = await fetch(url, { signal: localController.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-
 async function fetchIntelligence() {
     try {
         const tf = document.getElementById('tf-selector').value;
         const now = Date.now();
 
-        if (intelligenceFetchController) {
-            intelligenceFetchController.abort();
-        }
-        intelligenceFetchController = new AbortController();
+        // Fetch in parallel
+        const [hitsRes, sectorRes] = await Promise.all([
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`),
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`)
+        ]);
 
-        setIntelligenceSyncStatus('SYNCING...', 'busy');
+        const [hitsData, sectorData] = await Promise.all([
+            hitsRes.json(),
+            sectorRes.json().catch(() => ({ data: {} })) // Guard JSON parse
+        ]);
 
-        let hitsLoaded = false;
-        let sectorsLoaded = false;
-
-        const hitsTask = fetchJSONWithTimeout(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
-            .then((hitsData) => {
-                if (intelligenceApp && hitsData && Array.isArray(hitsData.data)) {
-                    intelligenceApp.updateHits(hitsData.data);
-                    hitsLoaded = true;
-                }
-            })
-            .catch((err) => {
-                if (err.name !== 'AbortError') {
-                    console.error('Failed to fetch momentum hits', err);
-                }
-            });
-
-        const sectorsTask = fetchJSONWithTimeout(`${ROTATION_URL}?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
-            .then((sectorData) => {
-                if (intelligenceApp && sectorData && sectorData.data) {
-                    window.lastSectorData = sectorData.data;
-                    intelligenceApp.updateSectors(sectorData.data);
-                    sectorsLoaded = true;
-                }
-            })
-            .catch((err) => {
-                if (err.name !== 'AbortError') {
-                    console.error('Failed to fetch sector intelligence', err);
-                }
-            });
-
-        await Promise.allSettled([hitsTask, sectorsTask]);
-
-        if (hitsLoaded && sectorsLoaded) {
-            setIntelligenceSyncStatus('LIVE SYNC');
-        } else if (hitsLoaded || sectorsLoaded) {
-            setIntelligenceSyncStatus('PARTIAL SYNC', 'warning');
-        } else {
-            setIntelligenceSyncStatus('SYNC DELAY', 'error');
+        if (intelligenceApp) {
+            if (hitsData && hitsData.data) {
+                intelligenceApp.updateHits(hitsData.data);
+            }
+            if (sectorData && sectorData.data) {
+                window.lastSectorData = sectorData.data;
+                intelligenceApp.updateSectors(sectorData.data);
+            }
         }
     } catch (e) {
-        if (e.name !== 'AbortError') {
-            console.error('Failed to fetch intelligence data', e);
-        }
-        setIntelligenceSyncStatus('SYNC DELAY', 'error');
+        console.error("Failed to fetch intelligence data", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
