@@ -192,7 +192,6 @@ class ScreenerService:
                 stock_return = float(pct.iloc[hit_idx])
                 latest_price = float(close.iloc[latest_idx])
                 latest_change = float(pct.iloc[latest_idx]) if prev_idx >= 0 else stock_return
-                live_price, live_change = cls._get_live_quote(symbol, latest_price, latest_change)
                 rs_sector = (stock_return / sector_return) if abs(sector_return) > 1e-6 else 0.0
 
                 display_symbol = symbol.replace(".NS", "").replace(".BO", "")
@@ -203,8 +202,8 @@ class ScreenerService:
                         "symbol": display_symbol,
                         # Keep screening qualification tied to the most-recent momentum hit,
                         # but always surface current tradable price/change for live sync in UI.
-                        "price": round(live_price, 2),
-                        "change": round(live_change, 2),
+                        "price": round(latest_price, 2),
+                        "change": round(latest_change, 2),
                         "hitChange": round(stock_return, 2),
                         "hits1d": hits1d,
                         "hits2d": hits2d,
@@ -217,7 +216,7 @@ class ScreenerService:
                         "sectorReturn": round(sector_return, 4),
                         "rsSector": round(rs_sector, 4),
                         "tradeReady": hits2d or hits3d,
-                        "asOf": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "asOf": str(close.index[latest_idx]),
                         "hitAsOf": str(hit_ts),
                         "isLatestSession": bool(hit_idx == len(close) - 1),
                     }
