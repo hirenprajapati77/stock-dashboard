@@ -24,6 +24,42 @@ from app.ai.engine import AIEngine
 app = FastAPI(title="Support & Resistance Dashboard")
 ai_engine = AIEngine()
 
+
+def _to_price_list(levels):
+    prices = []
+    for level in levels or []:
+        if not isinstance(level, dict):
+            continue
+        value = level.get("price")
+        if value is None:
+            continue
+        try:
+            prices.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return prices
+
+
+def _resolve_summary_levels(cmp, supports, resistances, mtf_levels):
+    primary_supports = [p for p in _to_price_list(supports) if p < cmp]
+    primary_resistances = [p for p in _to_price_list(resistances) if p > cmp]
+
+    mtf_supports = [p for p in _to_price_list((mtf_levels or {}).get("supports", [])) if p < cmp]
+    mtf_resistances = [p for p in _to_price_list((mtf_levels or {}).get("resistances", [])) if p > cmp]
+
+    nearest_support = max(primary_supports) if primary_supports else (max(mtf_supports) if mtf_supports else None)
+    nearest_resistance = min(primary_resistances) if primary_resistances else (min(mtf_resistances) if mtf_resistances else None)
+    return nearest_support, nearest_resistance
+
+
+def _build_trade_signal(ema_bias, risk_reward):
+    if ema_bias == "Bullish" and risk_reward is not None and risk_reward >= 1.5:
+        return "BUY", "Bullish bias + favorable risk/reward"
+    if ema_bias == "Caution":
+        return "SELL", "Momentum is weak/cautionary"
+    return "HOLD", "Wait for better structure or confirmation"
+
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -176,6 +212,19 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             "engulfing": InsightEngine.detect_engulfing(df),
             "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0
         }
+
+        nearest_support, nearest_resistance = _resolve_summary_levels(cmp, supports, resistances, mtf_levels)
+        stop_loss = float(round((nearest_support * 0.99), 2)) if nearest_support is not None else float(round(cmp * 0.98, 2))
+
+        rr_ratio_value = None
+        if nearest_support is not None and nearest_resistance is not None:
+            downside = cmp - nearest_support
+            upside = nearest_resistance - cmp
+            if downside > 0 and upside > 0:
+                rr_ratio_value = round(upside / downside, 2)
+
+        rr_display = f"1:{rr_ratio_value:.1f}" if rr_ratio_value is not None else "1:2.0"
+        trade_signal, trade_signal_reason = _build_trade_signal(insights["ema_bias"], rr_ratio_value)
         
         # 5. Format OHLCV for Chart
         ohlcv = []
@@ -199,12 +248,15 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                 "data_version": "v1.4.3"
             },
             "summary": {
-                "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
-                "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
+                "nearest_support": float(round(nearest_support, 2)) if nearest_support is not None else None,
+                "nearest_resistance": float(round(nearest_resistance, 2)) if nearest_resistance is not None else None,
                 "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
                 "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
-                "stop_loss": float(round(supports[0]['price'] * 0.99, 2)) if supports else float(round(cmp * 0.98, 2)),
-                "risk_reward": f"1:{round((resistances[0]['price'] - cmp)/(cmp - supports[0]['price']), 1)}" if supports and resistances and (cmp - supports[0]['price']) > 0 else "1:2.0"
+                "stop_loss": stop_loss,
+                "risk_reward": rr_display,
+                "risk_reward_value": rr_ratio_value,
+                "trade_signal": trade_signal,
+                "trade_signal_reason": trade_signal_reason
             },
             "levels": {
                 "primary": {

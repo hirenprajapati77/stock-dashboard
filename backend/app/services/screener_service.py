@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -60,6 +61,36 @@ class ScreenerService:
         hits2d = hits1d and idx - 1 >= 0 and bool(cond.iloc[idx - 1])
         hits3d = hits2d and idx - 2 >= 0 and bool(cond.iloc[idx - 2])
         return hits1d, hits2d, hits3d
+
+
+    @staticmethod
+    def _extract_fast_value(fast_info, *keys):
+        for key in keys:
+            value = fast_info.get(key)
+            if value is not None:
+                return value
+        return None
+
+    @classmethod
+    def _get_live_quote(cls, symbol: str, fallback_price: float, fallback_change: float) -> tuple[float, float]:
+        """Best-effort quote refresh so UI can reflect live values, not only last candle close."""
+        try:
+            ticker = yf.Ticker(symbol)
+            fast_info = ticker.fast_info
+            live_price = cls._extract_fast_value(fast_info, 'lastPrice', 'last_price', 'regularMarketPrice')
+            prev_close = cls._extract_fast_value(fast_info, 'previousClose', 'regularMarketPreviousClose')
+
+            if live_price is None:
+                return fallback_price, fallback_change
+
+            live_price = float(live_price)
+            if prev_close is not None and float(prev_close) > 0:
+                live_change = ((live_price - float(prev_close)) / float(prev_close)) * 100
+            else:
+                live_change = fallback_change
+            return live_price, float(live_change)
+        except Exception:
+            return fallback_price, fallback_change
 
     @classmethod
     def get_screener_data(cls, timeframe: str = "1D") -> List[Dict]:
@@ -156,7 +187,12 @@ class ScreenerService:
                         if len(sector_close) > hit_idx:
                             sector_return = float((sector_close.pct_change() * 100).iloc[hit_idx])
 
+                latest_idx = len(close) - 1
+                prev_idx = latest_idx - 1
                 stock_return = float(pct.iloc[hit_idx])
+                latest_price = float(close.iloc[latest_idx])
+                latest_change = float(pct.iloc[latest_idx]) if prev_idx >= 0 else stock_return
+                live_price, live_change = cls._get_live_quote(symbol, latest_price, latest_change)
                 rs_sector = (stock_return / sector_return) if abs(sector_return) > 1e-6 else 0.0
 
                 display_symbol = symbol.replace(".NS", "").replace(".BO", "")
@@ -165,8 +201,11 @@ class ScreenerService:
                 hits.append(
                     {
                         "symbol": display_symbol,
-                        "price": round(float(close.iloc[hit_idx]), 2),
-                        "change": round(stock_return, 2),
+                        # Keep screening qualification tied to the most-recent momentum hit,
+                        # but always surface current tradable price/change for live sync in UI.
+                        "price": round(live_price, 2),
+                        "change": round(live_change, 2),
+                        "hitChange": round(stock_return, 2),
                         "hits1d": hits1d,
                         "hits2d": hits2d,
                         "hits3d": hits3d,
@@ -178,7 +217,8 @@ class ScreenerService:
                         "sectorReturn": round(sector_return, 4),
                         "rsSector": round(rs_sector, 4),
                         "tradeReady": hits2d or hits3d,
-                        "asOf": str(hit_ts),
+                        "asOf": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "hitAsOf": str(hit_ts),
                         "isLatestSession": bool(hit_idx == len(close) - 1),
                     }
                 )
