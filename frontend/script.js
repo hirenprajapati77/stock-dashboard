@@ -18,6 +18,15 @@ let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 
+
+function isIntelligenceModeActive() {
+    const intelToggle = document.getElementById('intelligence-toggle');
+    if (intelToggle) return !!intelToggle.checked;
+
+    const intelligenceSection = document.getElementById('intelligence-section');
+    return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
+}
+
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
     console.log('Initializing chart, container:', chartContainer);
@@ -253,6 +262,24 @@ function updateUI(data) {
         setVal('stop-loss', data.summary.stop_loss);
         const rrEl = document.getElementById('risk-reward');
         if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
+
+        const signalEl = document.getElementById('trade-signal');
+        const signalReasonEl = document.getElementById('trade-signal-reason');
+        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
+        if (signalEl) {
+            signalEl.textContent = signal;
+            signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
+                ? 'bg-green-600/20 text-green-300 border border-green-500/40'
+                : signal === 'SELL'
+                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
+                    : 'bg-gray-800 text-gray-400 border border-gray-700'
+                }`;
+        }
+        if (signalReasonEl) {
+            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
+                ? data.summary.trade_signal_reason
+                : 'Signal updates with EMA bias + structure.';
+        }
 
         // 2. Insights
         const setTxt = (id, val) => {
@@ -638,6 +665,8 @@ window.onload = function () {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
             if (isRotationActive) {
                 fetchRotation();
+            } else if (isIntelligenceModeActive()) {
+                fetchIntelligence();
             } else {
                 fetchData();
             }
@@ -667,8 +696,7 @@ window.onload = function () {
                     }
                     setActive(tf);
                     // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
-                    const intelToggle = document.getElementById('intelligence-toggle');
-                    if (intelToggle && intelToggle.checked) {
+                    if (isIntelligenceModeActive()) {
                         fetchIntelligence();
                     }
                 });
@@ -697,9 +725,8 @@ window.onload = function () {
 
         setInterval(() => {
             const rotToggle = document.getElementById('rotation-toggle');
-            const intelToggle = document.getElementById('intelligence-toggle');
             const isRotationActive = rotToggle && rotToggle.checked;
-            const isIntelligenceActive = intelToggle && intelToggle.checked;
+            const isIntelligenceActive = isIntelligenceModeActive();
 
             if (isRotationActive) {
                 fetchRotation();

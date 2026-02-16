@@ -83,7 +83,7 @@ class MarketIntelligence {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const sectorName = btn.getAttribute('data-sector');
-                if (window.fetchDataForSymbol && sectorName) window.fetchDataForSymbol(sectorName);
+                if (window.fetchDataForSymbol && sectorName) window.fetchDataForSymbol(sectorName, { fromIntelligence: true });
             });
         });
 
@@ -204,10 +204,11 @@ window.focusSector = (sectorKey) => {
     });
 };
 
-window.fetchDataForSymbol = (symbol) => {
+window.fetchDataForSymbol = (symbol, options = {}) => {
     const input = document.getElementById('symbol-input');
     const intelTog = document.getElementById('intelligence-toggle');
     const rotTog = document.getElementById('rotation-toggle');
+    const fromIntelligence = !!options.fromIntelligence;
 
     if (input) {
         let mappedSymbol = symbol;
@@ -228,9 +229,27 @@ window.fetchDataForSymbol = (symbol) => {
         }
         input.value = mappedSymbol;
 
+        if (fromIntelligence) {
+            const syncEl = document.getElementById('hits-sync-status');
+            if (syncEl) {
+                syncEl.innerHTML = `<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>OPENING ${mappedSymbol} DETAILS...`;
+                setTimeout(() => {
+                    syncEl.innerHTML = '<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>LIVE SYNC';
+                }, 2500);
+            }
+        }
+
         if (intelTog && intelTog.checked) {
             intelTog.checked = false;
             intelTog.dispatchEvent(new Event('change'));
+        } else if (!intelTog && fromIntelligence) {
+            document.getElementById('intelligence-section')?.classList.add('hidden');
+            document.getElementById('rotation-section')?.classList.add('hidden');
+            document.getElementById('standard-dashboard')?.classList.remove('hidden');
+            document.getElementById('view-dashboard')?.classList.add('bg-blue-600', 'text-white');
+            document.getElementById('view-dashboard')?.classList.remove('text-gray-400');
+            document.getElementById('view-intelligence')?.classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('view-intelligence')?.classList.add('text-gray-400');
         }
         if (rotTog && rotTog.checked) {
             rotTog.checked = false;
@@ -249,17 +268,16 @@ window.fetchDataForSymbol = (symbol) => {
 
 window.showAICommentary = (sectorName) => {
     const data = window.lastSectorData?.[sectorName];
-    if (data && data.commentary) {
-        const panel = document.getElementById('ai-detail-panel');
-        const text = document.getElementById('ai-detail-text');
-        const title = document.getElementById('ai-detail-title');
-        const rank = document.getElementById('ai-detail-rank');
+    const panel = document.getElementById('ai-detail-panel');
+    const text = document.getElementById('ai-detail-text');
+    const title = document.getElementById('ai-detail-title');
+    const rank = document.getElementById('ai-detail-rank');
 
-        if (panel && text && title && rank) {
-            panel.classList.remove('hidden');
-            title.textContent = sectorName.replace('NIFTY_', '').replace('_', ' ');
-            text.textContent = data.commentary;
-            rank.textContent = `#${data.rank || '—'}`;
-        }
-    }
+    if (!(panel && text && title && rank)) return;
+
+    panel.classList.remove('hidden');
+    title.textContent = sectorName.replace('NIFTY_', '').replace('_', ' ');
+    rank.textContent = `#${data?.rank || '—'}`;
+    text.textContent = data?.commentary || 'AI commentary is not available for this sector yet. Use DETAILS to open the sector chart and context.';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 };
