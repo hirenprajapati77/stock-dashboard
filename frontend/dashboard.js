@@ -258,7 +258,9 @@ window.fetchDataForSymbol = (symbol, options = {}) => {
 
         setTimeout(() => {
             if (window.fetchData) {
-                window.fetchData();
+                // Keep Details action responsive from Intelligence view by avoiding full-screen overlay
+                // while still performing a real foreground fetch/error flow.
+                window.fetchData(fromIntelligence ? { showLoader: false, isBackground: false } : false);
             } else {
                 console.error("fetchData not found on window object!");
             }
