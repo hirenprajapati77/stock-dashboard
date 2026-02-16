@@ -318,6 +318,26 @@
                             <p class="text-xs text-blue-400 font-mono italic">CALCULATING SHIFT METRICS...</p>
                         </div>
                     </div>
+
+                    <div id="ai-detail-panel"
+                        class="glass rounded-2xl overflow-hidden border border-indigo-500/30 flex flex-col hidden animate-in slide-in-from-left duration-300">
+                        <div
+                            class="px-4 py-3 border-b border-gray-800 bg-indigo-900/20 flex justify-between items-center">
+                            <h3 id="ai-detail-title" class="text-[10px] font-bold uppercase tracking-widest text-white">
+                                Sector Analysis</h3>
+                            <button onclick="document.getElementById('ai-detail-panel').classList.add('hidden')"
+                                class="text-gray-500 hover:text-white">&times;</button>
+                        </div>
+                        <div class="p-4">
+                            <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
+                                Overall Strength</div>
+                            <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">Click AI VIEW on a sector card to read commentary.</p>
+                        </div>
+                        <div class="px-4 py-2 bg-gray-900/40 border-t border-gray-800 flex justify-between">
+                            <span class="text-[8px] text-gray-500">AI AGENTIC INSIGHT</span>
+                            <span class="text-[8px] text-indigo-400 font-bold uppercase">Decision Support</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -366,28 +386,6 @@
                         <div id="alert-list" class="flex-grow overflow-y-auto p-2 space-y-2">
                             <p class="text-[10px] text-gray-500 italic text-center py-4">Waiting for transitions...
                             </p>
-                        </div>
-                    </div>
-
-                    <!-- AI Commentary Detail Panel -->
-                    <div id="ai-detail-panel"
-                        class="absolute top-24 left-6 w-80 glass rounded-2xl overflow-hidden border border-indigo-500/30 flex flex-col hidden animate-in slide-in-from-left duration-500">
-                        <div
-                            class="px-4 py-3 border-b border-gray-800 bg-indigo-900/20 flex justify-between items-center">
-                            <h3 id="ai-detail-title" class="text-[10px] font-bold uppercase tracking-widest text-white">
-                                Sector Analysis</h3>
-                            <button onclick="document.getElementById('ai-detail-panel').classList.add('hidden')"
-                                class="text-gray-500 hover:text-white">&times;</button>
-                        </div>
-                        <div class="p-4">
-                            <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
-                                Overall Strength</div>
-                            <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">Loading
-                                analysis...</p>
-                        </div>
-                        <div class="px-4 py-2 bg-gray-900/40 border-t border-gray-800 flex justify-between">
-                            <span class="text-[8px] text-gray-500">AI AGENTIC INSIGHT</span>
-                            <span class="text-[8px] text-indigo-400 font-bold uppercase">Decision Support</span>
                         </div>
                     </div>
 
@@ -445,7 +443,11 @@
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
                     <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Risk Reward</p>
-                    <span id="risk-reward" class="text-2xl font-bold mono text-purple-400">—</span>
+                    <div class="flex items-center gap-2">
+                        <span id="risk-reward" class="text-2xl font-bold mono text-purple-400">—</span>
+                        <span id="trade-signal" class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-gray-800 text-gray-400">HOLD</span>
+                    </div>
+                    <p id="trade-signal-reason" class="text-[10px] text-gray-500 mt-1">Signal updates with EMA bias + structure.</p>
                 </div>
             </div>
 
