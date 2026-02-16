@@ -6,6 +6,14 @@ from functools import lru_cache
 
 class MarketDataService:
     @staticmethod
+    def _pick_fast_info_value(fast_info, *keys):
+        for key in keys:
+            value = fast_info.get(key)
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
     def normalize_symbol(symbol):
         symbol = symbol.upper().strip().replace(" ", "")
 
@@ -100,7 +108,8 @@ class MarketDataService:
                 
                 # Get FX Rate safely
                 try:
-                    fx_rate = fx_ticker.fast_info.get('lastPrice') or fx_ticker.fast_info.get('last_price', 83.1)
+                    fx_fast = fx_ticker.fast_info
+                    fx_rate = MarketDataService._pick_fast_info_value(fx_fast, 'lastPrice', 'last_price', 'regularMarketPrice') or 83.1
                 except Exception:
                     fx_rate = 83.1
                 
@@ -113,7 +122,8 @@ class MarketDataService:
                     
                     # Ensure CMP is updated in the last candle
                     try:
-                        cmp_usd = base_ticker.fast_info.get('lastPrice') or base_ticker.fast_info.get('last_price')
+                        cmp_fast = base_ticker.fast_info
+                        cmp_usd = MarketDataService._pick_fast_info_value(cmp_fast, 'lastPrice', 'last_price', 'regularMarketPrice')
                         if cmp_usd:
                             # Use iloc safely
                             for col_name in ['close', 'Close']:
@@ -132,7 +142,7 @@ class MarketDataService:
             # Use fast_info for true CMP
             try:
                 fast = ticker.fast_info
-                cmp = fast.get('lastPrice') or fast.get('last_price')
+                cmp = MarketDataService._pick_fast_info_value(fast, 'lastPrice', 'last_price', 'regularMarketPrice')
                 
                 # Double check for extremely stale data or empty fast info
                 if cmp and not df.empty:

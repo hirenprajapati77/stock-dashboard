@@ -17,6 +17,70 @@ let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
+let intelligenceFetchController = null;
+let liveSyncTimer = null;
+let lastScreenerSyncAt = 0;
+
+function getCurrentTimeframe() {
+    return document.getElementById('tf-selector')?.value || '1D';
+}
+
+function getLiveSyncIntervalMs(tf = getCurrentTimeframe()) {
+    const map = {
+        "5m": 3000,
+        "15m": 5000,
+        "75m": 7000,
+        "1H": 9000,
+        "2H": 12000,
+        "4H": 15000,
+        "1D": 20000,
+        "1W": 30000,
+        "1M": 45000,
+    };
+    return map[tf] || 10000;
+}
+
+function startLiveSyncLoop() {
+    if (liveSyncTimer) clearInterval(liveSyncTimer);
+
+    const intervalMs = getLiveSyncIntervalMs();
+    liveSyncTimer = setInterval(() => {
+        const rotToggle = document.getElementById('rotation-toggle');
+        const isRotationActive = rotToggle && rotToggle.checked;
+        const isIntelligenceActive = isIntelligenceModeActive();
+
+        if (isRotationActive) {
+            fetchRotation();
+            return;
+        }
+
+        if (isIntelligenceActive) {
+            fetchIntelligence();
+            return;
+        }
+
+        const screenerToggle = document.getElementById('screener-toggle');
+        const isScreenerActive = screenerToggle && screenerToggle.checked;
+        if (isScreenerActive) {
+            const now = Date.now();
+            if (now - lastScreenerSyncAt >= 60000) {
+                runScreener();
+                lastScreenerSyncAt = now;
+            }
+        }
+
+        fetchData(true);
+    }, intervalMs);
+}
+
+
+function isIntelligenceModeActive() {
+    const intelToggle = document.getElementById('intelligence-toggle');
+    if (intelToggle) return !!intelToggle.checked;
+
+    const intelligenceSection = document.getElementById('intelligence-section');
+    return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
+}
 
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
@@ -65,6 +129,7 @@ document.getElementById('screener-toggle').addEventListener('change', function (
     if (e.target.checked) {
         panel.classList.remove('hidden');
         runScreener();
+        lastScreenerSyncAt = Date.now();
     } else {
         panel.classList.add('hidden');
     }
@@ -127,9 +192,19 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData(isBackground = false) {
+async function fetchData(options = {}) {
     const loader = document.getElementById('loading-overlay');
-    const showLoader = isBackground !== true;
+
+    let isBackground = false;
+    let showLoader = true;
+
+    if (typeof options === 'boolean') {
+        isBackground = options;
+        showLoader = options !== true;
+    } else if (options && typeof options === 'object') {
+        isBackground = options.isBackground === true;
+        showLoader = options.showLoader !== undefined ? !!options.showLoader : !isBackground;
+    }
 
     try {
         if (loader && showLoader) {
@@ -253,6 +328,24 @@ function updateUI(data) {
         setVal('stop-loss', data.summary.stop_loss);
         const rrEl = document.getElementById('risk-reward');
         if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
+
+        const signalEl = document.getElementById('trade-signal');
+        const signalReasonEl = document.getElementById('trade-signal-reason');
+        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
+        if (signalEl) {
+            signalEl.textContent = signal;
+            signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
+                ? 'bg-green-600/20 text-green-300 border border-green-500/40'
+                : signal === 'SELL'
+                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
+                    : 'bg-gray-800 text-gray-400 border border-gray-700'
+                }`;
+        }
+        if (signalReasonEl) {
+            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
+                ? data.summary.trade_signal_reason
+                : 'Signal updates with EMA bias + structure.';
+        }
 
         // 2. Insights
         const setTxt = (id, val) => {
@@ -638,9 +731,13 @@ window.onload = function () {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
             if (isRotationActive) {
                 fetchRotation();
+            } else if (isIntelligenceModeActive()) {
+                fetchIntelligence();
             } else {
                 fetchData();
             }
+            // Rebind live loop using currently selected timeframe cadence
+            startLiveSyncLoop();
         });
         // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
         const intradayGroup = document.getElementById('intraday-tf-toggle');
@@ -667,8 +764,7 @@ window.onload = function () {
                     }
                     setActive(tf);
                     // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
-                    const intelToggle = document.getElementById('intelligence-toggle');
-                    if (intelToggle && intelToggle.checked) {
+                    if (isIntelligenceModeActive()) {
                         fetchIntelligence();
                     }
                 });
@@ -695,20 +791,7 @@ window.onload = function () {
             }
         });
 
-        setInterval(() => {
-            const rotToggle = document.getElementById('rotation-toggle');
-            const intelToggle = document.getElementById('intelligence-toggle');
-            const isRotationActive = rotToggle && rotToggle.checked;
-            const isIntelligenceActive = intelToggle && intelToggle.checked;
-
-            if (isRotationActive) {
-                fetchRotation();
-            } else if (isIntelligenceActive) {
-                fetchIntelligence();
-            } else {
-                fetchData(true);
-            }
-        }, 10000); // reduced frequency for expensive intelligence calls (10s)
+        startLiveSyncLoop();
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -723,33 +806,91 @@ window.onload = function () {
     }
 };
 
+
+function setIntelligenceSyncStatus(message, tone = 'default') {
+    const el = document.getElementById('hits-sync-status');
+    if (!el) return;
+
+    const toneClass = tone === 'error'
+        ? 'bg-red-500'
+        : tone === 'warning'
+            ? 'bg-yellow-500'
+            : tone === 'busy'
+                ? 'bg-blue-500'
+                : 'bg-indigo-500';
+
+    el.innerHTML = `<span class="w-1.5 h-1.5 ${toneClass} rounded-full animate-pulse"></span>${message}`;
+}
+
+async function fetchJSONWithTimeout(url, timeoutMs = 7000, controller = null) {
+    const localController = controller || new AbortController();
+    const timer = setTimeout(() => localController.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { signal: localController.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+
 async function fetchIntelligence() {
     try {
         const tf = document.getElementById('tf-selector').value;
         const now = Date.now();
 
-        // Fetch in parallel
-        const [hitsRes, sectorRes] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`),
-            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`)
-        ]);
+        if (intelligenceFetchController) {
+            intelligenceFetchController.abort();
+        }
+        intelligenceFetchController = new AbortController();
 
-        const [hitsData, sectorData] = await Promise.all([
-            hitsRes.json(),
-            sectorRes.json().catch(() => ({ data: {} })) // Guard JSON parse
-        ]);
+        setIntelligenceSyncStatus('SYNCING...', 'busy');
 
-        if (intelligenceApp) {
-            if (hitsData && hitsData.data) {
-                intelligenceApp.updateHits(hitsData.data);
-            }
-            if (sectorData && sectorData.data) {
-                window.lastSectorData = sectorData.data;
-                intelligenceApp.updateSectors(sectorData.data);
-            }
+        let hitsLoaded = false;
+        let sectorsLoaded = false;
+
+        const hitsTask = fetchJSONWithTimeout(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
+            .then((hitsData) => {
+                if (intelligenceApp && hitsData && Array.isArray(hitsData.data)) {
+                    intelligenceApp.updateHits(hitsData.data);
+                    hitsLoaded = true;
+                }
+            })
+            .catch((err) => {
+                if (err.name !== 'AbortError') {
+                    console.error('Failed to fetch momentum hits', err);
+                }
+            });
+
+        const sectorsTask = fetchJSONWithTimeout(`${ROTATION_URL}?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
+            .then((sectorData) => {
+                if (intelligenceApp && sectorData && sectorData.data) {
+                    window.lastSectorData = sectorData.data;
+                    intelligenceApp.updateSectors(sectorData.data);
+                    sectorsLoaded = true;
+                }
+            })
+            .catch((err) => {
+                if (err.name !== 'AbortError') {
+                    console.error('Failed to fetch sector intelligence', err);
+                }
+            });
+
+        await Promise.allSettled([hitsTask, sectorsTask]);
+
+        if (hitsLoaded && sectorsLoaded) {
+            setIntelligenceSyncStatus('LIVE SYNC');
+        } else if (hitsLoaded || sectorsLoaded) {
+            setIntelligenceSyncStatus('PARTIAL SYNC', 'warning');
+        } else {
+            setIntelligenceSyncStatus('SYNC DELAY', 'error');
         }
     } catch (e) {
-        console.error("Failed to fetch intelligence data", e);
+        if (e.name !== 'AbortError') {
+            console.error('Failed to fetch intelligence data', e);
+        }
+        setIntelligenceSyncStatus('SYNC DELAY', 'error');
     }
 }
 window.fetchIntelligence = fetchIntelligence;
