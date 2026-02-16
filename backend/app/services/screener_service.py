@@ -217,7 +217,7 @@ class ScreenerService:
                         "sectorReturn": round(sector_return, 4),
                         "rsSector": round(rs_sector, 4),
                         "tradeReady": hits2d or hits3d,
-                        "asOf": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "asOf": str(close.index[latest_idx]),
                         "hitAsOf": str(hit_ts),
                         "isLatestSession": bool(hit_idx == len(close) - 1),
                     }

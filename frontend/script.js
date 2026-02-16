@@ -17,61 +17,6 @@ let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
-let intelligenceFetchController = null;
-let liveSyncTimer = null;
-let lastScreenerSyncAt = 0;
-
-function getCurrentTimeframe() {
-    return document.getElementById('tf-selector')?.value || '1D';
-}
-
-function getLiveSyncIntervalMs(tf = getCurrentTimeframe()) {
-    const map = {
-        "5m": 3000,
-        "15m": 5000,
-        "75m": 7000,
-        "1H": 9000,
-        "2H": 12000,
-        "4H": 15000,
-        "1D": 20000,
-        "1W": 30000,
-        "1M": 45000,
-    };
-    return map[tf] || 10000;
-}
-
-function startLiveSyncLoop() {
-    if (liveSyncTimer) clearInterval(liveSyncTimer);
-
-    const intervalMs = getLiveSyncIntervalMs();
-    liveSyncTimer = setInterval(() => {
-        const rotToggle = document.getElementById('rotation-toggle');
-        const isRotationActive = rotToggle && rotToggle.checked;
-        const isIntelligenceActive = isIntelligenceModeActive();
-
-        if (isRotationActive) {
-            fetchRotation();
-            return;
-        }
-
-        if (isIntelligenceActive) {
-            fetchIntelligence();
-            return;
-        }
-
-        const screenerToggle = document.getElementById('screener-toggle');
-        const isScreenerActive = screenerToggle && screenerToggle.checked;
-        if (isScreenerActive) {
-            const now = Date.now();
-            if (now - lastScreenerSyncAt >= 60000) {
-                runScreener();
-                lastScreenerSyncAt = now;
-            }
-        }
-
-        fetchData(true);
-    }, intervalMs);
-}
 
 
 function isIntelligenceModeActive() {
@@ -129,7 +74,6 @@ document.getElementById('screener-toggle').addEventListener('change', function (
     if (e.target.checked) {
         panel.classList.remove('hidden');
         runScreener();
-        lastScreenerSyncAt = Date.now();
     } else {
         panel.classList.add('hidden');
     }
@@ -192,19 +136,9 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData(options = {}) {
+async function fetchData(isBackground = false) {
     const loader = document.getElementById('loading-overlay');
-
-    let isBackground = false;
-    let showLoader = true;
-
-    if (typeof options === 'boolean') {
-        isBackground = options;
-        showLoader = options !== true;
-    } else if (options && typeof options === 'object') {
-        isBackground = options.isBackground === true;
-        showLoader = options.showLoader !== undefined ? !!options.showLoader : !isBackground;
-    }
+    const showLoader = isBackground !== true;
 
     try {
         if (loader && showLoader) {
@@ -736,8 +670,6 @@ window.onload = function () {
             } else {
                 fetchData();
             }
-            // Rebind live loop using currently selected timeframe cadence
-            startLiveSyncLoop();
         });
         // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
         const intradayGroup = document.getElementById('intraday-tf-toggle');
@@ -791,7 +723,19 @@ window.onload = function () {
             }
         });
 
-        startLiveSyncLoop();
+        setInterval(() => {
+            const rotToggle = document.getElementById('rotation-toggle');
+            const isRotationActive = rotToggle && rotToggle.checked;
+            const isIntelligenceActive = isIntelligenceModeActive();
+
+            if (isRotationActive) {
+                fetchRotation();
+            } else if (isIntelligenceActive) {
+                fetchIntelligence();
+            } else {
+                fetchData(true);
+            }
+        }, 10000); // reduced frequency for expensive intelligence calls (10s)
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -806,91 +750,33 @@ window.onload = function () {
     }
 };
 
-
-function setIntelligenceSyncStatus(message, tone = 'default') {
-    const el = document.getElementById('hits-sync-status');
-    if (!el) return;
-
-    const toneClass = tone === 'error'
-        ? 'bg-red-500'
-        : tone === 'warning'
-            ? 'bg-yellow-500'
-            : tone === 'busy'
-                ? 'bg-blue-500'
-                : 'bg-indigo-500';
-
-    el.innerHTML = `<span class="w-1.5 h-1.5 ${toneClass} rounded-full animate-pulse"></span>${message}`;
-}
-
-async function fetchJSONWithTimeout(url, timeoutMs = 7000, controller = null) {
-    const localController = controller || new AbortController();
-    const timer = setTimeout(() => localController.abort(), timeoutMs);
-    try {
-        const response = await fetch(url, { signal: localController.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-
 async function fetchIntelligence() {
     try {
         const tf = document.getElementById('tf-selector').value;
         const now = Date.now();
 
-        if (intelligenceFetchController) {
-            intelligenceFetchController.abort();
-        }
-        intelligenceFetchController = new AbortController();
+        // Fetch in parallel
+        const [hitsRes, sectorRes] = await Promise.all([
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`),
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`)
+        ]);
 
-        setIntelligenceSyncStatus('SYNCING...', 'busy');
+        const [hitsData, sectorData] = await Promise.all([
+            hitsRes.json(),
+            sectorRes.json().catch(() => ({ data: {} })) // Guard JSON parse
+        ]);
 
-        let hitsLoaded = false;
-        let sectorsLoaded = false;
-
-        const hitsTask = fetchJSONWithTimeout(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
-            .then((hitsData) => {
-                if (intelligenceApp && hitsData && Array.isArray(hitsData.data)) {
-                    intelligenceApp.updateHits(hitsData.data);
-                    hitsLoaded = true;
-                }
-            })
-            .catch((err) => {
-                if (err.name !== 'AbortError') {
-                    console.error('Failed to fetch momentum hits', err);
-                }
-            });
-
-        const sectorsTask = fetchJSONWithTimeout(`${ROTATION_URL}?tf=${tf}&t=${now}`, 6500, intelligenceFetchController)
-            .then((sectorData) => {
-                if (intelligenceApp && sectorData && sectorData.data) {
-                    window.lastSectorData = sectorData.data;
-                    intelligenceApp.updateSectors(sectorData.data);
-                    sectorsLoaded = true;
-                }
-            })
-            .catch((err) => {
-                if (err.name !== 'AbortError') {
-                    console.error('Failed to fetch sector intelligence', err);
-                }
-            });
-
-        await Promise.allSettled([hitsTask, sectorsTask]);
-
-        if (hitsLoaded && sectorsLoaded) {
-            setIntelligenceSyncStatus('LIVE SYNC');
-        } else if (hitsLoaded || sectorsLoaded) {
-            setIntelligenceSyncStatus('PARTIAL SYNC', 'warning');
-        } else {
-            setIntelligenceSyncStatus('SYNC DELAY', 'error');
+        if (intelligenceApp) {
+            if (hitsData && hitsData.data) {
+                intelligenceApp.updateHits(hitsData.data);
+            }
+            if (sectorData && sectorData.data) {
+                window.lastSectorData = sectorData.data;
+                intelligenceApp.updateSectors(sectorData.data);
+            }
         }
     } catch (e) {
-        if (e.name !== 'AbortError') {
-            console.error('Failed to fetch intelligence data', e);
-        }
-        setIntelligenceSyncStatus('SYNC DELAY', 'error');
+        console.error("Failed to fetch intelligence data", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
