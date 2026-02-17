@@ -250,13 +250,13 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             "summary": {
                 "nearest_support": float(round(nearest_support, 2)) if nearest_support is not None else None,
                 "nearest_resistance": float(round(nearest_resistance, 2)) if nearest_resistance is not None else None,
-                "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
-                "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
-                "stop_loss": stop_loss,
-                "risk_reward": rr_display,
-                "risk_reward_value": rr_ratio_value,
-                "trade_signal": trade_signal,
-                "trade_signal_reason": trade_signal_reason
+                "market_regime": str(ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN')),
+                "priority": str(ai_analysis.get('priority', {}).get('level', 'LOW')),
+                "stop_loss": float(stop_loss),
+                "risk_reward": str(rr_display),
+                "risk_reward_value": float(rr_ratio_value) if rr_ratio_value is not None else None,
+                "trade_signal": str(trade_signal),
+                "trade_signal_reason": str(trade_signal_reason)
             },
             "levels": {
                 "primary": {

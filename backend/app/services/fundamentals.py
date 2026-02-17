@@ -31,19 +31,19 @@ class FundamentalService:
 
             data = {
                 "market_cap": formatted_mcap,
-                "pe_ratio": round(get_val('trailingPE', 0), 2) if get_val('trailingPE') else None,
-                "forward_pe": round(get_val('forwardPE', 0), 2) if get_val('forwardPE') else None,
-                "book_value": round(get_val('bookValue', 0), 2) if get_val('bookValue') else None,
-                "pb_ratio": round(get_val('priceToBook', 0), 2) if get_val('priceToBook') else None,
-                "dividend_yield": round(get_val('dividendYield', 0) * 100, 2) if get_val('dividendYield') else None,
-                "roe": round(get_val('returnOnEquity', 0) * 100, 2) if get_val('returnOnEquity') else None,
-                "profit_margin": round(get_val('profitMargins', 0) * 100, 2) if get_val('profitMargins') else None,
-                "52w_high": get_val('fiftyTwoWeekHigh'),
-                "52w_low": get_val('fiftyTwoWeekLow'),
-                "sector": get_val('sector', '—'),
-                "industry": get_val('industry', '—'),
-                "website": get_val('website'),
-                "long_name": get_val('longName', symbol)
+                "pe_ratio": float(round(get_val('trailingPE', 0), 2)) if get_val('trailingPE') else None,
+                "forward_pe": float(round(get_val('forwardPE', 0), 2)) if get_val('forwardPE') else None,
+                "book_value": float(round(get_val('bookValue', 0), 2)) if get_val('bookValue') else None,
+                "pb_ratio": float(round(get_val('priceToBook', 0), 2)) if get_val('priceToBook') else None,
+                "dividend_yield": float(round(get_val('dividendYield', 0) * 100, 2)) if get_val('dividendYield') else None,
+                "roe": float(round(get_val('returnOnEquity', 0) * 100, 2)) if get_val('returnOnEquity') else None,
+                "profit_margin": float(round(get_val('profitMargins', 0) * 100, 2)) if get_val('profitMargins') else None,
+                "52w_high": float(get_val('fiftyTwoWeekHigh')) if get_val('fiftyTwoWeekHigh') else None,
+                "52w_low": float(get_val('fiftyTwoWeekLow')) if get_val('fiftyTwoWeekLow') else None,
+                "sector": str(get_val('sector', '—')),
+                "industry": str(get_val('industry', '—')),
+                "website": str(get_val('website', '')),
+                "long_name": str(get_val('longName', symbol))
             }
             
             # Simple health check
@@ -51,7 +51,7 @@ class FundamentalService:
             is_undervalued = False
             if data['pe_ratio'] and data['pe_ratio'] < 20 and data['pb_ratio'] and data['pb_ratio'] < 1.5:
                 is_undervalued = True
-            data['is_undervalued'] = is_undervalued
+            data['is_undervalued'] = bool(is_undervalued)
             
             return data
 

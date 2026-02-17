@@ -263,11 +263,11 @@ class SectorService:
                     "weight": cls._get_mock_weight(name),
                     "rank": 0, # Placeholder
                     "metrics": {
-                        "breadth": round(breadth_ratio * 100, 1),
-                        "relVolume": round(rel_volume, 2),
-                        "state": state,
-                        "sr": round(float(last_row['sector_return']), 4),
-                        "br": round(float(last_row['benchmark_return']), 4)
+                        "breadth": float(round(breadth_ratio * 100, 1)),
+                        "relVolume": float(round(rel_volume, 2)),
+                        "state": str(state),
+                        "sr": float(round(last_row['sector_return'], 4)),
+                        "br": float(round(last_row['benchmark_return'], 4))
                     }
                 }
                 
@@ -296,8 +296,8 @@ class SectorService:
             shift = "GAINING" if (rs_trend == "rising" and rm_trend == "accelerating") else \
                     "LOSING" if (rs_trend == "falling" and rm_trend == "decelerating") else "NEUTRAL"
 
-            results[name]['metrics']['momentumScore'] = round(mom_score, 2)
-            results[name]['metrics']['shift'] = shift
+            results[name]['metrics']['momentumScore'] = float(round(mom_score, 2))
+            results[name]['metrics']['shift'] = str(shift)
             # Generate Historical Alerts
             for i in range(1, len(hist)):
                 h_prev = hist[i-1]
