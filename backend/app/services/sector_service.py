@@ -72,7 +72,7 @@ class SectorService:
 
         if sector_return > 0:
             # Sector is UP in absolute terms
-            if rs > 0 and rm > 0:
+            if rs > 0.005 and rm > 0: # Tightened: Require min +0.5% RS
                 return "LEADING"
             if rs > 0 and rm <= 0:
                 return "WEAKENING"
