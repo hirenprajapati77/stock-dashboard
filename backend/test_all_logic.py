@@ -13,7 +13,7 @@ def test_all():
     
     # 1. Market Data
     print("\n[1/7] Testing MarketDataService...")
-    df = MarketDataService.get_ohlcv("RELIANCE", "1D", 100)
+    df, _ = MarketDataService.get_ohlcv("RELIANCE", "1D", 100)
     if df is None or df.empty or len(df) < 100:
         print("❌ MarketDataService failed to provide enough data.")
         return
@@ -82,7 +82,7 @@ def test_all():
     # 7. Multi-Timeframe (MTF) Verification
     print("\n[7/7] Testing MTF Logic (1H from 1D)...")
     try:
-        hdf = MarketDataService.get_ohlcv("RELIANCE", "1H", 100)
+        hdf, _ = MarketDataService.get_ohlcv("RELIANCE", "1H", 100)
         print(f"✅ MTF: Fetched {len(hdf)} candles for 1H.")
     except Exception as e:
         print(f"❌ MTF Fetch failed: {e}")
