@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import yfinance as yf
 import concurrent.futures
+import time
 from datetime import datetime
 
 """
@@ -240,7 +241,6 @@ class ScreenerService:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
         
         # 0. Check Cache
-        import time
         current_time = time.time()
         if (cls._cache["data"] is not None and 
             cls._cache["timeframe"] == normalized_tf and 
