@@ -3,6 +3,19 @@ import pandas as pd
 import numpy as np
 import time
 import sys
+"""
+Sector Logic v1.0 (LOCKED)
+
+Rules:
+- Absolute direction first
+- Relative outperformance second
+- RS = sectorReturn - benchmarkReturn
+- Sector must be UP to be LEADING
+- Sector DOWN can only be IMPROVING or LAGGING
+
+Any change must update tests.
+"""
+
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -48,6 +61,29 @@ class SectorService:
         "timeframe": None
     }
     CACHE_TTL = 300 # 5 minutes
+
+    @staticmethod
+    def calculate_state(sector_return: float, benchmark_return: float, prev_rs: float) -> str:
+        """
+        Final Trader-Correct Logic v1.0
+        """
+        rs = sector_return - benchmark_return
+        rm = rs - prev_rs
+
+        if sector_return > 0:
+            # Sector is UP in absolute terms
+            if rs > 0 and rm > 0:
+                return "LEADING"
+            if rs > 0 and rm <= 0:
+                return "WEAKENING"
+        else:
+            # Sector is DOWN in absolute terms
+            if rs > 0 and rm > 0:
+                return "IMPROVING"
+            if rs <= 0 and rm < 0:
+                return "LAGGING"
+
+        return "NEUTRAL"
 
     @classmethod
     def get_rotation_data(cls, days=60, timeframe="1D"):
@@ -113,6 +149,13 @@ class SectorService:
             if data: return data, alerts
             return {}, []
 
+        # --- REAL-TIME PATCHING ---
+        # yf.download is often delayed. We patch the indices with fast_info to ensure live RS/RM.
+        try:
+            cls._patch_latest_data(batch_df, all_sector_symbols)
+        except Exception as e:
+            print(f"Real-time patch failed: {e}")
+
         results = {}
         
         # Helper to get ticker data from multi-index batch_df
@@ -156,20 +199,14 @@ class SectorService:
                 if combined.empty: continue
                 
                 # RS and momentum rules:
-                # sector_return = (current_close - previous_close) / previous_close
-                # benchmark_return = (current_close - previous_close) / previous_close
-                # RS = sector_return / benchmark_return
-                # momentum = RS(current) - RS(previous)
+                # NEW: rs = sector_return - benchmark_return (Difference-based to avoid division explosions)
+                # momentum = rs(current) - rs(previous)
                 lookback_bars = cls.RETURN_LOOKBACK_BARS_BY_TIMEFRAME.get(normalized_timeframe, 1)
                 combined['sector_return'] = combined['sector'].pct_change(periods=lookback_bars)
                 combined['benchmark_return'] = combined['benchmark'].pct_change(periods=lookback_bars)
-                denominator = combined['benchmark_return']
-                denominator_safe = np.where(
-                    np.abs(denominator) < cls.RS_EPSILON,
-                    np.where(denominator < 0, -cls.RS_EPSILON, cls.RS_EPSILON),
-                    denominator,
-                )
-                combined['rs'] = combined['sector_return'] / denominator_safe
+                
+                # Difference-based RS
+                combined['rs'] = combined['sector_return'] - combined['benchmark_return']
                 combined['rm'] = combined['rs'].diff()
                 combined = combined.dropna(subset=['rs', 'rm'])
 
@@ -213,17 +250,12 @@ class SectorService:
                 curr_rs = float(last_row['rs'])
                 curr_rm = float(last_row['rm'])
 
-                # State logic is intentionally explicit for trader clarity.
-                if curr_rs > cls.LEADING_RS_MIN and curr_rm > 0:
-                    state = "LEADING"
-                elif curr_rs > cls.LEADING_RS_MIN and curr_rm < 0:
-                    state = "WEAKENING"
-                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm < 0:
-                    state = "LAGGING"
-                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm > 0:
-                    state = "IMPROVING"
-                else:
-                    state = "NEUTRAL"
+                # State logic: Absolute direction + Relative performance
+                state = cls.calculate_state(
+                    sector_return=float(last_row['sector_return']),
+                    benchmark_return=float(last_row['benchmark_return']),
+                    prev_rs=float(history.iloc[-2]['rs']) if len(history) > 1 else float(last_row['rs'])
+                )
 
                 results[name] = {
                     "current": history_list[-1],
@@ -233,7 +265,9 @@ class SectorService:
                     "metrics": {
                         "breadth": round(breadth_ratio * 100, 1),
                         "relVolume": round(rel_volume, 2),
-                        "state": state
+                        "state": state,
+                        "sr": round(sector_return, 4),
+                        "br": round(float(last_row['benchmark_return']), 4)
                     }
                 }
                 
@@ -403,3 +437,64 @@ class SectorService:
             "NIFTY_MEDIA": 0.005
         }
         return weights.get(name, 0.05)
+
+    @classmethod
+    def _patch_latest_data(cls, batch_df, symbols):
+        """
+        Fetches fast_info for sector indices and updates the batch_df in-place.
+        Handles MultiIndex columns (Ticker, PriceType).
+        """
+        import concurrent.futures
+        
+        def fetch_fast(sym):
+            try:
+                t = yf.Ticker(sym)
+                f = t.fast_info
+                return sym, f.get('lastPrice') or f.get('last_price')
+            except:
+                return sym, None
+
+        updates = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(fetch_fast, s) for s in symbols]
+            for fut in concurrent.futures.as_completed(futures):
+                sym, price = fut.result()
+                if price:
+                    updates[sym] = price
+        
+        # Apply updates
+        # batch_df columns are likely MultiIndex: (Ticker, 'Close'), etc.
+        if isinstance(batch_df.columns, pd.MultiIndex):
+            for sym, price in updates.items():
+                if sym in batch_df.columns.levels[0]:
+                    # Update Last Row if today, or Append new row
+                    # Simplify: Just update the last 'Close' if it exists
+                     try:
+                        # We just update the last returned candle to the current price.
+                        # This avoids index mismatch issues.
+                        # If the last candle is yesterday, we effectively "morph" it to today for calculation 
+                        # OR if we want to be strict, we check the date.
+                        # For RS/RM, we just need the "Latest Price".
+                        
+                        # Find the Close column for this ticker
+                        # Note: yfinance 0.2+ uses 'Close', older might use 'close'
+                        # The df columns might be (Ticker, 'Close')
+                        
+                        # Check last available index
+                        last_idx = batch_df.index[-1]
+                        
+                        # Assign the real-time price to the Close column of the last row
+                        # This works assuming the batch_df has at least one row
+                        if not batch_df.empty:
+                            if ('Close', sym) in batch_df.columns: # Flattened or swapped?
+                                # group_by='ticker' means columns are (Ticker, PriceType)
+                                batch_df.loc[last_idx, (sym, 'Close')] = price
+                            elif (sym, 'Close') in batch_df.columns:
+                                batch_df.loc[last_idx, (sym, 'Close')] = price
+                            elif (sym, 'close') in batch_df.columns:
+                                batch_df.loc[last_idx, (sym, 'close')] = price
+                     except Exception as e:
+                         print(f"Failed to patch {sym}: {e}")
+        else:
+            # Single ticker case (unlikely here as we request multiple)
+            pass

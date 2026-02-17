@@ -523,6 +523,7 @@ window.onload = function () {
         // Initialize Intelligence App
         if (typeof MarketIntelligence !== 'undefined') {
             intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
+            window.intelligenceApp = intelligenceApp;
         }
 
         // Toggle Handlers

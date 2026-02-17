@@ -129,6 +129,21 @@
         .border-l-down {
             border-left-color: #f6465d;
         }
+
+        /* Signal Modal Styles */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+        }
+
+        .signal-modal {
+            max-width: 600px;
+            width: 90%;
+            background: #131722;
+            border: 1px solid #1e222d;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+        }
     </style>
 </head>
 
@@ -272,10 +287,22 @@
                                 <p class="text-[10px] text-gray-500">Price > 2% | Vol > 1.5x | Consecutive Momentum
                                 </p>
                             </div>
-                            <div id="hits-sync-status"
-                                class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
-                                <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
-                                LIVE SYNC
+                            <div class="flex items-center gap-4">
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
+                                    <select id="confidence-filter" onchange="window.intelligenceApp._renderHitsTable()"
+                                        class="bg-gray-800 border border-gray-700 text-[9px] font-bold text-indigo-400 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none uppercase cursor-pointer">
+                                        <option value="40">40% (Early)</option>
+                                        <option value="60" selected>60% (Reliable)</option>
+                                        <option value="80">80% (Strongest)</option>
+                                    </select>
+                                </div>
+                                <div id="hits-sync-status"
+                                    class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
+                                    <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                                    LIVE SYNC
+                                </div>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
@@ -283,11 +310,16 @@
                                 <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
                                     <tr>
                                         <th class="px-4 py-3 font-bold">Symbol</th>
-                                        <th class="px-4 py-3 font-bold">Price</th>
-                                        <th class="px-4 py-3 font-bold">Change %</th>
-                                        <th class="px-4 py-3 font-bold text-center">Hits</th>
-                                        <th class="px-4 py-3 font-bold">Vol Ratio</th>
-                                        <th class="px-4 py-3 font-bold text-right">Sector</th>
+                                        <th class="px-4 py-3 font-bold text-right">Price</th>
+                                        <th class="px-4 py-3 font-bold text-right">Chg%</th>
+                                        <th class="px-4 py-3 text-center">Momentum</th>
+                                        <th class="px-4 py-3">Status</th>
+                                        <th class="px-4 py-3 text-center">Confidence</th>
+                                        <th class="px-4 py-3">Risk</th>
+                                        <th class="px-4 py-3 text-center">RU</th>
+                                        <th class="px-4 py-3">Session</th>
+                                        <th class="px-4 py-3 text-right">Vol</th>
+                                        <th class="px-4 py-3 text-right">Sector</th>
                                     </tr>
                                 </thead>
                                 <tbody id="momentum-hits-body" class="divide-y divide-gray-800/50">
@@ -331,7 +363,8 @@
                         <div class="p-4">
                             <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
                                 Overall Strength</div>
-                            <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">Click AI VIEW on a sector card to read commentary.</p>
+                            <p id="ai-detail-text" class="text-xs text-gray-300 leading-relaxed italic">Click AI VIEW on
+                                a sector card to read commentary.</p>
                         </div>
                         <div class="px-4 py-2 bg-gray-900/40 border-t border-gray-800 flex justify-between">
                             <span class="text-[8px] text-gray-500">AI AGENTIC INSIGHT</span>
@@ -445,9 +478,11 @@
                     <p class="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Risk Reward</p>
                     <div class="flex items-center gap-2">
                         <span id="risk-reward" class="text-2xl font-bold mono text-purple-400">—</span>
-                        <span id="trade-signal" class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-gray-800 text-gray-400">HOLD</span>
+                        <span id="trade-signal"
+                            class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-gray-800 text-gray-400">HOLD</span>
                     </div>
-                    <p id="trade-signal-reason" class="text-[10px] text-gray-500 mt-1">Signal updates with EMA bias + structure.</p>
+                    <p id="trade-signal-reason" class="text-[10px] text-gray-500 mt-1">Signal updates with EMA bias +
+                        structure.</p>
                 </div>
             </div>
 
@@ -578,6 +613,148 @@
             <p class="text-indigo-400 font-bold mt-4 tracking-[0.2em] animate-pulse text-xs">ANALYZING MARKET VIBRATIONS
             </p>
             <p class="text-gray-500 text-[9px] mt-2 font-mono uppercase">Please wait while we calibrate price action</p>
+        </div>
+    </div>
+
+    <!-- Signal Explanation Modal -->
+    <div id="signal-modal-overlay" class="fixed inset-0 modal-overlay hidden flex items-center justify-center p-4">
+        <div class="signal-modal rounded-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div class="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-900/40">
+                <div class="flex items-center gap-3">
+                    <span id="expl-status-icon" class="text-2xl">🟢</span>
+                    <div>
+                        <h2 id="expl-title" class="text-xl font-bold text-white uppercase tracking-tight">Signal
+                            Analysis</h2>
+                        <p id="expl-subtitle" class="text-xs text-gray-400 font-mono uppercase tracking-widest mt-0.5">
+                            LOCKED v1.0 Intelligence</p>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('signal-modal-overlay').classList.add('hidden')"
+                    class="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-800 transition-colors text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+
+            <div class="p-6 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <!-- 1. Sector Context -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">1️⃣ Sector Context</span>
+                    </div>
+                    <div class="glass p-4 rounded-2xl border-l-4 border-l-blue-500">
+                        <p class="text-xs text-white font-bold mb-1">State: <span id="expl-sector-state"
+                                class="text-blue-400">LOADING...</span></p>
+                        <ul class="text-[11px] text-gray-400 space-y-1 list-disc list-inside leading-relaxed">
+                            <li>Sector is moving up in absolute terms</li>
+                            <li>Outperforming the broader market (NIFTY)</li>
+                            <li>Relative strength is currently improving</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 2. Stock Strength -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">2️⃣ Stock Strength</span>
+                    </div>
+                    <div class="glass p-4 rounded-2xl border-l-4 border-l-green-500">
+                        <p class="text-xs text-white font-bold mb-1">State: <span id="expl-stock-state"
+                                class="text-green-400">ACTIVE</span></p>
+                        <ul class="text-[11px] text-gray-400 space-y-1 list-disc list-inside leading-relaxed">
+                            <li>Outperforming its own sector benchmark</li>
+                            <li>Participation: <span id="expl-vol-ratio" class="text-gray-200 font-mono">1.5x</span>
+                                volume expansion</li>
+                            <li>Confirmed momentum participation</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 3. Price Structure -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">3️⃣ Price Structure</span>
+                    </div>
+                    <div class="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 grid grid-cols-2 gap-3">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-gray-500 uppercase font-bold">VWAP Bias</span>
+                            <span id="expl-vwap" class="text-xs font-bold text-white">Above VWAP</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-gray-500 uppercase font-bold">Breakout</span>
+                            <span id="expl-breakout" class="text-xs font-bold text-white">Confirmed</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Session Timing -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">4️⃣ Session Timing</span>
+                    </div>
+                    <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                        <p class="text-xs text-white font-bold mb-1">Quality: <span id="expl-session-quality"
+                                class="text-purple-400">BEST</span></p>
+                        <p class="text-[11px] text-gray-400 leading-relaxed italic">Lower noise floor and higher
+                            breakout follow-through during the mid-session window.</p>
+                    </div>
+                </div>
+
+                <!-- 5. Risk Guidance -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">5️⃣ Risk Classification</span>
+                    </div>
+                    <div class="bg-indigo-600/10 border border-indigo-500/20 p-4 rounded-2xl text-center">
+                        <p id="expl-ru" class="text-2xl font-bold text-indigo-400 mb-1">1.5 RU</p>
+                        <p class="text-[10px] text-gray-400 uppercase tracking-widest">Suggested Risk Units</p>
+                        <p class="text-[10px] text-gray-500 mt-2 italic px-4">RU is a relative risk unit. Choose your
+                            own capital per RU.</p>
+                    </div>
+                </div>
+
+                <!-- Confidence Breakdown -->
+                <div id="expl-confidence-breakdown-section" class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">📊 Why this confidence?</span>
+                    </div>
+                    <div class="bg-gray-900/40 border border-gray-800 p-4 rounded-2xl">
+                        <ul id="expl-confidence-list" class="text-[11px] space-y-2 font-medium">
+                            <li class="flex items-center justify-between">
+                                <span class="text-gray-400">Sector Strength</span>
+                                <span class="text-green-400">+30%</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Invalidation Rules (CRITICAL FOR TRUST) -->
+                <div class="p-5 bg-red-600/5 border border-red-500/20 rounded-2xl">
+                    <h3 class="text-xs font-bold text-red-400 uppercase mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd"
+                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                clip-rule="evenodd"></path>
+                        </svg>
+                        What would invalidate this signal?
+                    </h3>
+                    <ul class="text-[11px] text-gray-500 space-y-2 list-none font-medium">
+                        <li class="flex items-center gap-2">❌ <span id="inv-sector">Sector weakens (moves to WEAKENING
+                                or LAGGING)</span></li>
+                        <li class="flex items-center gap-2">❌ <span id="inv-price">Price falls below VWAP</span></li>
+                        <li class="flex items-center gap-2">❌ <span id="inv-volume">Volume dries up (below normal
+                                levels)</span></li>
+                        <li class="flex items-center gap-2">❌ <span id="inv-session">Session shifts to late / closing
+                                phase</span></li>
+                        <li class="flex items-center gap-2">❌ <span id="inv-market">Market conditions change
+                                sharply</span></li>
+                    </ul>
+                    <p class="text-[10px] text-gray-600 mt-4 italic font-bold uppercase tracking-tighter">If any
+                        happens, signal automatically downgrades to WAIT or AVOID.</p>
+                </div>
+            </div>
+
+            <div class="p-6 bg-gray-900/40 border-t border-gray-800">
+                <p id="expl-summary" class="text-xs text-gray-300 leading-relaxed italic text-center">“This stock is
+                    aligned with a strong sector, showing relative strength and high participation.”</p>
+            </div>
         </div>
     </div>
 

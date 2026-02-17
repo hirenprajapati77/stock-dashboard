@@ -18,17 +18,17 @@ class AICommentaryService:
         rank = context.get('rank')
         contributors = context.get('topContributors', [])
         
-        # 1. Base Narrative based on Quadrant Shift
-        if curr_q == "Leading" and prev_q in ["Improving", "Weakening"]:
-            narrative = f"{symbol} has transitioned into the Leading quadrant, signaling a period of market-beating performance."
-        elif curr_q == "Weakening" and prev_q == "Leading":
-            narrative = f"{symbol} is now in the Weakening quadrant, suggesting that its internal momentum is starting to fade despite high relative strength."
-        elif curr_q == "Lagging":
-            narrative = f"{symbol} remains in the Lagging quadrant, reflecting both poor relative strength and negative momentum versus the benchmark."
+        # 1. Base Narrative based on Quadrant/State
+        if curr_q == "Leading":
+            narrative = f"{symbol} is rising and outperforming the broader market."
+        elif curr_q == "Weakening":
+            narrative = f"{symbol} is still up but its relative momentum is slowing."
         elif curr_q == "Improving":
-            narrative = f"{symbol} is moving into the Improving quadrant, which often serves as an early signal of a potential recovery in relative performance."
+            narrative = f"{symbol} is down in absolute terms but showing relative improvement versus the market."
+        elif curr_q == "Lagging":
+            narrative = f"{symbol} is underperforming the market with declining momentum."
         else:
-            narrative = f"{symbol} is currently in the {curr_q} quadrant."
+            narrative = f"{symbol} performance is mixed and lacks a clear relative-strength trend."
 
         # 2. Add Trend Analysis
         trend_msg = f" The relative strength is {rs_trend} ({rs:.2f})"
