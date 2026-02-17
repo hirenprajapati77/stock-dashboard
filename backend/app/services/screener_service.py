@@ -60,6 +60,14 @@ class ScreenerService:
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
     }
 
+    # Class-level cache
+    _cache = {
+        "data": None,
+        "timestamp": 0,
+        "timeframe": None
+    }
+    CACHE_TTL = 300 # 5 minutes
+
     @staticmethod
     def _fetch_realtime_price(symbol: str) -> Optional[Dict]:
         """Fetches real-time price using fast_info to validate/update screener hits."""
@@ -72,8 +80,8 @@ class ScreenerService:
             ticker = yf.Ticker(ticker_sym)
             fast = ticker.fast_info
             
-            last_price = fast.get('lastPrice') or fast.get('last_price')
-            prev_close = fast.get('previousClose') or fast.get('previous_close')
+            last_price = float(fast.get('lastPrice') or fast.get('last_price'))
+            prev_close = float(fast.get('previousClose') or fast.get('previous_close'))
             
             if last_price and prev_close:
                 change_pct = ((last_price - prev_close) / prev_close) * 100
@@ -187,7 +195,7 @@ class ScreenerService:
         if stop_distance_pct > 1.2:
             ru = max(0.5, ru - 0.5)
             
-        return ru
+        return float(ru)
 
     @classmethod
     def get_session_tag(cls) -> tuple[str, str]:
@@ -216,20 +224,29 @@ class ScreenerService:
             prev_close = cls._extract_fast_value(fast_info, 'previousClose', 'regularMarketPreviousClose')
 
             if live_price is None:
-                return fallback_price, fallback_change
+                return float(fallback_price), float(fallback_change)
 
             live_price = float(live_price)
             if prev_close is not None and float(prev_close) > 0:
                 live_change = ((live_price - float(prev_close)) / float(prev_close)) * 100
             else:
                 live_change = fallback_change
-            return live_price, float(live_change)
+            return float(live_price), float(live_change)
         except Exception:
-            return fallback_price, fallback_change
+            return float(fallback_price), float(fallback_change)
 
     @classmethod
     def get_screener_data(cls, timeframe: str = "1D") -> List[Dict]:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
+        
+        # 0. Check Cache
+        import time
+        current_time = time.time()
+        if (cls._cache["data"] is not None and 
+            cls._cache["timeframe"] == normalized_tf and 
+            (current_time - cls._cache["timestamp"]) < cls.CACHE_TTL):
+            return cls._cache["data"]
+
         config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
         rule = cls.RULES_BY_TF.get(normalized_tf, cls.RULES_BY_TF["1D"])
 
@@ -269,10 +286,10 @@ class ScreenerService:
             ) if sector_indices else pd.DataFrame()
         except Exception as e:
             print(f"Momentum screener batch download failed: {e}")
-            return []
+            return cls._load_fallback(normalized_tf)
 
         if stock_batch_df is None or stock_batch_df.empty:
-            return []
+            return cls._load_fallback(normalized_tf)
 
         sector_by_symbol = {
             symbol: sector
@@ -338,7 +355,6 @@ class ScreenerService:
                 stock_return = float(pct.iloc[hit_idx])
                 latest_price = float(close.iloc[latest_idx])
                 latest_change = float(pct.iloc[latest_idx]) if prev_idx >= 0 else stock_return
-                live_price, live_change = cls._get_live_quote(symbol, latest_price, latest_change)
                 
                 # Difference-based RS (avoid ratio explosions)
                 rs_sector = (stock_return - sector_return)
@@ -350,7 +366,7 @@ class ScreenerService:
                 # Technical Analysis Metrics
                 vwap = cls._calculate_vwap(symbol_df)
                 is_breakout = cls._is_breakout(symbol_df)
-                price_above_vwap = live_price > vwap
+                price_above_vwap = latest_price > vwap
                 vol_ratio_val = float(vol_ratio.iloc[hit_idx])
                 
                 # Assume active if standard momentum criteria met (which they are if we reached here)
@@ -360,13 +376,13 @@ class ScreenerService:
                 high_col = "High" if "High" in symbol_df.columns else "high"
                 low_col = "Low" if "Low" in symbol_df.columns else "low"
                 ranges = (symbol_df[high_col] - symbol_df[low_col])
-                curr_range = ranges.iloc[-1]
-                avg_range = ranges.rolling(20).mean().iloc[-1]
-                vol_high = curr_range > (avg_range * 2.0)
+                curr_range = float(ranges.iloc[-1])
+                avg_range = float(ranges.rolling(20).mean().iloc[-1])
+                vol_high = bool(curr_range > (avg_range * 2.0))
                 
                 # Compute Tags
                 entry_tag = cls.get_entry_tag(stock_active, sector_state, price_above_vwap, is_breakout, vol_ratio_val)
-                exit_tag = cls.get_exit_tag(live_price < vwap, vol_ratio_val < 0.8, sector_state)
+                exit_tag = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
                 risk_level = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
                 
                 # POSITION SIZING & SESSION (LOCKED v1.0)
@@ -386,8 +402,8 @@ class ScreenerService:
                 hits.append(
                     {
                         "symbol": str(display_symbol),
-                        "price": float(round(live_price, 2)),
-                        "change": float(round(live_change, 2)),
+                        "price": float(round(latest_price, 2)),
+                        "change": float(round(latest_change, 2)),
                         "hitChange": float(round(stock_return, 2)),
                         "hits1d": bool(hits1d),
                         "hits2d": bool(hits2d),
@@ -425,44 +441,79 @@ class ScreenerService:
             except Exception:
                 continue
 
-        # --- REAL-TIME VALIDATION STEP ---
-        # The hits generation above uses batch data which might be 15-60m delayed or from yesterday.
-        # We must verify the "Price" and "Change" with live data from fast_info.
-        
-        valid_hits = []
+        # --- OPTIMIZED BATCH REAL-TIME FETCH ---
         if hits:
-            # Collect symbols to verify
-            symbols_to_verify = [h['symbol'] for h in hits]
-            realtime_map = {}
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                future_to_sym = {executor.submit(cls._fetch_realtime_price, sym): sym for sym in symbols_to_verify}
-                for future in concurrent.futures.as_completed(future_to_sym):
-                    res = future.result()
-                    if res and res.get("valid"):
-                        # Map base symbol back to result
-                        # Note: _fetch_realtime_price returns the symbol passed to it
-                        realtime_map[res["symbol"]] = res
-            
-            # Update hits with real-time data
-            for hit in hits:
-                rt_data = realtime_map.get(hit['symbol'])
-                if rt_data:
-                    # found real-time data, update the hit
-                    hit['price'] = round(float(rt_data['price']), 2)
-                    hit['change'] = round(float(rt_data['change']), 2)
-                    
-                    # Optional: Re-qualify the hit?
-                    # If it was a momentum hit (>2%) but now is <0%, do we hide it?
-                    # User feedback: "Stock are down even though showing 5% up"
-                    # We should definitely show the CORRECT change.
-                    # Whether to keep it in the list:
-                    # Ideally, we only show valid hits. But strictly filtering might empty the list if yfinance is super volatile.
-                    # Let's keep it but show the correct (live) red/green status.
+            try:
+                # Instead of loop + fast_info, we do a single batch download for 1-day daily to get last close
+                # This is much faster and less likely to hit rate limits for small batches
+                unique_hit_symbols = sorted(list(set([h['symbol'] + ".NS" for h in hits])))
+                print(f"DEBUG: Batch verifying {len(unique_hit_symbols)} hits for real-time accuracy...")
                 
-                valid_hits.append(hit)
-        else:
-            valid_hits = hits
+                rt_df = yf.download(
+                    tickers=" ".join(unique_hit_symbols),
+                    period="1d",
+                    interval="1m",
+                    progress=False,
+                    group_by="ticker",
+                    auto_adjust=False
+                )
+                
+                for hit in hits:
+                    sym = hit['symbol'] + ".NS"
+                    ticker_rt = rt_df[sym] if isinstance(rt_df.columns, pd.MultiIndex) else rt_df
+                    if not ticker_rt.empty:
+                        # Update price and change with newest available minute data
+                        rt_close = float(ticker_rt['Close'].iloc[-1])
+                        # For change, we still need previous day's close for accuracy
+                        # The regular batch scan 'latest_change' is likely more accurate as it has day-1 context
+                        # but we can adjust price to the literal "now" minute price.
+                        hit['price'] = round(rt_close, 2)
+                        # We don't recalculate 'change' here as daily change needs T-1 close which aren't in rt_df
+            except Exception as e:
+                print(f"Batch real-time verify failed: {e}")
 
-        valid_hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
-        return valid_hits
+        hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
+        
+        # Update Cache
+        cls._cache = {
+            "data": hits,
+            "timestamp": time.time(),
+            "timeframe": normalized_tf
+        }
+        
+        # Save to Fallback
+        cls._save_fallback(hits, normalized_tf)
+        
+        return hits
+
+    @classmethod
+    def _save_fallback(cls, data: List[Dict], timeframe: str):
+        try:
+            import json
+            from pathlib import Path
+            fallback_path = Path(__file__).parent.parent / "data" / "screener_fallback.json"
+            fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(fallback_path, "w") as f:
+                json.dump({
+                    "data": data,
+                    "timestamp": time.time(),
+                    "timeframe": timeframe
+                }, f)
+        except Exception as e:
+            print(f"Error saving screener fallback: {e}")
+
+    @classmethod
+    def _load_fallback(cls, timeframe: str) -> List[Dict]:
+        try:
+            import json
+            from pathlib import Path
+            fallback_path = Path(__file__).parent.parent / "data" / "screener_fallback.json"
+            if fallback_path.exists():
+                with open(fallback_path, "r") as f:
+                    stored = json.load(f)
+                    if stored.get("timeframe") == timeframe:
+                        print(f"DEBUG: Loaded screener fallback for {timeframe}")
+                        return stored["data"]
+        except Exception as e:
+            print(f"Error loading screener fallback: {e}")
+        return []
