@@ -758,14 +758,16 @@ async function fetchIntelligence() {
         const now = Date.now();
 
         // 1. Fetch data in parallel
-        const [hitsRes, sectorRes] = await Promise.all([
+        const [hitsRes, sectorRes, summaryRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
-            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; })
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; })
         ]);
 
         // 2. Parse responses carefully
         let hitsData = { data: [] };
         let sectorData = { data: {} };
+        let summaryData = null;
 
         if (hitsRes && hitsRes.ok) {
             hitsData = await hitsRes.json();
@@ -777,6 +779,15 @@ async function fetchIntelligence() {
             sectorData = await sectorRes.json();
         } else if (sectorRes) {
             console.error(`Sector API error: ${sectorRes.status}`);
+        }
+
+        if (summaryRes && summaryRes.ok) {
+            const summaryJson = await summaryRes.json();
+            if (summaryJson.status === 'success') {
+                summaryData = summaryJson.data;
+            }
+        } else if (summaryRes) {
+            console.error(`Market Summary API error: ${summaryRes.status}`);
         }
 
         // 3. Update Intelligence Dashboard instance
@@ -791,6 +802,9 @@ async function fetchIntelligence() {
                 // Also update the Shining Sectors UX card if available
                 if (window.renderActionableSectors) {
                     window.renderActionableSectors(sectorData.data);
+                }
+                if (summaryData) {
+                    intelligenceApp.updateMarketSummary(summaryData);
                 }
             } else if (sectorData) {
                 // Handle empty but valid responses (e.g., fallback)

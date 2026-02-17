@@ -7,6 +7,8 @@ class MarketIntelligence {
         this.activeSectorKey = null;
         this.isProView = false;
         this.prevConfidence = {}; // PERSISTENT STATE FOR TRENDS
+        this.summaryText = document.getElementById('market-summary-text');
+        this.summaryBlock = document.getElementById('market-summary-block');
         this._initExplanationEvents();
     }
 
@@ -157,6 +159,48 @@ class MarketIntelligence {
         if (window.renderActionableSectors) {
             window.renderActionableSectors(sectorData);
         }
+    }
+
+    updateMarketSummary(summaryData) {
+        if (!this.summaryText || !this.summaryBlock || !summaryData) return;
+
+        const { marketReturn, leadingSectors, weakeningSectors, improvingSectors, laggingSectors, topStocks } = summaryData;
+
+        // Construct the narrative
+        let summaryLines = [];
+
+        // 1. Market Overview
+        const marketSentiment = marketReturn > 0.5 ? "bullish" : marketReturn < -0.5 ? "bearish" : "neutral";
+        const returnSign = marketReturn > 0 ? "+" : "";
+        summaryLines.push(`Today, the broader market (Nifty 50) is showing a **${marketSentiment}** bias with a **${returnSign}${marketReturn}%** return.`);
+
+        // 2. Sectoral Analysis
+        if (leadingSectors.length > 0) {
+            summaryLines.push(`The rally is primarily driven by **${leadingSectors.join(', ')}** sectors, which are firmly in the LEADING quadrant.`);
+        }
+
+        if (improvingSectors.length > 0) {
+            summaryLines.push(`We are also seeing early signs of recovery in **${improvingSectors.join(', ')}**, which are transitioning into the IMPROVING phase.`);
+        }
+
+        if (weakeningSectors.length > 0 || laggingSectors.length > 0) {
+            const combined = [...weakeningSectors, ...laggingSectors];
+            summaryLines.push(`Caution is advised in **${combined.slice(0, 3).join(', ')}** as they show signs of relative weakness or declining momentum.`);
+        }
+
+        // 3. Top Setups (Safety restricted)
+        // Only show stocks with >= 60% confidence (in backend they are hits)
+        const reliableStocks = topStocks.filter(s => s.confidence >= 60);
+        if (reliableStocks.length > 0) {
+            const symbols = reliableStocks.slice(0, 3).map(s => `**${s.symbol}**`).join(', ');
+            summaryLines.push(`In terms of individual setups, symbols like ${symbols} are showing high-confidence momentum alignments.`);
+        }
+
+        // 4. Closing Note (No advice)
+        summaryLines.push("Focus remains on sectors with sustained RS strength while maintaining risk discipline in weakening segments.");
+
+        this.summaryText.innerHTML = summaryLines.join("<br><br>");
+        this.summaryBlock.classList.remove('hidden');
     }
 
     _buildSectorExplanation(state, rs, rm) {
