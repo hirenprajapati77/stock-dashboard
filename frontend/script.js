@@ -221,7 +221,7 @@ function updateUI(data) {
         if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp);
 
         const verTag = document.getElementById('ver-tag');
-        if (verTag) verTag.textContent = "v1.4.2";
+        if (verTag) verTag.textContent = "v1.4.3";
 
         const syncTime = document.getElementById('sync-time');
         if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;

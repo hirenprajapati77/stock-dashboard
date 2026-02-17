@@ -213,7 +213,7 @@ class ScreenerService:
         if 1430 <= cur_time < 1510: return "LATE", "CAUTION"
         if 1510 <= cur_time < 1530: return "CLOSE", "AVOID"
         
-        return "CLOSED", "AVOID"
+        return "CLOSED", "BEST"
 
     @classmethod
     def _get_live_quote(cls, symbol: str, fallback_price: float, fallback_change: float) -> tuple[float, float]:
