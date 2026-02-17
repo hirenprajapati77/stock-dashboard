@@ -113,6 +113,13 @@ class SectorService:
             if data: return data, alerts
             return {}, []
 
+        # --- REAL-TIME PATCHING ---
+        # yf.download is often delayed. We patch the indices with fast_info to ensure live RS/RM.
+        try:
+            cls._patch_latest_data(batch_df, all_sector_symbols)
+        except Exception as e:
+            print(f"Real-time patch failed: {e}")
+
         results = {}
         
         # Helper to get ticker data from multi-index batch_df
@@ -403,3 +410,64 @@ class SectorService:
             "NIFTY_MEDIA": 0.005
         }
         return weights.get(name, 0.05)
+
+    @classmethod
+    def _patch_latest_data(cls, batch_df, symbols):
+        """
+        Fetches fast_info for sector indices and updates the batch_df in-place.
+        Handles MultiIndex columns (Ticker, PriceType).
+        """
+        import concurrent.futures
+        
+        def fetch_fast(sym):
+            try:
+                t = yf.Ticker(sym)
+                f = t.fast_info
+                return sym, f.get('lastPrice') or f.get('last_price')
+            except:
+                return sym, None
+
+        updates = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(fetch_fast, s) for s in symbols]
+            for fut in concurrent.futures.as_completed(futures):
+                sym, price = fut.result()
+                if price:
+                    updates[sym] = price
+        
+        # Apply updates
+        # batch_df columns are likely MultiIndex: (Ticker, 'Close'), etc.
+        if isinstance(batch_df.columns, pd.MultiIndex):
+            for sym, price in updates.items():
+                if sym in batch_df.columns.levels[0]:
+                    # Update Last Row if today, or Append new row
+                    # Simplify: Just update the last 'Close' if it exists
+                     try:
+                        # We just update the last returned candle to the current price.
+                        # This avoids index mismatch issues.
+                        # If the last candle is yesterday, we effectively "morph" it to today for calculation 
+                        # OR if we want to be strict, we check the date.
+                        # For RS/RM, we just need the "Latest Price".
+                        
+                        # Find the Close column for this ticker
+                        # Note: yfinance 0.2+ uses 'Close', older might use 'close'
+                        # The df columns might be (Ticker, 'Close')
+                        
+                        # Check last available index
+                        last_idx = batch_df.index[-1]
+                        
+                        # Assign the real-time price to the Close column of the last row
+                        # This works assuming the batch_df has at least one row
+                        if not batch_df.empty:
+                            if ('Close', sym) in batch_df.columns: # Flattened or swapped?
+                                # group_by='ticker' means columns are (Ticker, PriceType)
+                                batch_df.loc[last_idx, (sym, 'Close')] = price
+                            elif (sym, 'Close') in batch_df.columns:
+                                batch_df.loc[last_idx, (sym, 'Close')] = price
+                            elif (sym, 'close') in batch_df.columns:
+                                batch_df.loc[last_idx, (sym, 'close')] = price
+                     except Exception as e:
+                         print(f"Failed to patch {sym}: {e}")
+        else:
+            # Single ticker case (unlikely here as we request multiple)
+            pass

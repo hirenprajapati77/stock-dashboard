@@ -139,20 +139,51 @@ class MarketDataService:
             df = ticker.history(period=period, interval=interval)
             
             # --- REAL-TIME ENHANCEMENT ---
-            # Use fast_info for true CMP
+            # Yahoo Finance history() is often delayed by 15-60 mins for NSE.
+            # We MUST use fast_info.last_price to get the actual current market price.
             try:
                 fast = ticker.fast_info
+                # Force fetch of live price
                 cmp = MarketDataService._pick_fast_info_value(fast, 'lastPrice', 'last_price', 'regularMarketPrice')
                 
-                # Double check for extremely stale data or empty fast info
-                if cmp and not df.empty:
-                    col = 'Close' if 'Close' in df.columns else 'close'
-                    # Update the very last candle with the most recent price from fast_info
-                    df.iloc[-1, df.columns.get_loc(col)] = cmp
-                elif not cmp and not df.empty:
-                    # Fallback to the last close if fast_info fails
-                    col = 'Close' if 'Close' in df.columns else 'close'
-                    cmp = df[col].iloc[-1]
+                if cmp:
+                    # If df is empty (start of day or error), create a single row
+                    if df.empty:
+                        # Construct a single-row DataFrame
+                        df = pd.DataFrame({
+                            'open': [cmp], 'high': [cmp], 'low': [cmp], 'close': [cmp], 'volume': [0]
+                        }, index=[pd.Timestamp.now()])
+                    else:
+                        # Update the very last candle with the most recent price
+                        # Check if the last candle's date is today. If so, update it.
+                        # If not (e.g. yesterday's close), append a NEW candle for today.
+                        last_idx = df.index[-1]
+                        is_today = last_idx.date() == pd.Timestamp.now().date()
+                        
+                        col_close = 'Close' if 'Close' in df.columns else 'close'
+                        col_high = 'High' if 'High' in df.columns else 'high'
+                        col_low = 'Low' if 'Low' in df.columns else 'low'
+                        
+                        if is_today:
+                            df.iloc[-1, df.columns.get_loc(col_close)] = cmp
+                            # Update High/Low if CMP breaks them
+                            if cmp > df.iloc[-1, df.columns.get_loc(col_high)]:
+                                df.iloc[-1, df.columns.get_loc(col_high)] = cmp
+                            if cmp < df.iloc[-1, df.columns.get_loc(col_low)]:
+                                df.iloc[-1, df.columns.get_loc(col_low)] = cmp
+                        else:
+                            # Append new candle for today
+                            new_row = df.iloc[-1].copy()
+                            new_row.name = pd.Timestamp.now()
+                            new_row[col_close] = cmp
+                            new_row[col_high] = cmp
+                            new_row[col_low] = cmp
+                            # Volume unknown, set to 0 or copy? Set to 0 to be safe
+                            col_vol = 'Volume' if 'Volume' in df.columns else 'volume'
+                            new_row[col_vol] = 0
+                            
+                            df = pd.concat([df, pd.DataFrame([new_row])])
+
             except Exception as fe:
                 print(f"Fast info failed for {symbol}: {fe}")
             

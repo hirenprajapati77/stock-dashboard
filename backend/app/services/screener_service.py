@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import yfinance as yf
+import concurrent.futures
+from datetime import datetime
 
 from app.services.constituent_service import ConstituentService
 
@@ -44,6 +46,33 @@ class ScreenerService:
         "NIFTY_REALTY": "^CNXREALTY",
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
     }
+
+    @staticmethod
+    def _fetch_realtime_price(symbol: str) -> Optional[Dict]:
+        """Fetches real-time price using fast_info to validate/update screener hits."""
+        try:
+            # Handle .NS suffix or indices
+            ticker_sym = symbol
+            if "." not in symbol and not symbol.startswith("^"):
+                ticker_sym = f"{symbol}.NS"
+            
+            ticker = yf.Ticker(ticker_sym)
+            fast = ticker.fast_info
+            
+            last_price = fast.get('lastPrice') or fast.get('last_price')
+            prev_close = fast.get('previousClose') or fast.get('previous_close')
+            
+            if last_price and prev_close:
+                change_pct = ((last_price - prev_close) / prev_close) * 100
+                return {
+                    "symbol": symbol,
+                    "price": last_price,
+                    "change": change_pct,
+                    "valid": True
+                }
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _find_last_hit_index(cond: pd.Series, lookback_bars: int = 10) -> Optional[int]:
@@ -225,5 +254,44 @@ class ScreenerService:
             except Exception:
                 continue
 
-        hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
-        return hits
+        # --- REAL-TIME VALIDATION STEP ---
+        # The hits generation above uses batch data which might be 15-60m delayed or from yesterday.
+        # We must verify the "Price" and "Change" with live data from fast_info.
+        
+        valid_hits = []
+        if hits:
+            # Collect symbols to verify
+            symbols_to_verify = [h['symbol'] for h in hits]
+            realtime_map = {}
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                future_to_sym = {executor.submit(cls._fetch_realtime_price, sym): sym for sym in symbols_to_verify}
+                for future in concurrent.futures.as_completed(future_to_sym):
+                    res = future.result()
+                    if res and res.get("valid"):
+                        # Map base symbol back to result
+                        # Note: _fetch_realtime_price returns the symbol passed to it
+                        realtime_map[res["symbol"]] = res
+            
+            # Update hits with real-time data
+            for hit in hits:
+                rt_data = realtime_map.get(hit['symbol'])
+                if rt_data:
+                    # found real-time data, update the hit
+                    hit['price'] = round(float(rt_data['price']), 2)
+                    hit['change'] = round(float(rt_data['change']), 2)
+                    
+                    # Optional: Re-qualify the hit?
+                    # If it was a momentum hit (>2%) but now is <0%, do we hide it?
+                    # User feedback: "Stock are down even though showing 5% up"
+                    # We should definitely show the CORRECT change.
+                    # Whether to keep it in the list:
+                    # Ideally, we only show valid hits. But strictly filtering might empty the list if yfinance is super volatile.
+                    # Let's keep it but show the correct (live) red/green status.
+                
+                valid_hits.append(hit)
+        else:
+            valid_hits = hits
+
+        valid_hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
+        return valid_hits
