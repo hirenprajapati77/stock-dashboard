@@ -266,7 +266,7 @@ class SectorService:
                         "breadth": round(breadth_ratio * 100, 1),
                         "relVolume": round(rel_volume, 2),
                         "state": state,
-                        "sr": round(sector_return, 4),
+                        "sr": round(float(last_row['sector_return']), 4),
                         "br": round(float(last_row['benchmark_return']), 4)
                     }
                 }
