@@ -1,0 +1,92 @@
+﻿python : $MAHM.NS: 
+possibly delisted; 
+no price data found  
+(period=1y)
+At line:1 char:1
++ python 
+verify_rs_logic.py > 
+rs_output.txt 2>&1; 
+Get-Content 
+rs_output ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo   
+           : 
+NotSpecified: ($    
+MAHM.NS: possi...nd  
+    
+(period=1y):String) 
+[    ], 
+RemoteException
+    + 
+FullyQualifiedError  
+  Id : 
+NativeCommandErr    
+or
+ 
+HTTP Error 404: {"quo
+teSummary":{"result":
+null,"error":{"code":
+"Not Found","descript
+ion":"Quote not 
+found for symbol: 
+TATAMOTORS.NS"}}}
+$TATAMOTORS.NS: 
+possibly delisted; 
+no price data found  
+(period=1y) (Yahoo 
+error = "No data 
+found, symbol may be 
+delisted")
+HTTP Error 404: {"quo
+teSummary":{"result":
+null,"error":{"code":
+"Not Found","descript
+ion":"Quote not 
+found for symbol: 
+SWANENERGY.NS"}}}
+$SWANENERGY.NS: 
+possibly delisted; 
+no price data found  
+(period=1y) (Yahoo 
+error = "No data 
+found, symbol may be 
+delisted")
+
+3 Failed downloads:
+['MAHM.NS']: 
+possibly delisted; 
+no price data found  
+(period=1y)
+['TATAMOTORS.NS', 
+'SWANENERGY.NS']: 
+possibly delisted; 
+no price data found  
+(period=1y) (Yahoo 
+error = "No data 
+found, symbol may be 
+delisted")
+--- Sector Intelligence Logic Test (2026-02-17 12:52:09) ---
+DEBUG: Batch downloading 97 symbols: ^CNXREALTY, BAJAJ-AUTO.NS, ADANIENSOL.NS, HDFCBANK.NS, INDIANB.NS...
+DEBUG: Download finished. Shape: (248, 488)
+DEBUG: Saved sector fallback for 1D
+
+Verification Results for '1D' Timeframe:
+Sector               | Return   | RS       | State        | Commentary Snippet
+--------------------------------------------------------------------------------
+NIFTY_IT             | N/A      |    2.31% | LEADING      | Nifty IT is moving into the Improving quadrant, wh...
+NIFTY_PSU_BANK       | N/A      |    2.07% | LEADING      | Nifty PSU_BANK is moving into the Improving quadra...
+NIFTY_FMCG           | N/A      |    0.34% | LEADING      | Nifty FMCG is moving into the Improving quadrant, ...
+NIFTY_PHARMA         | N/A      |    0.18% | LEADING      | Nifty PHARMA is moving into the Improving quadrant...
+NIFTY_AUTO           | N/A      |    0.13% | LEADING      | Nifty AUTO is moving into the Improving quadrant, ...
+NIFTY_BANK           | N/A      |    0.10% | WEAKENING    | Nifty BANK remains in the Lagging quadrant, reflec...
+NIFTY_REALTY         | N/A      |   -0.19% | NEUTRAL      | Nifty REALTY remains in the Lagging quadrant, refl...
+NIFTY_ENERGY         | N/A      |   -0.39% | LAGGING      | Nifty ENERGY remains in the Lagging quadrant, refl...
+NIFTY_METAL          | N/A      |   -1.26% | LAGGING      | Nifty METAL remains in the Lagging quadrant, refle...
+
+--- Analytics Check ---
+Total Sectors: 9
+Leading Sectors: 5 (Should be <= 3)
+Exploding RS Bug Check: 0 cases (Should be 0)
+WARNING: Logic might be overly optimistic (Too many LEADING).

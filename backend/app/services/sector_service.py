@@ -3,6 +3,19 @@ import pandas as pd
 import numpy as np
 import time
 import sys
+"""
+Sector Logic v1.0 (LOCKED)
+
+Rules:
+- Absolute direction first
+- Relative outperformance second
+- RS = sectorReturn - benchmarkReturn
+- Sector must be UP to be LEADING
+- Sector DOWN can only be IMPROVING or LAGGING
+
+Any change must update tests.
+"""
+
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -48,6 +61,29 @@ class SectorService:
         "timeframe": None
     }
     CACHE_TTL = 300 # 5 minutes
+
+    @staticmethod
+    def calculate_state(sector_return: float, benchmark_return: float, prev_rs: float) -> str:
+        """
+        Final Trader-Correct Logic v1.0
+        """
+        rs = sector_return - benchmark_return
+        rm = rs - prev_rs
+
+        if sector_return > 0:
+            # Sector is UP in absolute terms
+            if rs > 0 and rm > 0:
+                return "LEADING"
+            if rs > 0 and rm <= 0:
+                return "WEAKENING"
+        else:
+            # Sector is DOWN in absolute terms
+            if rs > 0 and rm > 0:
+                return "IMPROVING"
+            if rs <= 0 and rm < 0:
+                return "LAGGING"
+
+        return "NEUTRAL"
 
     @classmethod
     def get_rotation_data(cls, days=60, timeframe="1D"):
@@ -163,20 +199,14 @@ class SectorService:
                 if combined.empty: continue
                 
                 # RS and momentum rules:
-                # sector_return = (current_close - previous_close) / previous_close
-                # benchmark_return = (current_close - previous_close) / previous_close
-                # RS = sector_return / benchmark_return
-                # momentum = RS(current) - RS(previous)
+                # NEW: rs = sector_return - benchmark_return (Difference-based to avoid division explosions)
+                # momentum = rs(current) - rs(previous)
                 lookback_bars = cls.RETURN_LOOKBACK_BARS_BY_TIMEFRAME.get(normalized_timeframe, 1)
                 combined['sector_return'] = combined['sector'].pct_change(periods=lookback_bars)
                 combined['benchmark_return'] = combined['benchmark'].pct_change(periods=lookback_bars)
-                denominator = combined['benchmark_return']
-                denominator_safe = np.where(
-                    np.abs(denominator) < cls.RS_EPSILON,
-                    np.where(denominator < 0, -cls.RS_EPSILON, cls.RS_EPSILON),
-                    denominator,
-                )
-                combined['rs'] = combined['sector_return'] / denominator_safe
+                
+                # Difference-based RS
+                combined['rs'] = combined['sector_return'] - combined['benchmark_return']
                 combined['rm'] = combined['rs'].diff()
                 combined = combined.dropna(subset=['rs', 'rm'])
 
@@ -220,17 +250,12 @@ class SectorService:
                 curr_rs = float(last_row['rs'])
                 curr_rm = float(last_row['rm'])
 
-                # State logic is intentionally explicit for trader clarity.
-                if curr_rs > cls.LEADING_RS_MIN and curr_rm > 0:
-                    state = "LEADING"
-                elif curr_rs > cls.LEADING_RS_MIN and curr_rm < 0:
-                    state = "WEAKENING"
-                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm < 0:
-                    state = "LAGGING"
-                elif curr_rs < cls.LAGGING_RS_MAX and curr_rm > 0:
-                    state = "IMPROVING"
-                else:
-                    state = "NEUTRAL"
+                # State logic: Absolute direction + Relative performance
+                state = cls.calculate_state(
+                    sector_return=float(last_row['sector_return']),
+                    benchmark_return=float(last_row['benchmark_return']),
+                    prev_rs=float(history.iloc[-2]['rs']) if len(history) > 1 else float(last_row['rs'])
+                )
 
                 results[name] = {
                     "current": history_list[-1],
@@ -240,7 +265,9 @@ class SectorService:
                     "metrics": {
                         "breadth": round(breadth_ratio * 100, 1),
                         "relVolume": round(rel_volume, 2),
-                        "state": state
+                        "state": state,
+                        "sr": round(sector_return, 4),
+                        "br": round(float(last_row['benchmark_return']), 4)
                     }
                 }
                 
