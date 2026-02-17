@@ -43,8 +43,8 @@ class ReliabilityAdjuster:
         final_adjustment = max(-8, min(8, adjustment))
         
         return {
-            "base_confidence": base_confidence,
-            "ai_adjustment": final_adjustment,
-            "final_confidence": max(0, min(100, base_confidence + final_adjustment)),
-            "reason": "; ".join(reasons) if reasons else "No major AI adjustments."
+            "base_confidence": int(base_confidence),
+            "ai_adjustment": int(final_adjustment),
+            "final_confidence": int(max(0, min(100, base_confidence + final_adjustment))),
+            "reason": str("; ".join(reasons) if reasons else "No major AI adjustments.")
         }
