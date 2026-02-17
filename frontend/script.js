@@ -753,31 +753,52 @@ window.onload = function () {
 
 async function fetchIntelligence() {
     try {
-        const tf = document.getElementById('tf-selector').value;
+        const tfSelector = document.getElementById('tf-selector');
+        const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
 
-        // Fetch in parallel
+        // 1. Fetch data in parallel
         const [hitsRes, sectorRes] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`),
-            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`)
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; })
         ]);
 
-        const [hitsData, sectorData] = await Promise.all([
-            hitsRes.json(),
-            sectorRes.json().catch(() => ({ data: {} })) // Guard JSON parse
-        ]);
+        // 2. Parse responses carefully
+        let hitsData = { data: [] };
+        let sectorData = { data: {} };
 
+        if (hitsRes && hitsRes.ok) {
+            hitsData = await hitsRes.json();
+        } else if (hitsRes) {
+            console.error(`Hits API error: ${hitsRes.status}`);
+        }
+
+        if (sectorRes && sectorRes.ok) {
+            sectorData = await sectorRes.json();
+        } else if (sectorRes) {
+            console.error(`Sector API error: ${sectorRes.status}`);
+        }
+
+        // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
                 intelligenceApp.updateHits(hitsData.data);
             }
-            if (sectorData && sectorData.data) {
+            if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
-                intelligenceApp.updateSectors(sectorData.data);
+                intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || []);
+
+                // Also update the Shining Sectors UX card if available
+                if (window.renderActionableSectors) {
+                    window.renderActionableSectors(sectorData.data);
+                }
+            } else if (sectorData) {
+                // Handle empty but valid responses (e.g., fallback)
+                intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || []);
             }
         }
     } catch (e) {
-        console.error("Failed to fetch intelligence data", e);
+        console.error("Critical failure in fetchIntelligence", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
