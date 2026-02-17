@@ -192,8 +192,11 @@ class ScreenerService:
     @classmethod
     def get_session_tag(cls) -> tuple[str, str]:
         """Session Timing Logic v1.0 (LOCKED) - India Market IST"""
-        now = datetime.now()
-        cur_time = now.hour * 100 + now.minute
+        # Render/Cloud servers are UTC. Convert to IST (UTC+5:30)
+        from datetime import timezone, timedelta
+        now_utc = datetime.now(timezone.utc)
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        cur_time = now_ist.hour * 100 + now_ist.minute
         
         if 915 <= cur_time < 930: return "OPEN", "AVOID"
         if 930 <= cur_time < 1030: return "EARLY", "CAUTION"

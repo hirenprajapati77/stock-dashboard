@@ -413,18 +413,26 @@ class MarketIntelligence {
             const session = hit.session || {};
 
             // EDGE-CASE GUARDS (Handover v1.3)
-            // Never show stocks late/early in noisy sessions or if sector is lagging
-            if (session.quality === "AVOID") return false;
-            if (hit.sectorState === "LAGGING") return false;
+            const avoidSession = session.quality === "AVOID";
+            const laggingSector = hit.sectorState === "LAGGING";
+            const belowThreshold = conf.score < threshold;
 
-            // User-Defined Confidence Threshold
-            if (conf.score < threshold) return false;
+            if (avoidSession || laggingSector || belowThreshold) {
+                if (window.location.search.includes('debug=true')) {
+                    console.log(`[Filter] ${hit.symbol} hidden: session=${session.quality}, sector=${hit.sectorState}, score=${conf.score}% (threshold=${threshold})`);
+                }
+                return false;
+            }
 
             // Existing Sector Focus filter
             if (this.activeSectorKey && hit.sectorKey !== this.activeSectorKey) return false;
 
             return true;
         });
+
+        if (window.location.search.includes('debug=true')) {
+            console.log(`[Dashboard] Showing ${working.length} of ${this.allHits.length} signals. Session: ${this.allHits[0]?.session?.phase || 'N/A'}`);
+        }
 
         if (!working.length) {
             this.hitsBody.innerHTML = '<tr><td colspan="12" class="px-4 py-10 text-center text-gray-500 italic">No setups match the confidence threshold. Recommended: 60% (Reliable).</td></tr>';

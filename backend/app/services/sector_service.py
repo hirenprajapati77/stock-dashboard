@@ -309,8 +309,10 @@ class SectorService:
                 # Convert date to timestamp
                 try:
                     dt_obj = datetime.strptime(h_curr['date'], "%Y-%m-%d")
+                    now_utc = datetime.now(timezone.utc)
+                    now_ist = now_utc + timedelta(hours=5, minutes=30)
                     # If date matches today, use current time to show "Live" status
-                    if dt_obj.date() == datetime.now().date() and i == len(hist) - 1:
+                    if dt_obj.date() == now_ist.date() and i == len(hist) - 1:
                         ts = time.time()
                     else:
                         ts = dt_obj.timestamp()
