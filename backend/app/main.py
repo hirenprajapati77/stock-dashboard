@@ -378,6 +378,24 @@ async def get_momentum_hits(tf: str = "1D"):
             "message": str(e)
         }
 
+@app.get("/api/v1/market-summary")
+async def get_market_summary(tf: str = "1D"):
+    """
+    Returns an aggregated AI market summary.
+    """
+    try:
+        from app.services.screener_service import ScreenerService as MomentumScreener
+        data = MomentumScreener.get_market_summary_data(timeframe=tf)
+        return {
+            "status": "success",
+            "data": data
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 # Mount Frontend - Robust Path Finding
 # Try specific paths for Docker/Render vs Local
 try:
