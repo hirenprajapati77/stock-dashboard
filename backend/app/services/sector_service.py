@@ -65,25 +65,27 @@ class SectorService:
     @staticmethod
     def calculate_state(sector_return: float, benchmark_return: float, prev_rs: float) -> str:
         """
-        Final Trader-Correct Logic v1.0
+        Final Trader-Correct Logic v1.0 (LOCKED)
         """
         rs = sector_return - benchmark_return
         rm = rs - prev_rs
+        
+        state = "NEUTRAL"
 
-        if sector_return > 0:
-            # Sector is UP in absolute terms
-            if rs > 0.005 and rm > 0: # Tightened: Require min +0.5% RS
-                return "LEADING"
-            if rs > 0 and rm <= 0:
-                return "WEAKENING"
-        else:
-            # Sector is DOWN in absolute terms
-            if rs > 0 and rm > 0:
-                return "IMPROVING"
-            if rs <= 0 and rm < 0:
-                return "LAGGING"
-
-        return "NEUTRAL"
+        if sector_return > 0 and rs > 0 and rm > 0:
+            state = "LEADING"
+        elif sector_return > 0 and rs > 0 and rm <= 0:
+            state = "WEAKENING"
+        elif sector_return < 0 and rs > 0 and rm > 0:
+            state = "IMPROVING"
+        elif sector_return < 0 and rs <= 0 and rm < 0:
+            state = "LAGGING"
+        
+        # Hard Safety Patch
+        if sector_return < 0 and state == "LEADING":
+            state = "IMPROVING"
+            
+        return state
 
     @classmethod
     def get_rotation_data(cls, days=60, timeframe="1D"):
@@ -219,7 +221,8 @@ class SectorService:
                     history_list.append({
                         "date": hist_idx.strftime("%Y-%m-%d"),
                         "rs": float(round(hist_row['rs'], 4)),
-                        "rm": float(round(hist_row['rm'], 6))
+                        "rm": float(round(hist_row['rm'], 6)),
+                        "sr": float(round(hist_row['sector_return'], 4))
                     })
                 
                 # 3. Calculate Shining Metrics from pre-downloaded constituents

@@ -284,17 +284,42 @@
                         class="glass rounded-2xl overflow-hidden border border-indigo-500/30 animate-in slide-in-from-top duration-500 hidden">
                         <div
                             class="px-4 py-3 bg-indigo-900/20 border-b border-gray-800 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xl">🧠</span>
-                                <h2 class="text-[11px] font-bold uppercase tracking-widest text-indigo-100">Today's AI
-                                    Market Summary</h2>
+                            <div class="flex items-center gap-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xl">🧠</span>
+                                    <h2 id="market-summary-title"
+                                        class="text-[11px] font-bold uppercase tracking-widest text-indigo-100">AI
+                                        Market Summary</h2>
+                                </div>
+                                <div class="flex bg-black/40 p-0.5 rounded-lg border border-gray-800">
+                                    <button id="summary-mode-morning"
+                                        onclick="window.intelligenceApp.setSummaryMode('morning')"
+                                        class="px-2 py-1 text-[9px] rounded-md transition-all text-gray-400 hover:text-white">Morning</button>
+                                    <button id="summary-mode-evening"
+                                        onclick="window.intelligenceApp.setSummaryMode('evening')"
+                                        class="px-2 py-1 text-[9px] rounded-md transition-all text-gray-400 hover:text-white">Wrap</button>
+                                    <button id="summary-mode-outlook"
+                                        onclick="window.intelligenceApp.setSummaryMode('outlook')"
+                                        class="px-2 py-1 text-[9px] rounded-md transition-all text-gray-400 hover:text-white">Outlook</button>
+                                </div>
                             </div>
-                            <span class="text-[8px] text-indigo-400/60 font-mono">v1.0 (PRODUCTION-SAFE)</span>
+                            <div class="flex items-center gap-2">
+                                <button onclick="window.intelligenceApp.copySummaryToClipboard()"
+                                    class="p-1.5 hover:bg-white/10 rounded-md transition-colors group"
+                                    title="Copy for WhatsApp/Telegram">
+                                    <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-400"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                </button>
+                                <span class="text-[8px] text-indigo-400/60 font-mono">v1.1</span>
+                            </div>
                         </div>
                         <div class="p-5">
-                            <p id="market-summary-text" class="text-xs text-gray-300 leading-relaxed italic">
+                            <div id="market-summary-text" class="text-xs text-gray-300 leading-relaxed italic">
                                 Calibrating latest market movements for summary generation...
-                            </p>
+                            </div>
                         </div>
                     </div>
 

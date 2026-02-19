@@ -6,9 +6,10 @@ class MarketIntelligence {
         this.allSectors = {};
         this.activeSectorKey = null;
         this.isProView = false;
-        this.prevConfidence = {}; // PERSISTENT STATE FOR TRENDS
         this.summaryText = document.getElementById('market-summary-text');
         this.summaryBlock = document.getElementById('market-summary-block');
+        this.summaryMode = 'evening'; // DEFAULTS TO EVENING WRAP
+        this.summaryData = null;
         this._initExplanationEvents();
     }
 
@@ -90,8 +91,14 @@ class MarketIntelligence {
             const rs = (sector.current?.rs || 0) * 100;
             const drs = (sector.current?.rm || 0) * 100;
 
-            // AUTOMATIC SANITY WARNINGS
-            if (sr < 0 && state === 'LEADING') console.error(`INVALID STATE: ${sector.name} is down (SR: ${sr.toFixed(2)}%) but marked LEADING`);
+            // AUTOMATIC SANITY WARNINGS (LOCKED)
+            const srVal = metrics.sr || 0;
+            if (srVal < 0 && state === 'LEADING') {
+                console.error(`VALIDATION FAILURE: ${sector.name} is down (SR: ${(srVal * 100).toFixed(2)}%) but marked LEADING`);
+            }
+            if (state === 'IMPROVING' && srVal > 0) {
+                console.error(`VALIDATION FAILURE: ${sector.name} is up (SR: ${(srVal * 100).toFixed(2)}%) but marked IMPROVING`);
+            }
 
             const debugPanel = isDebug ? `
                 <div class="mt-3 p-3 bg-gray-900/80 rounded-xl border border-gray-700 font-mono text-[10px] leading-relaxed relative z-10">
@@ -161,54 +168,193 @@ class MarketIntelligence {
         }
     }
 
+    setSummaryMode(mode) {
+        this.summaryMode = mode;
+        this._renderSummary();
+
+        // Update UI button states
+        ['morning', 'evening', 'outlook'].forEach(m => {
+            const btn = document.getElementById(`summary-mode-${m}`);
+            if (btn) {
+                if (m === mode) {
+                    btn.classList.add('bg-indigo-600', 'text-white');
+                    btn.classList.remove('text-gray-400', 'hover:text-white');
+                } else {
+                    btn.classList.remove('bg-indigo-600', 'text-white');
+                    btn.classList.add('text-gray-400', 'hover:text-white');
+                }
+            }
+        });
+
+        // Update title
+        const titleEl = document.getElementById('market-summary-title');
+        if (titleEl) {
+            const titles = { morning: 'Morning Context', evening: 'Today\'s Market Wrap', outlook: 'Tomorrow\'s Outlook' };
+            titleEl.textContent = titles[mode] || 'AI Market Summary';
+        }
+    }
+
     updateMarketSummary(summaryData) {
         if (!this.summaryText || !this.summaryBlock || !summaryData) return;
+        this.summaryData = summaryData;
 
-        const { marketReturn, leadingSectors, weakeningSectors, improvingSectors, laggingSectors, topStocks } = summaryData;
+        // Auto-select mode based on IST time if not already manually toggled
+        if (!this.userInteractedSummary) {
+            const now = new Date();
+            // Convert to IST (UTC+5:30)
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const ist = new Date(utc + (3600000 * 5.5));
+            const hours = ist.getHours();
+            const minutes = ist.getMinutes();
+            const timeNum = hours * 100 + minutes;
 
-        // Construct the narrative
-        let summaryLines = [];
+            if (timeNum < 915) this.summaryMode = 'morning';
+            else if (timeNum > 1545) this.summaryMode = 'evening'; // Wrap after market
+            else this.summaryMode = 'evening'; // Default to intraday wrap
 
-        // 1. Market Overview
-        const marketSentiment = marketReturn > 0.5 ? "bullish" : marketReturn < -0.5 ? "bearish" : "neutral";
-        const returnSign = marketReturn > 0 ? "+" : "";
-        summaryLines.push(`Today, the broader market (Nifty 50) is showing a **${marketSentiment}** bias with a **${returnSign}${marketReturn}%** return.`);
-
-        // 2. Sectoral Analysis
-        if (leadingSectors.length > 0) {
-            summaryLines.push(`The rally is primarily driven by **${leadingSectors.join(', ')}** sectors, which are firmly in the LEADING quadrant.`);
+            // Initial UI state for buttons
+            this.setSummaryMode(this.summaryMode);
         }
 
-        if (improvingSectors.length > 0) {
-            summaryLines.push(`We are also seeing early signs of recovery in **${improvingSectors.join(', ')}**, which are transitioning into the IMPROVING phase.`);
-        }
-
-        if (weakeningSectors.length > 0 || laggingSectors.length > 0) {
-            const combined = [...weakeningSectors, ...laggingSectors];
-            summaryLines.push(`Caution is advised in **${combined.slice(0, 3).join(', ')}** as they show signs of relative weakness or declining momentum.`);
-        }
-
-        // 3. Top Setups (Safety restricted)
-        // Only show stocks with >= 60% confidence (in backend they are hits)
-        const reliableStocks = topStocks.filter(s => s.confidence >= 60);
-        if (reliableStocks.length > 0) {
-            const symbols = reliableStocks.slice(0, 3).map(s => `**${s.symbol}**`).join(', ');
-            summaryLines.push(`In terms of individual setups, symbols like ${symbols} are showing high-confidence momentum alignments.`);
-        }
-
-        // 4. Closing Note (No advice)
-        summaryLines.push("Focus remains on sectors with sustained RS strength while maintaining risk discipline in weakening segments.");
-
-        this.summaryText.innerHTML = summaryLines.join("<br><br>");
+        this._renderSummary();
         this.summaryBlock.classList.remove('hidden');
     }
 
+    _renderSummary() {
+        if (!this.summaryData || !this.summaryText) return;
+
+        let text = "";
+        switch (this.summaryMode) {
+            case 'morning': text = this._generatePreMarketSummary(this.summaryData); break;
+            case 'outlook': text = this._generateTomorrowOutlook(this.summaryData); break;
+            default: text = this._generateDailySummary(this.summaryData); break;
+        }
+
+        // Convert **bold** to <strong>bold</strong> to fix UI visibility issue
+        const html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        this.summaryText.innerHTML = html.split('\n\n').map(p => `<p class="mb-3 last:mb-0">${p}</p>`).join('');
+    }
+
+    _generateDailySummary(data) {
+        const lines = [];
+        const isNeutralMarket = Math.abs(data.marketReturn) <= 0.2;
+        const marketStrength = isNeutralMarket ? "NEUTRAL" : (data.marketReturn > 0 ? "POSITIVE" : "CAUTIOUS");
+
+        if (marketStrength === "POSITIVE") {
+            lines.push("The broader market closed higher, indicating a positive risk environment.");
+        } else if (marketStrength === "CAUTIOUS") {
+            lines.push("The broader market closed lower, reflecting cautious sentiment.");
+        } else {
+            lines.push("The broader market ended with minimal changes, suggesting a neutral bias.");
+        }
+
+        if (data.leadingSectors && data.leadingSectors.length) {
+            const leadershipWord = isNeutralMarket ? "selective strength or relative leadership" : "Sector leadership";
+            lines.push(`**${leadershipWord}** was observed in **${data.leadingSectors.join(", ")}**, showing higher participation versus the broader market.`);
+        }
+
+        if (data.weakeningSectors && data.weakeningSectors.length) {
+            lines.push(`Momentum slowed in **${data.weakeningSectors.join(", ")}**, suggesting reduced follow-through.`);
+        }
+
+        if (data.improvingSectors && data.improvingSectors.length) {
+            lines.push(`**${data.improvingSectors.join(", ")}** are down in absolute terms but showing relative improvement versus the market despite broader weakness.`);
+        }
+
+        const strongStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
+        if (strongStocks.length) {
+            const names = strongStocks.slice(0, 3).map(s => s.symbol).join(", ");
+            lines.push(`Stocks showing the strongest alignment today include **${names}**, supported by sector strength and participation.`);
+        }
+
+        lines.push("Overall, market conditions favor selective opportunities aligned with strong sectors, while caution remains warranted in weakening areas.");
+        return lines.join("\n\n");
+    }
+
+    _generatePreMarketSummary(data) {
+        const lines = [];
+        const isNeutralMarket = Math.abs(data.prevMarketReturn || 0) <= 0.2;
+
+        if (isNeutralMarket) {
+            lines.push("Markets ended the previous session with limited directional movement, suggesting a neutral opening bias.");
+        } else if (data.prevMarketReturn > 0) {
+            lines.push("Markets ended the previous session on a positive note, indicating underlying strength.");
+        } else {
+            lines.push("Markets closed the previous session weak, suggesting cautious sentiment.");
+        }
+
+        if (data.globalCuesPositive || data.giftNiftyPositive) {
+            lines.push("Global cues are supportive, which may aid early stability.");
+        } else {
+            lines.push("Global cues remain mixed, which may lead to a cautious open.");
+        }
+
+        if (data.leadingSectors && data.leadingSectors.length) {
+            const leadershipWord = isNeutralMarket ? "relative leadership" : "Strength";
+            lines.push(`${leadershipWord} was observed in **${data.leadingSectors.join(", ")}**, which remain key sectors to track.`);
+        }
+
+        lines.push("Traders may focus on stocks aligned with strong sectors while maintaining discipline in weaker areas.");
+        return lines.join("\n\n");
+    }
+
+    _generateTomorrowOutlook(data) {
+        const lines = [];
+        if (data.leadingSectors && data.leadingSectors.length) {
+            lines.push(`**${data.leadingSectors.join(", ")}** are rising and outperforming the broader market, and may remain in focus if momentum sustains.`);
+        }
+
+        if (data.improvingSectors && data.improvingSectors.length) {
+            lines.push(`**${data.improvingSectors.join(", ")}** are showing early improvement and may offer selective opportunities on confirmation.`);
+        }
+
+        if (data.weakeningSectors && data.weakeningSectors.length) {
+            lines.push(`Momentum in **${data.weakeningSectors.join(", ")}** is slowing, and follow-through may remain limited.`);
+        }
+
+        lines.push("Overall, continuation depends on sector participation and volume confirmation.");
+        return lines.join("\n\n");
+    }
+
+    copySummaryToClipboard() {
+        if (!this.summaryData) return;
+        this.userInteractedSummary = true;
+
+        const data = this.summaryData;
+        const marketBias = data.marketReturn > 0.5 ? "Positive bias" : data.marketReturn < -0.5 ? "Cautions bias" : "Neutral bias";
+
+        const strongStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
+        const stockList = strongStocks.length
+            ? strongStocks.slice(0, 3).map(s => `• ${s.symbol} (${s.entryTag.replace('_', ' ')})`).join('\n')
+            : "Scanning for setups...";
+
+        const message = `🧠 Daily Market Snapshot\n\n` +
+            `Market: ${marketBias}\n` +
+            `Leading (Rising & Outperforming): ${data.leadingSectors.length ? data.leadingSectors.slice(0, 3).join(', ') : 'None'}\n` +
+            `Improving (Down but Relative Strength): ${data.improvingSectors.length ? data.improvingSectors.slice(0, 3).join(', ') : 'None'}\n` +
+            `Weakening: ${data.weakeningSectors.length ? data.weakeningSectors.slice(0, 3).join(', ') : 'None'}\n\n` +
+            `Top Aligned Stocks:\n${stockList}\n\n` +
+            `Focus on strength, stay selective ⚖️`;
+
+        navigator.clipboard.writeText(message).then(() => {
+            const btn = document.querySelector('[onclick*="copySummaryToClipboard"]');
+            if (btn) {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<span class="text-[9px] text-green-400 font-bold uppercase tracking-tighter">COPIED</span>';
+                setTimeout(() => btn.innerHTML = originalHtml, 2000);
+            }
+        });
+    }
+
     _buildSectorExplanation(state, rs, rm) {
-        if (state === 'LEADING') return 'Sector is rising and outperforming the broader market.';
-        if (state === 'WEAKENING') return 'Sector is still up but momentum is slowing.';
-        if (state === 'IMPROVING') return 'Sector is down but showing relative improvement versus the market.';
-        if (state === 'LAGGING') return 'Sector is underperforming the market with declining momentum.';
-        return 'Sector performance is mixed and lacks a clear relative-strength edge.';
+        const mapping = {
+            'LEADING': "Sector is rising and outperforming the broader market.",
+            'WEAKENING': "Sector is still up but momentum is slowing.",
+            'IMPROVING': "Sector is down in absolute terms but showing relative improvement versus the market.",
+            'LAGGING': "Sector is underperforming the market with declining momentum.",
+            'NEUTRAL': "Sector performance is mixed and lacks a clear relative-strength edge."
+        };
+        return mapping[state] || mapping['NEUTRAL'];
     }
 
     _statePriority(state) {
@@ -436,13 +582,14 @@ class MarketIntelligence {
     }
 
     _getSectorExplanationPart(state) {
-        switch (state) {
-            case "LEADING": return "The sector is rising and outperforming the broader market.";
-            case "IMPROVING": return "The sector is still down but showing relative improvement versus the market.";
-            case "WEAKENING": return "The sector remains up but momentum is slowing.";
-            case "LAGGING": return "The sector is underperforming the market with declining momentum.";
-            default: return "The sector does not show a clear directional advantage.";
-        }
+        const mapping = {
+            'LEADING': "Sector is rising and outperforming the broader market.",
+            'WEAKENING': "Sector is still up but momentum is slowing.",
+            'IMPROVING': "Sector is down in absolute terms but showing relative improvement versus the market.",
+            'LAGGING': "Sector is underperforming the market with declining momentum.",
+            'NEUTRAL': "Sector performance is mixed and lacks a clear relative-strength edge."
+        };
+        return mapping[state] || mapping['NEUTRAL'];
     }
 
     _renderHitsTable() {

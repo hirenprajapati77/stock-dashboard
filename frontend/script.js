@@ -49,6 +49,8 @@ function initChart() {
         },
         timeScale: {
             borderColor: '#374151',
+            timeVisible: true,
+            secondsVisible: false,
         },
     });
 
@@ -344,6 +346,14 @@ function updateUI(data) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
+            // Auto-fit viewport to the new data range
+            chart.timeScale().fitContent();
+            // Enable time labels for intraday timeframes, hide for daily+
+            const tf = document.getElementById('tf-selector').value;
+            const isIntraday = ['5m', '15m', '75m', '1H', '2H', '4H'].includes(tf);
+            chart.applyOptions({
+                timeScale: { timeVisible: isIntraday, secondsVisible: false }
+            });
         }
 
         // 6. Fundamentals
