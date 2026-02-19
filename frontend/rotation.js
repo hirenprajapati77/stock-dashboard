@@ -175,10 +175,12 @@ class RotationDashboard {
     }
 
     getTrendDescription(rs, rm) {
-        if (rs >= 1.0 && rm >= 0) return "Leading / Accelerating";
-        if (rs >= 1.0 && rm < 0) return "Weakening / Distributing";
-        if (rs < 1.0 && rm < 0) return "Lagging / Selling Off";
-        return "Improving / Rebounding";
+        // Synchronized with Sector State Logic
+        if (rs > 0 && rm > 0) return "Leading / Accelerating";
+        if (rs > 0 && rm <= 0) return "Weakening / Distributing";
+        if (rs <= 0 && rm > 0) return "Improving / Rebounding";
+        if (rs <= 0 && rm < 0) return "Lagging / Selling Off";
+        return "Neutral / Mixed";
     }
 
     handleClick(e) {
@@ -365,6 +367,7 @@ class RotationDashboard {
                 sectorState: state,
                 relVolume: metrics.relVolume || 1.0,
                 breadth: metrics.breadth || 50,
+                sr: metrics.sr || 0,
                 trail: [],
                 quadrant: "",
                 visualPulse: 0,
@@ -388,8 +391,9 @@ class RotationDashboard {
             // Map RS (0.8 - 1.2) -> (-500, 500)
             p.targetX = (hist.rs - 1.0) * 2500;
             p.targetY = -(hist.rm * 10000);
+            p.sr = hist.sr || 0;
 
-            const newQuad = this.getQuadrantName(p.rs, p.rm);
+            const newQuad = this.getQuadrantName(p.rs, p.rm, p.sr);
             if (p.quadrant && p.quadrant !== newQuad) {
                 this.showHUD(`${p.name.replace("NIFTY_", "")}: ${p.quadrant} → ${newQuad}`);
             }
@@ -411,31 +415,33 @@ class RotationDashboard {
         });
     }
 
-    getQuadrantName(rs, rm) {
-        if (rs > 1.02 && rm > 0) return "LEADING";
-        if (rs > 1.02 && rm < 0) return "WEAKENING";
-        if (rs < 0.98 && rm < 0) return "LAGGING";
-        if (rs < 0.98 && rm > 0) return "IMPROVING";
-        return "NEUTRAL";
+    getQuadrantName(rs, rm, sectorReturn = 1) {
+        // rs and rm are already differences (e.g. 0.02 for 2%)
+        // sectorReturn must be provided for absolute guardrail
+        let state = "NEUTRAL";
+
+        if (sectorReturn > 0 && rs > 0 && rm > 0) {
+            state = "LEADING";
+        } else if (sectorReturn > 0 && rs > 0 && rm <= 0) {
+            state = "WEAKENING";
+        } else if (sectorReturn < 0 && rs > 0 && rm > 0) {
+            state = "IMPROVING";
+        } else if (sectorReturn < 0 && rs <= 0 && rm < 0) {
+            state = "LAGGING";
+        }
+
+        // Absolute Guardrail (Non-Negotiable)
+        if (sectorReturn < 0 && state === "LEADING") {
+            state = "IMPROVING";
+        }
+
+        return state;
     }
 
-    showHUD(text) {
-        if (!this.alertEl) return;
-        this.alertEl.textContent = text;
-        this.alertEl.style.display = 'block';
-        // Auto-hide via CSS animation logic or manual
-        setTimeout(() => {
-            if (this.alertEl.textContent === text) this.alertEl.style.display = 'none';
-        }, 3000);
-    }
-
-    getTodayStr() {
-        return new Date().toISOString().split('T')[0];
-    }
-
-    getQuadrantColor(rs, rm, state = null) {
-        const resolved = state || this.getQuadrantName(rs, rm);
-        if (resolved === "LEADING" || resolved === "IMPROVING") return "#00C853";
+    getQuadrantColor(rs, rm, state = null, sectorReturn = 1) {
+        const resolved = state || this.getQuadrantName(rs, rm, sectorReturn);
+        if (resolved === "LEADING") return "#00C853";
+        if (resolved === "IMPROVING") return "#64DD17"; // Distinct for Improving
         if (resolved === "WEAKENING" || resolved === "LAGGING") return "#D50000";
         return "#757575";
     }

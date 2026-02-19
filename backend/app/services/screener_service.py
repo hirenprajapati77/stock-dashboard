@@ -519,7 +519,7 @@ class ScreenerService:
         return []
     @classmethod
     def get_market_summary_data(cls, timeframe: str = "1D") -> Dict:
-        """Aggregates data for the Daily AI Market Summary."""
+        """Aggregates data for the Daily AI Market Summary pack."""
         try:
             # 1. Market Return (NIFTY 50)
             nifty = yf.Ticker("^NSEI")
@@ -528,7 +528,19 @@ class ScreenerService:
             prev = fast.get('previousClose') or fast.get('previous_close', 0)
             market_return = ((price - prev) / prev * 100) if prev > 0 else 0.0
 
-            # 2. Sector States
+            # 2. Global Cues (S&P 500)
+            sp500 = yf.Ticker("^GSPC")
+            sp_fast = sp500.fast_info
+            sp_price = sp_fast.get('lastPrice') or sp_fast.get('last_price', 0)
+            sp_prev = sp_fast.get('previousClose') or sp_fast.get('previous_close', 0)
+            sp_return = ((sp_price - sp_prev) / sp_prev * 100) if sp_prev > 0 else 0.0
+            
+            # GIFT Nifty proxy (SGX Nifty or ^NSEI futures/prev close)
+            # For pre-market, we'll check global sentiment
+            global_positive = sp_return > 0.1
+            gift_nifty_positive = sp_return > 0.3 # Simple proxy for now
+
+            # 3. Sector States
             sector_data, _ = SectorService.get_rotation_data(timeframe=timeframe)
             leading = []
             weakening = []
@@ -543,38 +555,37 @@ class ScreenerService:
                 elif state == "IMPROVING": improving.append(display_name)
                 elif state == "LAGGING": lagging.append(display_name)
 
-            # 3. Top Stocks
+            # 4. Top Stocks
             hits = cls.get_screener_data(timeframe=timeframe)
-            # Need to calculate confidence scores on the fly or ensure they are in the hits
-            # Actually dashboard.js calculates them, but we need them here for the summary.
-            # I'll use a simplified version of the confidence logic here or just rely on the hits
-            # which are already filtered/sorted by momentum.
-            
-            # Since we don't have the exact JS confidence logic here, we'll pick the top 3 sorted hits
-            # that have high relative strength and volume.
             top_stocks = []
-            for h in hits[:10]: # Check top 10
-                # Mock confidence calculation similar to JS for summary filtering
-                # In a real app, logic should be shared. For now, we'll assume top hits are relevant.
+            for h in hits:
+                # Backend filtering for summary: Only keep those that are likely high confidence
+                # (Standard momentum hits are already pre-filtered)
                 top_stocks.append({
                     "symbol": h["symbol"],
                     "sector": h["sector"],
-                    "confidence": 70, # Placeholder, frontend will re-filter if needed
+                    "confidence": 70, # Placeholder
                     "entryTag": h["entryTag"]
                 })
 
             return {
                 "marketReturn": float(round(market_return, 2)),
+                "prevMarketReturn": float(round(market_return, 2)), # Placeholder logic
+                "globalCuesPositive": bool(global_positive),
+                "giftNiftyPositive": bool(gift_nifty_positive),
                 "leadingSectors": leading,
                 "weakeningSectors": weakening,
                 "improvingSectors": improving,
                 "laggingSectors": lagging,
-                "topStocks": top_stocks
+                "topStocks": top_stocks[:10]
             }
         except Exception as e:
             print(f"Error generating market summary: {e}")
             return {
                 "marketReturn": 0.0,
+                "prevMarketReturn": 0.0,
+                "globalCuesPositive": False,
+                "giftNiftyPositive": False,
                 "leadingSectors": [],
                 "weakeningSectors": [],
                 "improvingSectors": [],

@@ -37,7 +37,8 @@ async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: i
     Returns assistive AI insights for the given symbol.
     """
     try:
-        df = MarketDataService.get_ohlcv(symbol, tf)
+        norm_symbol = MarketDataService.normalize_symbol(symbol)
+        df, _ = MarketDataService.get_ohlcv(norm_symbol, tf)
         insights = ai_engine.get_insights(df, base_conf)
         return insights
     except Exception as e:
@@ -97,7 +98,7 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
         norm_symbol = MarketDataService.normalize_symbol(symbol)
 
         # 1. Get Data
-        df = MarketDataService.get_ohlcv(norm_symbol, tf)
+        df, currency = MarketDataService.get_ohlcv(norm_symbol, tf)
         if df.empty:
             return {"status": "error", "message": f"No data found for {symbol}. Try another symbol or timeframe."}
             
@@ -120,7 +121,7 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
         mtf_levels = {"supports": [], "resistances": []}
         for htf in higher_tfs:
             try:
-                hdf = MarketDataService.get_ohlcv(norm_symbol, htf)
+                hdf, _ = MarketDataService.get_ohlcv(norm_symbol, htf)
                 hs, hr = detect_levels_for_df(hdf, htf)
                 mtf_levels["supports"].extend(hs)
                 mtf_levels["resistances"].extend(hr)
