@@ -273,11 +273,9 @@ class MarketIntelligence {
 
     _generatePreMarketSummary(data) {
         const lines = [];
-        const isNeutralMarket = Math.abs(data.prevMarketReturn || 0) <= 0.2;
+        const prevMarketReturn = data.prevMarketReturn || 0;
 
-        if (isNeutralMarket) {
-            lines.push("Markets ended the previous session with limited directional movement, suggesting a neutral opening bias.");
-        } else if (data.prevMarketReturn > 0) {
+        if (prevMarketReturn > 0) {
             lines.push("Markets ended the previous session on a positive note, indicating underlying strength.");
         } else {
             lines.push("Markets closed the previous session weak, suggesting cautious sentiment.");
@@ -290,8 +288,11 @@ class MarketIntelligence {
         }
 
         if (data.leadingSectors && data.leadingSectors.length) {
-            const leadershipWord = isNeutralMarket ? "relative leadership" : "Strength";
-            lines.push(`${leadershipWord} was observed in **${data.leadingSectors.join(", ")}**, which remain key sectors to track.`);
+            lines.push(`Strength was observed in **${data.leadingSectors.join(", ")}**, which remain key sectors to track.`);
+        }
+
+        if (data.weakeningSectors && data.weakeningSectors.length) {
+            lines.push(`**${data.weakeningSectors.join(", ")}** showed signs of momentum fatigue and may remain selective.`);
         }
 
         lines.push("Traders may focus on stocks aligned with strong sectors while maintaining discipline in weaker areas.");
@@ -300,8 +301,9 @@ class MarketIntelligence {
 
     _generateTomorrowOutlook(data) {
         const lines = [];
+
         if (data.leadingSectors && data.leadingSectors.length) {
-            lines.push(`**${data.leadingSectors.join(", ")}** are rising and outperforming the broader market, and may remain in focus if momentum sustains.`);
+            lines.push(`**${data.leadingSectors.join(", ")}** continue to display relative strength and may remain in focus if momentum sustains.`);
         }
 
         if (data.improvingSectors && data.improvingSectors.length) {
@@ -318,26 +320,39 @@ class MarketIntelligence {
 
     copySummaryToClipboard() {
         if (!this.summaryData) return;
-        this.userInteractedSummary = true;
-
         const data = this.summaryData;
-        const marketBias = data.marketReturn > 0.5 ? "Positive bias" : data.marketReturn < -0.5 ? "Cautions bias" : "Neutral bias";
+        const activeTab = document.querySelector('.summary-tab.active');
+        const mode = activeTab ? activeTab.dataset.mode : 'wrap';
 
-        const strongStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
-        const stockList = strongStocks.length
-            ? strongStocks.slice(0, 3).map(s => `• ${s.symbol} (${s.entryTag.replace('_', ' ')})`).join('\n')
-            : "Scanning for setups...";
+        let text = "";
+        const isNeutralMarket = Math.abs(data.marketReturn) <= 0.2;
+        const marketStatus = isNeutralMarket ? "Neutral bias" : (data.marketReturn > 0 ? "Positive bias" : "Cautious bias");
 
-        const message = `🧠 Daily Market Snapshot\n\n` +
-            `Market: ${marketBias}\n` +
-            `Leading (Rising & Outperforming): ${data.leadingSectors.length ? data.leadingSectors.slice(0, 3).join(', ') : 'None'}\n` +
-            `Improving (Down but Relative Strength): ${data.improvingSectors.length ? data.improvingSectors.slice(0, 3).join(', ') : 'None'}\n` +
-            `Weakening: ${data.weakeningSectors.length ? data.weakeningSectors.slice(0, 3).join(', ') : 'None'}\n\n` +
-            `Top Aligned Stocks:\n${stockList}\n\n` +
-            `Focus on strength, stay selective ⚖️`;
+        if (mode === 'morning') {
+            text = `🧠 Pre-Market Focus\n`;
+            text += `Strong sectors from previous session: ${data.leadingSectors.join(", ")}\n`;
+            if (data.weakeningSectors.length) text += `Weak areas: ${data.weakeningSectors.join(", ")}\n`;
+            text += `Track stocks aligned with strong sectors.`;
+        } else {
+            text = `🧠 Daily Market Snapshot\n\n`;
+            text += `Market: ${marketStatus}\n`;
+            text += `Leading Sectors: ${data.leadingSectors.join(", ")}\n`;
+            if (data.weakeningSectors.length) text += `Weakening: ${data.weakeningSectors.join(", ")}\n`;
 
-        navigator.clipboard.writeText(message).then(() => {
-            const btn = document.querySelector('[onclick*="copySummaryToClipboard"]');
+            const highConfidenceStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
+            if (highConfidenceStocks.length) {
+                text += `\nTop Aligned Stocks:\n`;
+                highConfidenceStocks.slice(0, 5).forEach(s => {
+                    const tagline = s.entryTag === 'ENTRY_READY' ? 'ENTRY READY' : (s.entryTag === 'WAIT' ? 'WAIT' : s.entryTag);
+                    text += `• ${s.symbol} (${tagline})\n`;
+                });
+            }
+
+            text += `\nFocus on strength, stay selective ⚖️`;
+        }
+
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('copy-summary-btn') || document.querySelector('[onclick*="copySummaryToClipboard"]');
             if (btn) {
                 const originalHtml = btn.innerHTML;
                 btn.innerHTML = '<span class="text-[9px] text-green-400 font-bold uppercase tracking-tighter">COPIED</span>';
@@ -665,7 +680,7 @@ class MarketIntelligence {
                 <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer"
                     data-sector-key="${hit.sectorKey || ''}"
                     title="${tooltip}"
-                    onclick="window.fetchDataForSymbol('${hit.symbol}')">
+                    onclick="window.fetchDataForSymbol('${hit.symbol}', { fromIntelligence: true })">
                     <td class="px-4 py-3 font-bold text-white group-hover:text-blue-400 transition-colors text-xs">
                         ${hit.symbol}
                         ${tradeLabel}
