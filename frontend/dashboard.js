@@ -655,9 +655,20 @@ class MarketIntelligence {
 
             // Status Tag Logic
             let statusColor = 'bg-gray-800 text-gray-400';
-            if (hit.entryTag === 'ENTRY_READY') statusColor = 'bg-green-600/20 text-green-400 border border-green-500/30';
-            if (hit.entryTag === 'WAIT') statusColor = 'bg-yellow-600/20 text-yellow-500 border border-yellow-500/30';
+            const currentTag = hit.entryStatus || hit.entryTag;
+
+            if (currentTag === 'STRONG_ENTRY') statusColor = 'bg-green-600/30 text-green-400 border border-green-500/50 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]';
+            else if (currentTag === 'ENTRY_READY') statusColor = 'bg-green-600/20 text-green-400 border border-green-500/30';
+            else if (currentTag === 'WATCHLIST' || currentTag === 'WAIT') statusColor = 'bg-yellow-600/20 text-yellow-500 border border-yellow-500/30';
             if (hit.exitTag === 'EXIT') statusColor = 'bg-red-600/20 text-red-400 border border-red-500/30';
+
+            // Grade Color Logic
+            let gradeColor = 'text-gray-400';
+            const grade = hit.grade || 'C';
+            if (grade === 'A+') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
+            else if (grade === 'A') gradeColor = 'text-green-400';
+            else if (grade === 'B') gradeColor = 'text-green-200';
+            else if (grade === 'C') gradeColor = 'text-yellow-500';
 
             // Risk Tag Logic
             let riskColor = 'text-gray-400';
@@ -693,7 +704,7 @@ class MarketIntelligence {
                     <td class="px-4 py-3">
                          <div class="flex flex-col gap-1 items-start">
                              <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}">
-                                ${hit.exitTag === 'EXIT' ? 'EXIT' : (hit.entryTag || 'AVOID').replace('_', ' ')}
+                                ${hit.exitTag === 'EXIT' ? 'EXIT' : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' ')}
                              </span>
                              <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline" 
                                      onclick="event.stopPropagation(); window.showExplanation('${hit.symbol}')">
@@ -702,11 +713,9 @@ class MarketIntelligence {
                          </div>
                     </td>
                     <td class="px-4 py-3 text-center">
-                         <div class="flex flex-col items-center gap-0.5" title="Confidence: ${this._calculateConfidence(hit).score}%">
-                             <span class="text-[10px] tracking-tight">${this._renderConfidenceDots(this._calculateConfidence(hit).score)}</span>
-                             <span class="text-[10px] font-bold ${this._calculateTrend(hit.symbol, this._calculateConfidence(hit).score, hit.sectorState).color}">
-                                ${this._calculateTrend(hit.symbol, this._calculateConfidence(hit).score, hit.sectorState).icon}
-                             </span>
+                         <div class="flex flex-col items-center gap-0.5" title="Confidence: ${hit.confidence || this._calculateConfidence(hit).score}%">
+                             <span class="text-sm font-black tracking-tight ${gradeColor}">${grade}</span>
+                             <span class="text-[9px] font-bold text-gray-500">${hit.confidence || this._calculateConfidence(hit).score}%</span>
                          </div>
                     </td>
                     <td class="px-4 py-3">
@@ -793,15 +802,26 @@ class MarketIntelligence {
 
         // Confidence Metrics
         const confidence = this._calculateConfidence(hit);
-        document.getElementById('expl-confidence-dots').textContent = this._renderConfidenceDots(confidence.score);
-        document.getElementById('expl-confidence-score').textContent = `${confidence.score}%`;
+        const grade = hit.grade || 'C';
+
+        let gradeColor = 'text-gray-400';
+        if (grade === 'A+') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
+        else if (grade === 'A') gradeColor = 'text-green-400';
+        else if (grade === 'B') gradeColor = 'text-green-200';
+        else if (grade === 'C') gradeColor = 'text-yellow-500';
+
+        document.getElementById('expl-confidence-dots').textContent = grade;
+        document.getElementById('expl-confidence-dots').className = `text-2xl font-black ${gradeColor}`;
+
+        document.getElementById('expl-confidence-score').textContent = `${hit.confidence || confidence.score}%`;
         const labelEl = document.getElementById('expl-confidence-label');
-        labelEl.textContent = this._getConfidenceLabel(confidence.score);
+        labelEl.textContent = this._getConfidenceLabel(hit.confidence || confidence.score);
 
         // Dynamic Label Styling
+        const scoreVal = hit.confidence || confidence.score;
         labelEl.className = 'text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ' +
-            (confidence.score >= 80 ? 'bg-green-600/20 text-green-400' :
-                confidence.score >= 40 ? 'bg-yellow-600/20 text-yellow-500' :
+            (scoreVal >= 80 ? 'bg-green-600/20 text-green-400' :
+                scoreVal >= 40 ? 'bg-yellow-600/20 text-yellow-500' :
                     'bg-red-600/20 text-red-400');
 
         const confList = document.getElementById('expl-confidence-list');
