@@ -139,10 +139,17 @@ class ScreenerService:
     @classmethod
     def _is_breakout(cls, df: pd.DataFrame, window: int = 10) -> bool:
         """Simple breakout detection: Current high > max of previous N highs."""
-        if len(df) <= window: return False
+        if len(df) <= window:
+            return False
+
         high_col = "High" if "High" in df.columns else "high"
+        if high_col not in df.columns:
+            high_col = "Close" if "Close" in df.columns else "close"
+        if high_col not in df.columns:
+            return False
+
         curr_high = df[high_col].iloc[-1]
-        prev_highs = df[high_col].iloc[-(window+1):-1]
+        prev_highs = df[high_col].iloc[-(window + 1):-1]
         return bool(curr_high > prev_highs.max())
 
     @classmethod
@@ -375,10 +382,13 @@ class ScreenerService:
                 # Volatility check (High if current range > 2x average range)
                 high_col = "High" if "High" in symbol_df.columns else "high"
                 low_col = "Low" if "Low" in symbol_df.columns else "low"
-                ranges = (symbol_df[high_col] - symbol_df[low_col])
+                if high_col in symbol_df.columns and low_col in symbol_df.columns:
+                    ranges = (symbol_df[high_col] - symbol_df[low_col])
+                else:
+                    ranges = close.diff().abs().fillna(0)
                 curr_range = float(ranges.iloc[-1])
-                avg_range = float(ranges.rolling(20).mean().iloc[-1])
-                vol_high = bool(curr_range > (avg_range * 2.0))
+                avg_range = float(ranges.rolling(20, min_periods=5).mean().iloc[-1])
+                vol_high = bool(avg_range > 0 and curr_range > (avg_range * 2.0))
                 
                 # Compute Tags
                 entry_tag = cls.get_entry_tag(stock_active, sector_state, price_above_vwap, is_breakout, vol_ratio_val)
