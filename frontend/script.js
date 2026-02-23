@@ -138,9 +138,25 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData(isBackground = false) {
+function _normalizeFetchOptions(options = false) {
+    if (typeof options === 'object' && options !== null) {
+        return {
+            isBackground: options.isBackground === true,
+            showLoader: options.showLoader !== false,
+            timeoutMs: Number.isFinite(options.timeoutMs) ? options.timeoutMs : 15000,
+        };
+    }
+
+    return {
+        isBackground: options === true,
+        showLoader: options !== true,
+        timeoutMs: 15000,
+    };
+}
+
+async function fetchData(options = false) {
+    const { isBackground, showLoader, timeoutMs } = _normalizeFetchOptions(options);
     const loader = document.getElementById('loading-overlay');
-    const showLoader = isBackground !== true;
 
     try {
         if (loader && showLoader) {
@@ -155,7 +171,18 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} (Background: ${isBackground})`);
 
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&_=${Date.now()}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        let response;
+        try {
+            response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&_=${Date.now()}`, {
+                signal: controller.signal,
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -167,7 +194,11 @@ async function fetchData(isBackground = false) {
             throw new Error(data.message || "Malformed API response");
         }
     } catch (error) {
-        console.error("Fetch failed:", error);
+        const fetchError = (error?.name === 'AbortError')
+            ? new Error('Request timed out. Please retry.')
+            : error;
+
+        console.error("Fetch failed:", fetchError);
 
         if (!isBackground) {
             const chartParent = document.getElementById('chart-parent');
@@ -187,7 +218,7 @@ async function fetchData(isBackground = false) {
                     errDiv.classList.remove('hidden');
                     errDiv.innerHTML = `
                         <p class="text-red-500 font-bold mb-2">Sync Error</p>
-                        <p class="text-[10px] text-gray-400 mb-4">${error.message}</p>
+                        <p class="text-[10px] text-gray-400 mb-4">${fetchError.message}</p>
                         <button onclick="window.fetchData()" class="px-4 py-2 bg-indigo-600 rounded text-xs font-bold hover:bg-indigo-500">RETRY SYNC</button>
                      `;
                 }

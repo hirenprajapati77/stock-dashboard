@@ -1,14 +1,12 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pathlib import Path
 import pandas as pd
 import requests
 import uvicorn
 import os
 from datetime import datetime
-from fastapi import FastAPI, Query, Response
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
@@ -271,11 +269,9 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             "ohlcv": ohlcv
         }
     except Exception as e:
-        import traceback
         return {
             "status": "error",
-            "message": f"Server Error: {str(e)}",
-            "traceback": traceback.format_exc()
+            "message": f"Server Error: {str(e)}"
         }
 
 @app.get("/api/v1/screener")
