@@ -152,10 +152,12 @@ async function fetchData(isBackground = false) {
         const symbol = symbolInput ? symbolInput.value.toUpperCase() : "RELIANCE";
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
+        const stratSelector = document.getElementById('strategy-selector');
+        const strategy = stratSelector ? stratSelector.value : 'SR';
 
-        console.log(`[Fetch] ${symbol} @ ${tf} (Background: ${isBackground})`);
+        console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&_=${Date.now()}`);
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -202,6 +204,81 @@ async function fetchData(isBackground = false) {
 }
 window.fetchData = fetchData;
 
+function updateStrategyUI(data) {
+    try {
+        const strategy = data.meta.strategy || 'SR';
+        const strat = data.strategy || {};
+        const metrics = strat.additionalMetrics || {};
+
+        console.log(`[UI] Updating strategy panel to: ${strategy}`);
+
+        // 1. Hide all strategy cards first
+        const allPanels = document.querySelectorAll('.strategy-card');
+        allPanels.forEach(card => {
+            card.classList.add('hidden-strategy');
+        });
+
+        // 2. Clear old state if it's not SR
+        if (strategy !== 'SR') {
+            // Optional: clear SR specific fields if needed
+        }
+
+        if (strategy === 'SR') {
+            const panel = document.getElementById('strategy-sr-metrics');
+            if (panel) {
+                panel.classList.remove('hidden-strategy');
+                document.getElementById('sr-adx').textContent = metrics.adx || '—';
+                document.getElementById('sr-vol').textContent = `${metrics.volRatio || '—'}x`;
+                document.getElementById('sr-breakout').textContent = metrics.breakout ? "YES" : "NO";
+                document.getElementById('sr-retest').textContent = metrics.retest ? "YES" : "NO";
+
+                const adxVal = parseFloat(metrics.adx);
+                const adxLabel = document.getElementById('sr-adx-label');
+                if (adxLabel && !isNaN(adxVal)) {
+                    adxLabel.textContent = adxVal > 25 ? 'STRONG' : adxVal > 18 ? 'MODERATE' : 'WEAK';
+                    adxLabel.className = `text-[10px] font-bold ${adxVal > 25 ? 'text-up' : adxVal > 18 ? 'text-blue-400' : 'text-gray-500'}`;
+                }
+            }
+        } else if (strategy === 'SWING') {
+            const panel = document.getElementById('strategy-swing-metrics');
+            if (panel) {
+                panel.classList.remove('hidden-strategy');
+                document.getElementById('swing-structure').textContent = metrics.structure || '—';
+                document.getElementById('swing-ema').textContent = metrics.emaAlignment ? "ALIGNED" : "MIXED";
+                document.getElementById('swing-htf').textContent = metrics.htfTrend || '—';
+                document.getElementById('swing-pullback').textContent = metrics.pullback ? "YES" : "NO";
+
+                const structEl = document.getElementById('swing-structure');
+                if (structEl) {
+                    structEl.className = `text-lg font-bold uppercase tracking-widest ${metrics.structure === 'BULLISH' ? 'text-up' : metrics.structure === 'BEARISH' ? 'text-down' : 'text-purple-400'}`;
+                }
+            }
+        } else if (strategy === 'DEMAND_SUPPLY') {
+            const panel = document.getElementById('strategy-zones-metrics');
+            if (panel) {
+                panel.classList.remove('hidden-strategy');
+                document.getElementById('zone-freshness').textContent = metrics.freshness || '—';
+                document.getElementById('zone-departure').textContent = formatVal(metrics.departureStrength) + '%';
+                document.getElementById('zone-range').textContent = metrics.zoneRange || '—';
+                document.getElementById('zone-vol').textContent = metrics.volSpike ? "CONFIRMED" : "NONE";
+
+                const freshEl = document.getElementById('zone-freshness');
+                if (freshEl) {
+                    freshEl.className = `text-lg font-bold uppercase tracking-widest ${metrics.freshness === 'FRESH' ? 'text-up' : 'text-orange-400'}`;
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Strategy UI update error:", err);
+    }
+}
+
+function formatVal(v) {
+    if (v === undefined || v === null) return '—';
+    if (typeof v === 'number') return v.toFixed(2);
+    return v;
+}
+
 function updateUI(data) {
     try {
         // Hide error message if it exists
@@ -215,6 +292,10 @@ function updateUI(data) {
 
         const formatWithCurrency = (val) => {
             if (val === undefined || val === null || val === '—') return '—';
+            if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
+            // If it's a string that looks like a number, try to parse it
+            const num = parseFloat(val);
+            if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
             return `${currencySym}${val}`;
         };
 
@@ -288,16 +369,19 @@ function updateUI(data) {
             const el = document.getElementById(id);
             if (el) el.textContent = val;
         };
-        setTxt('inside-candle', data.insights.inside_candle ? "YES" : "NO");
-        setTxt('retest', data.insights.retest ? "CONFIRMED" : "NONE");
-        setTxt('upside-pct', `+${data.insights.upside_pct}%`);
 
-        const biasBadge = document.getElementById('bias-badge');
-        if (biasBadge) {
-            biasBadge.textContent = data.insights.ema_bias;
-            biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
-                data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-                }`;
+        if (data.insights) {
+            setTxt('inside-candle', data.insights.inside_candle ? "YES" : "NO");
+            setTxt('retest', data.insights.retest ? "CONFIRMED" : "NONE");
+            setTxt('upside-pct', `+${data.insights.upside_pct}%`);
+
+            const biasBadge = document.getElementById('bias-badge');
+            if (biasBadge) {
+                biasBadge.textContent = data.insights.ema_bias || 'NEUTRAL';
+                biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
+                    data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
         }
 
         // 3. AI Insights
@@ -393,6 +477,9 @@ function updateUI(data) {
         window.lastReceivedData = data;
         drawLevelsOnChart(data.levels);
 
+        // 8. Strategy Specific UI Toggles
+        updateStrategyUI(data);
+
     } catch (e) {
         console.error("UI Update Error:", e);
     }
@@ -409,15 +496,19 @@ function renderLevelList(containerId, levels, color, isMTF) {
     levels.forEach((level, index) => {
         const div = document.createElement('div');
         div.className = `flex items-center justify-between p-3 rounded-xl bg-gray-900 border ${isMTF ? 'border-gray-800/50 opacity-70' : 'border-gray-800'} hover:border-gray-700 transition-all cursor-default scale-95 origin-left`;
-        div.title = `Price: ${level.price}\nTimeframe: ${level.timeframe}\nTouches: ${level.touches}\nScore: ${level.confidence || 0}`;
+
+        const labelText = level.timeframe === 'ZONE' ? 'ZONE' : (isMTF ? 'MTF' : 'L' + (index + 1));
+        const timeframeLabel = level.timeframe || '—';
+
+        div.title = `Price: ${level.price}\nTimeframe: ${timeframeLabel}\nTouches: ${level.touches || 0}`;
         div.innerHTML = `
             <div>
-                <p class="text-[9px] text-gray-500 font-medium">${isMTF ? 'MTF' : 'L' + (index + 1)}</p>
-                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">${currencySym}${level.price.toFixed(2)}</p>
+                <p class="text-[9px] text-gray-500 font-medium">${labelText}</p>
+                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">${currencySym}${formatVal(level.price)}</p>
             </div>
             <div class="text-right">
-                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 uppercase">${level.timeframe}</span>
-                <p class="text-[9px] text-gray-600 mt-1">${level.touches}T</p>
+                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 uppercase">${timeframeLabel}</span>
+                <p class="text-[9px] text-gray-600 mt-1">${level.touches || 0}T</p>
             </div>
         `;
         list.appendChild(div);
@@ -425,72 +516,76 @@ function renderLevelList(containerId, levels, color, isMTF) {
 }
 
 function drawLevelsOnChart(levels) {
-    // Clear old lines
-    if (levelsLayer && levelsLayer.length > 0) {
-        levelsLayer.forEach(line => {
-            candlestickSeries.removePriceLine(line);
-        });
-        levelsLayer = [];
-    }
+    if (!candlestickSeries) return;
+
+    // Clear existing primitives
+    levelsLayer.forEach(line => {
+        candlestickSeries.removePriceLine(line);
+    });
+    levelsLayer = [];
 
     if (!levels) return;
 
-    const showMTF = document.getElementById('mtf-toggle').checked;
+    // Helper to draw
+    const addLine = (lv, color, isResistance) => {
+        // 1. ZONE Logic
+        if (lv.timeframe === 'ZONE') {
+            // Draw simple boundary lines
+            // Top
+            const l1 = candlestickSeries.createPriceLine({
+                price: lv.price_high || lv.price,
+                color: color, // Green/Red
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: isResistance ? 'SUPPLY' : 'DEMAND',
+            });
+            levelsLayer.push(l1);
 
-    // Add Primary Resistance (Solid)
-    levels.primary.resistances.forEach(lv => {
+            // Bottom
+            if (lv.price_low && lv.price_low !== lv.price_high) {
+                const l2 = candlestickSeries.createPriceLine({
+                    price: lv.price_low,
+                    color: color,
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: false, // Only label one side to reduce clutter
+                    title: '',
+                });
+                levelsLayer.push(l2);
+            }
+            return;
+        }
+
+        // 2. SWING Logic (Thicker lines)
+        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
+        const lineWidth = isSwing ? 2 : 1;
+        const lineStyle = isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed;
+
+        // 3. Simple Level
         const line = candlestickSeries.createPriceLine({
             price: lv.price,
-            color: '#00c076',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
+            color: color, // Blue/Green etc
+            lineWidth: lineWidth,
+            lineStyle: lineStyle,
             axisLabelVisible: true,
-            title: lv.timeframe,
+            title: lv.timeframe || '',
         });
         levelsLayer.push(line);
-    });
+    };
+
+    const showMTF = document.getElementById('mtf-toggle').checked;
 
     // Add MTF Resistance (Dashed)
-    if (showMTF) {
-        levels.mtf.resistances.forEach(lv => {
-            const line = candlestickSeries.createPriceLine({
-                price: lv.price,
-                color: '#00c076',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: '', // Removed title from axis to declutter
-            });
-            levelsLayer.push(line);
-        });
+    if (showMTF && levels.mtf) {
+        levels.mtf.resistances.forEach(lv => addLine(lv, '#00c076', true));
+        levels.mtf.supports.forEach(lv => addLine(lv, '#3b82f6', false));
     }
 
     // Add Primary Support (Solid)
-    levels.primary.supports.forEach(lv => {
-        const line = candlestickSeries.createPriceLine({
-            price: lv.price,
-            color: '#3b82f6',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: lv.timeframe,
-        });
-        levelsLayer.push(line);
-    });
-
-    // Add MTF Support (Dashed)
-    if (showMTF) {
-        levels.mtf.supports.forEach(lv => {
-            const line = candlestickSeries.createPriceLine({
-                price: lv.price,
-                color: '#3b82f6',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: '', // Removed title from axis to declutter
-            });
-            levelsLayer.push(line);
-        });
+    if (levels.primary) {
+        levels.primary.supports.forEach(lv => addLine(lv, '#3b82f6', false));
+        levels.primary.resistances.forEach(lv => addLine(lv, '#dc2626', true)); // Red for resistance
     }
 }
 
@@ -747,6 +842,10 @@ window.onload = function () {
                 fetchData(true);
             }
         }, 10000); // reduced frequency for expensive intelligence calls (10s)
+
+        document.getElementById('strategy-selector').addEventListener('change', () => {
+            fetchData();
+        });
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');

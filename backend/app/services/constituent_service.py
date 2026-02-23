@@ -20,3 +20,13 @@ class ConstituentService:
     @classmethod
     def get_constituents(cls, sector_name):
         return cls.SECTOR_CONSTITUENTS.get(sector_name, [])
+
+    @classmethod
+    def get_sector_for_ticker(cls, ticker):
+        """
+        Finds which NIFTY sector a ticker belongs to.
+        """
+        for sector, constituents in cls.SECTOR_CONSTITUENTS.items():
+            if ticker in constituents:
+                return sector
+        return None
