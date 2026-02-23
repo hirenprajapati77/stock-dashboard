@@ -90,3 +90,74 @@ class InsightEngine:
                 return "Bearish"
                 
         return None
+    @staticmethod
+    def get_adx(df: pd.DataFrame, period: int = 14):
+        """
+        Calculates ADX (Average Directional Index) for trend strength.
+        """
+        if len(df) < period * 2:
+            return 0.0
+            
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        
+        plus_dm = high.diff()
+        minus_dm = low.diff()
+        
+        plus_dm[plus_dm < 0] = 0
+        plus_dm[plus_dm < minus_dm.abs()] = 0
+        
+        minus_dm = minus_dm.abs()
+        minus_dm[minus_dm < 0] = 0
+        minus_dm[minus_dm < plus_dm] = 0
+        
+        tr1 = high - low
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        atr = tr.rolling(window=period).mean() # Simplification of Wilder's
+        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+        
+        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+        adx = dx.rolling(window=period).mean()
+        
+        return float(adx.iloc[-1]) if not np.isnan(adx.iloc[-1]) else 0.0
+
+    @staticmethod
+    def get_structure_bias(df: pd.DataFrame):
+        """
+        Detects Higher High / Higher Low structure.
+        Returns: "BULLISH", "BEARISH", or "NEUTRAL"
+        """
+        if len(df) < 20:
+            return "NEUTRAL"
+            
+        # Very simple pivot detection
+        highs = df['high'].values
+        lows = df['low'].values
+        
+        # Last 3 "peaks" and "troughs" in a simple rolling window
+        peaks = []
+        troughs = []
+        
+        for i in range(2, len(df) - 2):
+            if highs[i] > highs[i-1] and highs[i] > highs[i-2] and highs[i] > highs[i+1] and highs[i] > highs[i+2]:
+                peaks.append(highs[i])
+            if lows[i] < lows[i-1] and lows[i] < lows[i-2] and lows[i] < lows[i+1] and lows[i] < lows[i+2]:
+                troughs.append(lows[i])
+        
+        if len(peaks) >= 2 and len(troughs) >= 2:
+            last_p = peaks[-1]
+            prev_p = peaks[-2]
+            last_t = troughs[-1]
+            prev_t = troughs[-2]
+            
+            if last_p > prev_p and last_t > prev_t:
+                return "BULLISH"
+            elif last_p < prev_p and last_t < prev_t:
+                return "BEARISH"
+                
+        return "NEUTRAL"
