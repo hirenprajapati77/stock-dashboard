@@ -144,6 +144,14 @@
             border: 1px solid #1e222d;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
         }
+
+        .strategy-card {
+            transition: all 0.3s ease;
+        }
+
+        .hidden-strategy {
+            display: none !important;
+        }
     </style>
 </head>
 
@@ -233,6 +241,12 @@
                     15 MIN
                 </button>
             </div>
+            <select id="strategy-selector"
+                class="bg-blue-900/40 border border-blue-500/50 rounded-lg px-2 py-1 text-xs md:text-sm font-bold focus:ring-1 focus:ring-blue-500 cursor-pointer text-blue-100 uppercase tracking-tighter">
+                <option value="SR">Support/Resistance (SR)</option>
+                <option value="SWING">Swing Trading</option>
+                <option value="DEMAND_SUPPLY">Demand/Supply Zones</option>
+            </select>
             <select id="tf-selector"
                 class="bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1 text-xs md:text-sm font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer text-white">
                 <option value="5m">5 min</option>
@@ -527,6 +541,71 @@
                     </div>
                     <p id="trade-signal-reason" class="text-[10px] text-gray-500 mt-1">Signal updates with EMA bias +
                         structure.</p>
+                </div>
+            </div>
+
+            <!-- Strategy Specific Metrics (Dynamic) -->
+            <div id="strategy-sr-metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6 strategy-card">
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">ADX Strength</p>
+                    <div class="flex items-baseline gap-2">
+                        <span id="sr-adx" class="text-2xl font-bold mono text-indigo-400">—</span>
+                        <span id="sr-adx-label" class="text-[10px] font-bold text-gray-500">TREND</span>
+                    </div>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Volume Ratio</p>
+                    <span id="sr-vol" class="text-2xl font-bold mono text-indigo-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Breakout</p>
+                    <span id="sr-breakout" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Retest</p>
+                    <span id="sr-retest" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+            </div>
+
+            <div id="strategy-swing-metrics"
+                class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6 strategy-card hidden-strategy">
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Structural Bias</p>
+                    <span id="swing-structure"
+                        class="text-lg font-bold uppercase tracking-widest text-purple-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">EMA Alignment</p>
+                    <span id="swing-ema" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">4H Trend</p>
+                    <span id="swing-htf" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Pullback</p>
+                    <span id="swing-pullback" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+            </div>
+
+            <div id="strategy-zones-metrics"
+                class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6 strategy-card hidden-strategy">
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Zone Freshness</p>
+                    <span id="zone-freshness"
+                        class="text-lg font-bold uppercase tracking-widest text-yellow-400">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Departure</p>
+                    <span id="zone-departure" class="text-2xl font-bold mono text-white">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Zone Range</p>
+                    <span id="zone-range" class="text-[10px] font-bold text-gray-300">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Vol Spike</p>
+                    <span id="zone-vol" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
                 </div>
             </div>
 
