@@ -262,12 +262,12 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         else:
             sector_name, sector_state = None, "NEUTRAL"
 
-        mtf_final = {"supports": [], "resistances": []}
+        mtf_levels = {"supports": [], "resistances": []}
         for res in secondary_results[1:]:
             if isinstance(res, tuple) and len(res) == 3:
                 _, hs, hr = res
-                mtf_final["supports"].extend(hs)
-                mtf_final["resistances"].extend(hr)
+                mtf_levels["supports"].extend(hs)
+                mtf_levels["resistances"].extend(hr)
 
         # 4. Strategy Execution (Fast)
         supports, resistances = [], []
@@ -297,14 +297,6 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         except:
             ai_analysis = {}
         if not ai_analysis: ai_analysis = {}
-        
-        mtf_levels = {"supports": [], "resistances": []}
-        if mtf_results:
-            for pair in mtf_results:
-                if pair:
-                    hs, hr = pair
-                    mtf_levels["supports"].extend(hs)
-                    mtf_levels["resistances"].extend(hr)
 
         # 5. Final Formatting
         ohlcv = []
