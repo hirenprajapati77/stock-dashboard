@@ -241,12 +241,15 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             # Rendered levels for Zones are the boundaries
             formatted_zones = []
             for z in zones:
-                # Add to formatted list (rendering logic handled by frontend type check)
+                # Add timeframe='ZONE' for frontend drawing logic, and price for simple rendering
+                z['timeframe'] = 'ZONE'
+                if 'price' not in z:
+                    z['price'] = (z.get('price_high', 0) + z.get('price_low', 0)) / 2
                 formatted_zones.append(z)
             
             # For backward compatibility with some UI parts, split into S/R roughly
-            s_zones = [z for z in zones if z['type'] == 'DEMAND' and z['price_high'] < cmp]
-            r_zones = [z for z in zones if z['type'] == 'SUPPLY' and z['price_low'] > cmp]
+            s_zones = [z for z in formatted_zones if z['type'] == 'DEMAND' and z['price_high'] < cmp]
+            r_zones = [z for z in formatted_zones if z['type'] == 'SUPPLY' and z['price_low'] > cmp]
             
             supports = sorted(s_zones, key=lambda x: x['price_high'], reverse=True)[:4]
             resistances = sorted(r_zones, key=lambda x: x['price_low'])[:4]

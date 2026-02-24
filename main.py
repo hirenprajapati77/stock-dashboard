@@ -92,7 +92,7 @@ def detect_levels_for_df(df: pd.DataFrame, tf: str):
     return supports, resistances
 
 @app.get("/api/v1/dashboard")
-async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
+async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR"):
     try:
         # 0. Normalize Symbol
         norm_symbol = MarketDataService.normalize_symbol(symbol)
@@ -107,7 +107,32 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
         # 2. Extract Levels (Primary)
         supports, resistances = detect_levels_for_df(df, tf)
         
-        # 3. Extract MTF Levels
+        # 3. Get Sector State for guards
+        from app.services.sector_service import SectorService
+        from app.services.constituent_service import ConstituentService
+        
+        sector_name = ConstituentService.get_sector_for_ticker(norm_symbol)
+        sector_state = "NEUTRAL"
+        if sector_name:
+            rotation_data, _ = SectorService.get_rotation_data(timeframe=tf)
+            if sector_name in rotation_data:
+                sector_state = rotation_data[sector_name]['metrics']['state']
+        
+        # 4. Strategy Dispatcher
+        strategy_result = {}
+        if strategy == "SR":
+            strategy_result = SREngine.runSRStrategy(df, sector_state, supports, resistances)
+        elif strategy == "SWING":
+            # Get 1D for structure/trend if needed, or use current DF
+            htf = "1D" if tf != "1D" else "1W"
+            hdf, _ = MarketDataService.get_ohlcv(norm_symbol, htf)
+            htf_trend = InsightEngine.get_structure_bias(hdf)
+            strategy_result = SwingEngine.runSwingStrategy(df, sector_state, htf_trend, supports, resistances)
+        elif strategy == "DEMAND_SUPPLY":
+            zones = ZoneEngine.calculate_demand_supply_zones(df)
+            strategy_result = ZoneEngine.runDemandSupplyStrategy(df, sector_state, zones)
+            
+        # 5. Extract MTF Levels
         higher_tfs = []
         if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
         elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
@@ -128,11 +153,8 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
             except Exception as e:
                 print(f"MTF error for {htf}: {e}")
                 
-        # 4. Get Insights
-        # Get Global AI Insights
+        # 6. Get Insights
         ai_analysis = ai_engine.get_insights(df)
-        
-        # Get Fundamentals
         fundamentals = FundamentalService.get_fundamentals(norm_symbol)
 
         insights = {
@@ -141,46 +163,49 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D"):
             "ema_bias": InsightEngine.get_ema_bias(df),
             "hammer": InsightEngine.detect_hammer(df),
             "engulfing": InsightEngine.detect_engulfing(df),
-            "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0
+            "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0,
+            "adx": round(InsightEngine.get_adx(df), 2),
+            "structure": InsightEngine.get_structure_bias(df)
         }
         
-        # 5. Format OHLCV for Chart
-        ohlcv = []
-        for i in range(len(df)):
-            ohlcv.append({
-                "time": int(df.index[i].timestamp()),
-                "open": float(round(df['open'].iloc[i], 2)),
-                "high": float(round(df['high'].iloc[i], 2)),
-                "low": float(round(df['low'].iloc[i], 2)),
-                "close": float(round(df['close'].iloc[i], 2))
-            })
+        # 7. Format OHLCV for Chart
+        ohlcv = [{
+            "time": int(df.index[i].timestamp()),
+            "open": float(round(df['open'].iloc[i], 2)),
+            "high": float(round(df['high'].iloc[i], 2)),
+            "low": float(round(df['low'].iloc[i], 2)),
+            "close": float(round(df['close'].iloc[i], 2))
+        } for i in range(len(df))]
 
-        # 6. Response Structure
+        # 8. Response Structure
         return {
             "meta": {
                 "symbol": norm_symbol,
                 "tf": tf,
+                "strategy": strategy,
                 "cmp": float(round(cmp, 2)),
-                "data_version": "v1.3.0"
+                "data_version": "v1.4.0"
             },
             "summary": {
                 "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
                 "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
                 "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
                 "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
-                "stop_loss": float(round(supports[0]['price'] * 0.99, 2)) if supports else float(round(cmp * 0.98, 2)),
-                "risk_reward": f"1:{round((resistances[0]['price'] - cmp)/(cmp - supports[0]['price']), 1)}" if supports and resistances and (cmp - supports[0]['price']) > 0 else "1:2.0"
+                "stop_loss": strategy_result.get('stopLoss', cmp * 0.98),
+                "risk_reward": f"1:{strategy_result.get('riskReward', 2.0)}",
+                "trade_signal": strategy_result.get('entryStatus', 'HOLD'),
+                "trade_signal_reason": f"{strategy} Bias: {strategy_result.get('bias', 'NEUTRAL')}. Sector: {sector_state}.",
+                "confidence": strategy_result.get('confidence', 0)
             },
+            "strategy": strategy_result,
             "levels": {
-                "primary": {
-                    "supports": supports,
-                    "resistances": resistances
-                },
+                "primary": {"supports": supports, "resistances": resistances},
                 "mtf": mtf_levels
             },
             "insights": insights,
             "ai_analysis": ai_analysis,
             "fundamentals": fundamentals,
+            "sector_info": {"name": sector_name, "state": sector_state},
             "ohlcv": ohlcv
         }
     except Exception as e:

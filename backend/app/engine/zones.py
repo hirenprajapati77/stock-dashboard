@@ -87,52 +87,48 @@ class ZoneEngine:
             current_atr = atr_series.iloc[i]
             body_size = abs(closes[i] - opens[i])
             
-            # 1. Impulse Check
-            is_impulse = body_size > 1.5 * current_atr
+            # 1. Impulse Check (Relaxed from 1.5 -> 1.2)
+            is_impulse = body_size > 1.2 * current_atr
             
-            # Volume Confirmation: > 1.5x Avg Volume (20 period)
+            # Volume Confirmation: > 1.2x Avg Volume (Relaxed from 1.5)
             avg_vol = df_slice['volume'].iloc[i-20:i].mean() if i > 20 else df_slice['volume'].iloc[:i].mean()
-            vol_valid = df_slice['volume'].iloc[i] > 1.5 * avg_vol
+            vol_valid = df_slice['volume'].iloc[i] > 1.2 * avg_vol
             
             if not is_impulse or not vol_valid: continue
 
             is_bullish = closes[i] > opens[i]
             
-            # Check for strong close (upper/lower 20%)
+            # Check for strong close
             range_len = highs[i] - lows[i]
             if range_len == 0: continue
             
             strong_close = False
             if is_bullish:
-                strong_close = (highs[i] - closes[i]) <= (0.2 * range_len)
-                # Must break previous high
+                # Relaxed close from 0.2 -> 0.3
+                strong_close = (highs[i] - closes[i]) <= (0.3 * range_len)
                 break_prev = closes[i] > highs[i-1]
             else:
-                strong_close = (closes[i] - lows[i]) <= (0.2 * range_len)
-                # Must break previous low
+                strong_close = (closes[i] - lows[i]) <= (0.3 * range_len)
                 break_prev = closes[i] < lows[i-1]
                 
             if not (strong_close and break_prev): continue
 
-            # 2. Base Check (Previous 1-3 candles)
-            # We strictly require at least 2 small candles < 0.6 ATR immediately prior
+            # 2. Base Check
+            # Relaxed base max candle size from 0.6 ATR -> 0.8 ATR
             base_candles = []
             valid_base = False
             
-            # Check i-1 and i-2
             c1_body = abs(closes[i-1] - opens[i-1])
             c2_body = abs(closes[i-2] - opens[i-2])
-            atr_prev = atr_series.iloc[i-1] # Approx ATR for base check
+            atr_prev = atr_series.iloc[i-1]
             
-            if c1_body < 0.6 * atr_prev and c2_body < 0.6 * atr_prev:
-                # Valid 2-candle base
+            if c1_body < 0.8 * atr_prev and c2_body < 0.8 * atr_prev:
                 base_start = i-2
                 base_end = i-1
                 valid_base = True
                 
-                # Check optional i-3
                 c3_body = abs(closes[i-3] - opens[i-3])
-                if c3_body < 0.6 * atr_prev:
+                if c3_body < 0.8 * atr_prev:
                     base_start = i-3
             
             if not valid_base: continue
@@ -277,25 +273,41 @@ class ZoneEngine:
         return active_zones
 
     @staticmethod
-    def runDemandSupplyStrategy(df, sector_state, zones=[]):
-        """
-        Demand / Supply Strategy Engine — Pro Version
-        Weighted scoring model with 6 factors + regime/liquidity guards.
-        Status: STRONG_ENTRY | ENTRY_READY | WATCHLIST | AVOID
-        """
+    def runDemandSupplyStrategy(df, sector_state, zones=None):
+
         from app.engine.zones import ZoneEngine
         from app.engine.insights import InsightEngine
-        from app.engine.regime import MarketRegimeEngine
+        import numpy as np
+
+        if zones is None:
+            zones = []
+
+        if df is None or df.empty:
+            return None
 
         cmp = float(df['close'].iloc[-1])
-        atr = ZoneEngine.calculate_atr(df).iloc[-1]
-        adx = InsightEngine.get_adx(df)
-        vol_ratio = float(df['volume'].iloc[-1] / df['volume'].tail(20).mean())
-        avg_vol = float(df['volume'].tail(20).mean())
-        regime = MarketRegimeEngine.detect_regime(df)
 
-        demand_zones = [z for z in zones if z['type'] == 'DEMAND' and z['price'] < cmp]
-        demand_zones = sorted(demand_zones, key=lambda x: x['price'], reverse=True)
+        # --- SAFE ATR ---
+        atr_series = ZoneEngine.calculate_atr(df)
+        atr = atr_series.iloc[-1] if not np.isnan(atr_series.iloc[-1]) else 0
+
+        # --- SAFE ADX ---
+        try:
+            adx = InsightEngine.get_adx(df)
+        except:
+            adx = 0
+
+        # --- SAFE VOLUME RATIO ---
+        vol_mean = df['volume'].tail(20).mean()
+        vol_ratio = float(df['volume'].iloc[-1] / vol_mean) if vol_mean > 0 else 1
+
+        # --- FILTER DEMAND ZONES ---
+        demand_zones = [
+            z for z in zones
+            if z.get('type') == 'DEMAND' and z.get('price', 0) < cmp
+        ]
+
+        demand_zones = sorted(demand_zones, key=lambda x: x.get('price', 0), reverse=True)
 
         if not demand_zones:
             return {
@@ -305,78 +317,56 @@ class ZoneEngine:
                 "target": round(cmp * 1.05, 2),
                 "riskReward": 0,
                 "confidence": 0,
-                "grade": "D",
-                "additionalMetrics": {"regime": regime}
+                "additionalMetrics": {}
             }
 
         zone = demand_zones[0]
 
-        nearest_sup = zone['price_low']
-        stop_loss = nearest_sup - (atr * 0.3)
+        price_low = zone.get('price_low', zone.get('price', cmp))
+        price_high = zone.get('price_high', zone.get('price', cmp))
+        strength = zone.get('strength', 1)
+
+        # --- STOP LOSS ---
+        stop_loss = price_low - (atr * 0.3 if atr > 0 else cmp * 0.01)
+
+        # --- TARGET ---
         target = cmp + (cmp - stop_loss) * 2
+
+        # --- RR ---
         rr = (target - cmp) / (cmp - stop_loss) if (cmp - stop_loss) > 0 else 0
 
-        zone_width = zone['price_high'] - zone['price_low']
-        tight_zone = zone_width <= atr
+        zone_width = price_high - price_low
 
-        # -------------------------
-        # 🎯 SCORING MODEL
-        # -------------------------
+        # --- SIMPLE SCORING ---
         score = 0
 
-        # Zone Strength
-        if zone['strength'] >= 2:
+        if strength >= 2:
             score += 20
-        else:
-            score += 10
 
-        # Zone Tightness
-        if tight_zone:
+        if zone_width <= atr and atr > 0:
             score += 15
 
-        # Trend Strength
-        if adx >= 25:
+        if adx >= 20:
             score += 15
-        elif adx >= 18:
-            score += 10
 
-        # Volume
         if vol_ratio >= 1.5:
             score += 15
 
-        # Risk Reward
         if rr >= 2:
             score += 15
 
-        # Sector Alignment
-        if sector_state == "LEADING":
+        if sector_state in ["LEADING", "IMPROVING"]:
             score += 15
-        elif sector_state == "IMPROVING":
-            score += 10
 
-        # Regime penalty
-        if regime == "STRONG_DOWNTREND":
-            score -= 20
+        confidence = min(score, 100)
 
-        confidence = min(max(score, 0), 100)
-
-        # Liquidity Filter
-        if avg_vol < 200_000:
-            confidence = min(confidence, 55)
-
-        # -------------------------
-        # STATUS LOGIC
-        # -------------------------
-        if confidence >= 80:
-            status = "STRONG_ENTRY"
-        elif confidence >= 65:
+        # --- STATUS ---
+        if confidence >= 75:
             status = "ENTRY_READY"
         elif confidence >= 50:
             status = "WATCHLIST"
         else:
             status = "AVOID"
-
-        grade = MarketRegimeEngine.get_grade(confidence)
 
         return {
             "bias": "BULLISH",
@@ -385,11 +375,9 @@ class ZoneEngine:
             "target": round(target, 2),
             "riskReward": round(rr, 2),
             "confidence": confidence,
-            "grade": grade,
             "additionalMetrics": {
                 "zoneWidth": round(zone_width, 2),
                 "adx": round(adx, 2),
-                "volRatio": round(vol_ratio, 2),
-                "regime": regime
+                "volRatio": round(vol_ratio, 2)
             }
         }
