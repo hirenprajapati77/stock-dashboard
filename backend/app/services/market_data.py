@@ -2,9 +2,14 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
+import time
 from functools import lru_cache
 
 class MarketDataService:
+    # Simple in-memory cache to mitigate Yahoo Finance rate limits
+    _ohlcv_cache = {}
+    CACHE_TTL = 300 # 5 minutes
+
     @staticmethod
     def _pick_fast_info_value(fast_info, *keys):
         for key in keys:
@@ -60,11 +65,20 @@ class MarketDataService:
         return symbol
 
     @staticmethod
-    def get_ohlcv(symbol="RELIANCE", tf="1D", count=200):
+    def get_ohlcv(symbol="RELIANCE", tf="1D", count=200, use_fast_info=True):
         """
-        Fetches real OHLCV data using yfinance.
+        Fetches real OHLCV data using yfinance with in-memory caching.
         """
         symbol = MarketDataService.normalize_symbol(symbol)
+        cache_key = f"{symbol}_{tf}_{count}"
+        
+        # 1. Check Cache
+        now = time.time()
+        if cache_key in MarketDataService._ohlcv_cache:
+            entry = MarketDataService._ohlcv_cache[cache_key]
+            if (now - entry['timestamp']) < MarketDataService.CACHE_TTL:
+                # print(f"DEBUG: Cache Hit for {cache_key}")
+                return entry['df'].copy(), entry['currency']
             
         # Map TF to yfinance interval
         interval_map = {
@@ -140,52 +154,53 @@ class MarketDataService:
             
             # --- REAL-TIME ENHANCEMENT ---
             # Yahoo Finance history() is often delayed by 15-60 mins for NSE.
-            # We MUST use fast_info.last_price to get the actual current market price.
-            try:
-                fast = ticker.fast_info
-                # Force fetch of live price
-                cmp = MarketDataService._pick_fast_info_value(fast, 'lastPrice', 'last_price', 'regularMarketPrice')
-                
-                if cmp:
-                    # If df is empty (start of day or error), create a single row
-                    if df.empty:
-                        # Construct a single-row DataFrame
-                        df = pd.DataFrame({
-                            'open': [cmp], 'high': [cmp], 'low': [cmp], 'close': [cmp], 'volume': [0]
-                        }, index=[pd.Timestamp.now()])
-                    else:
-                        # Update the very last candle with the most recent price
-                        # Check if the last candle's date is today. If so, update it.
-                        # If not (e.g. yesterday's close), append a NEW candle for today.
-                        last_idx = df.index[-1]
-                        is_today = last_idx.date() == pd.Timestamp.now().date()
-                        
-                        col_close = 'Close' if 'Close' in df.columns else 'close'
-                        col_high = 'High' if 'High' in df.columns else 'high'
-                        col_low = 'Low' if 'Low' in df.columns else 'low'
-                        
-                        if is_today:
-                            df.iloc[-1, df.columns.get_loc(col_close)] = cmp
-                            # Update High/Low if CMP breaks them
-                            if cmp > df.iloc[-1, df.columns.get_loc(col_high)]:
-                                df.iloc[-1, df.columns.get_loc(col_high)] = cmp
-                            if cmp < df.iloc[-1, df.columns.get_loc(col_low)]:
-                                df.iloc[-1, df.columns.get_loc(col_low)] = cmp
+            # We use fast_info.last_price to get the actual current market price.
+            if use_fast_info:
+                try:
+                    fast = ticker.fast_info
+                    # Force fetch of live price
+                    cmp = MarketDataService._pick_fast_info_value(fast, 'lastPrice', 'last_price', 'regularMarketPrice')
+                    
+                    if cmp:
+                        # If df is empty (start of day or error), create a single row
+                        if df.empty:
+                            # Construct a single-row DataFrame
+                            df = pd.DataFrame({
+                                'open': [cmp], 'high': [cmp], 'low': [cmp], 'close': [cmp], 'volume': [0]
+                            }, index=[pd.Timestamp.now()])
                         else:
-                            # Append new candle for today
-                            new_row = df.iloc[-1].copy()
-                            new_row.name = pd.Timestamp.now()
-                            new_row[col_close] = cmp
-                            new_row[col_high] = cmp
-                            new_row[col_low] = cmp
-                            # Volume unknown, set to 0 or copy? Set to 0 to be safe
-                            col_vol = 'Volume' if 'Volume' in df.columns else 'volume'
-                            new_row[col_vol] = 0
+                            # Update the very last candle with the most recent price
+                            # Check if the last candle's date is today. If so, update it.
+                            # If not (e.g. yesterday's close), append a NEW candle for today.
+                            last_idx = df.index[-1]
+                            is_today = last_idx.date() == pd.Timestamp.now().date()
                             
-                            df = pd.concat([df, pd.DataFrame([new_row])])
+                            col_close = 'Close' if 'Close' in df.columns else 'close'
+                            col_high = 'High' if 'High' in df.columns else 'high'
+                            col_low = 'Low' if 'Low' in df.columns else 'low'
+                            
+                            if is_today:
+                                df.iloc[-1, df.columns.get_loc(col_close)] = cmp
+                                # Update High/Low if CMP breaks them
+                                if cmp > df.iloc[-1, df.columns.get_loc(col_high)]:
+                                    df.iloc[-1, df.columns.get_loc(col_high)] = cmp
+                                if cmp < df.iloc[-1, df.columns.get_loc(col_low)]:
+                                    df.iloc[-1, df.columns.get_loc(col_low)] = cmp
+                            else:
+                                # Append new candle for today
+                                new_row = df.iloc[-1].copy()
+                                new_row.name = pd.Timestamp.now()
+                                new_row[col_close] = cmp
+                                new_row[col_high] = cmp
+                                new_row[col_low] = cmp
+                                # Volume unknown, set to 0 or copy? Set to 0 to be safe
+                                col_vol = 'Volume' if 'Volume' in df.columns else 'volume'
+                                new_row[col_vol] = 0
+                                
+                                df = pd.concat([df, pd.DataFrame([new_row])])
 
-            except Exception as fe:
-                print(f"Fast info failed for {symbol}: {fe}")
+                except Exception as fe:
+                    print(f"Fast info failed for {symbol}: {fe}")
             
             if df.empty:
                 # Try .BO if .NS failed (simple fallback logic)
@@ -228,6 +243,14 @@ class MarketDataService:
             currency = "INR" if is_inr else "USD"
             
             # (Optional) Try fast_info for currency if needed, but heuristic is safer
+            
+            # 2. Update Cache
+            MarketDataService._ohlcv_cache[cache_key] = {
+                'df': df.copy(),
+                'currency': currency,
+                'timestamp': time.time()
+            }
+            
             return df, currency
             
         except Exception as e:

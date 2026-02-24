@@ -60,7 +60,7 @@ class SectorService:
         "timestamp": 0,
         "timeframe": None
     }
-    CACHE_TTL = 300 # 5 minutes
+    CACHE_TTL = 600 # 10 minutes
 
     @staticmethod
     def calculate_state(sector_return: float, benchmark_return: float, prev_rs: float) -> str:
