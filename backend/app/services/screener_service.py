@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 import yfinance as yf
 import concurrent.futures
 import time
@@ -150,8 +151,9 @@ class ScreenerService:
     def calculate_quality_score(cls, rs_sector: float, stock_acc: float, vol_ratio: float, 
                                structure_bias: str, rr: float, atr_expansion: float) -> float:
         """Phase 4: Stock Quality Score Calculation (0-100)"""
-        # 1. Stock RS inside sector (30%) - Normalized -5% to +5% -> 0-100
-        rs_score = max(0, min(100, rs_sector * 10 + 50))
+        # 1. Stock RS inside sector (30%) - Clamped -5% to +5% -> 0-100
+        rs_clamped = max(-5, min(5, rs_sector))
+        rs_score = (rs_clamped + 5) * 10
         
         # 2. Stock Acceleration (20%) - Normalized -0.1 to +0.1 -> 0-100
         acc_score = max(0, min(100, stock_acc * 500 + 50))
@@ -168,8 +170,14 @@ class ScreenerService:
         # 6. ATR Expansion (10%) - 1.0 to 1.5 -> 0-100
         atr_score = max(0, min(100, (atr_expansion - 1.0) * 200))
         
-        final_score = (0.3 * rs_score) + (0.2 * acc_score) + (0.15 * vol_score) + \
-                      (0.15 * bias_score) + (0.1 * rr_bonus) + (0.1 * atr_score)
+        final_score = (
+            0.3 * rs_score +
+            0.2 * bias_score +
+            0.2 * acc_score +
+            0.1 * vol_score +
+            0.1 * atr_score +
+            0.1 * rr_bonus
+        )
         
         return float(round(final_score, 2))
 
@@ -209,7 +217,7 @@ class ScreenerService:
     @classmethod
     def get_risk_units(cls, sector_state: str, entry_tag: str, risk_level: str, stop_distance_pct: float) -> float:
         """RU Logic v1.0 (LOCKED)"""
-        if entry_tag == "AVOID": return 0.0
+        if entry_tag in ["AVOID", "WATCHLIST"]: return 0.0
         if entry_tag == "WAIT": return 0.5
         
         # ENTRY_READY
@@ -385,12 +393,21 @@ class ScreenerService:
                 
                 # Difference-based RS (avoid ratio explosions)
                 rs_sector = (stock_return - sector_return)
-                
-                # Phase 4: Stock Acceleration
-                # 5-day rolling RS sum for stocks
-                s_rs_5d = pct.rolling(5).sum() - (sector_close.pct_change() * 100).rolling(5).sum()
-                s_acc_raw = s_rs_5d.iloc[hit_idx] - s_rs_5d.shift(1).rolling(5).mean().iloc[hit_idx]
-                if np.isnan(s_acc_raw): s_acc_raw = 0.0
+
+                # Phase 4: Stock Acceleration (fixed: use pre-fetched sector data)
+                sector_pct = pd.Series(0.0, index=pct.index)
+                if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                    _sec_sym = cls.SECTOR_INDEX_BY_KEY[sector_key]
+                    _sec_df = sector_batch_df[_sec_sym] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
+                    if _sec_df is not None and not _sec_df.empty:
+                        _sec_close_col = "Close" if "Close" in _sec_df.columns else "close"
+                        _sec_close = _sec_df[_sec_close_col].dropna()
+                        sector_pct = _sec_close.pct_change().reindex(pct.index).fillna(0) * 100
+
+                s_rs = pct - sector_pct
+                s_acc_raw = s_rs.diff().iloc[hit_idx]
+                if pd.isna(s_acc_raw):
+                    s_acc_raw = 0.0
                 
                 # --- STOCK RS GATE (LOCKED v1.0) ---
                 if rs_sector <= 0:
@@ -415,7 +432,7 @@ class ScreenerService:
                 
                 # Phase 4 Metrics
                 structure_bias = InsightEngine.get_structure_bias(symbol_df)
-                atr_expansion = curr_range / avg_range if avg_range > 0 else 1.0
+                atr_expansion = min(3.0, curr_range / avg_range) if avg_range > 0 else 1.0
                 
                 # Simple RR heuristic since we don't have strategy levels here
                 # We assume target is 2x ATR and stop is 1x ATR

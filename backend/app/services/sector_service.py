@@ -211,10 +211,10 @@ class SectorService:
                 combined['rm'] = combined['rs'].diff()
                 
                 # Phase 1: Sector Acceleration
-                # 5-day rolling RS sum for "RS over 5 days"
+                # 5-day rolling RS to smooth noise
                 combined['rs_5d'] = combined['rs'].rolling(5).sum()
-                # Latest vs average of previous 5 periods
-                combined['acc_raw'] = combined['rs_5d'] - combined['rs_5d'].shift(1).rolling(5).mean()
+                # Acceleration = rate of change of the 5d RS (diff is cleaner than comparison to mean)
+                combined['acc_raw'] = combined['rs_5d'].diff()
                 
                 combined = combined.dropna(subset=['rs', 'rm', 'acc_raw'])
 
@@ -281,8 +281,8 @@ class SectorService:
                 
                 # Phase 1: Normalize Acceleration Score (-100 to +100)
                 acc_raw = float(last_row['acc_raw'])
-                # Heuristic: 0.05 (5% RS diff) is a strong move
-                acc_score = max(-100, min(100, acc_raw * 2000)) 
+                # 1000x scale (less explosive than 2000)
+                acc_score = max(-100, min(100, acc_raw * 1000))
 
                 # State logic: Absolute direction + Relative performance
                 state = cls.calculate_state(
