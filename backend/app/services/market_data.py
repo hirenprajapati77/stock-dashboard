@@ -70,7 +70,7 @@ class MarketDataService:
         Fetches real OHLCV data using yfinance with in-memory caching.
         """
         symbol = MarketDataService.normalize_symbol(symbol)
-        cache_key = f"{symbol}_{tf}_{count}"
+        cache_key = f"{symbol}_{tf}_{count}_{use_fast_info}"
         
         # 1. Check Cache
         now = time.time()
@@ -97,10 +97,10 @@ class MarketDataService:
         # Calculate period based on count (approximate)
         # We fetch a bit more to ensure we have enough candles
         period = "1y"
-        if tf == "5m": period = "60d"
-        elif tf == "15m": period = "60d"
-        elif tf == "75m": period = "60d"
-        elif tf in ["1H", "2H", "4H"]: period = "730d"
+        if tf == "5m": period = "7d"
+        elif tf == "15m": period = "30d"
+        elif tf == "75m": period = "30d"
+        elif tf in ["1H", "2H", "4H"]: period = "180d"
         elif tf == "1D": period = "1y" 
         elif tf == "1W": period = "2y"
         elif tf == "1M": period = "5y"
@@ -158,49 +158,43 @@ class MarketDataService:
             if use_fast_info:
                 try:
                     fast = ticker.fast_info
-                    # Force fetch of live price
-                    cmp = MarketDataService._pick_fast_info_value(fast, 'lastPrice', 'last_price', 'regularMarketPrice')
-                    
-                    if cmp:
-                        # If df is empty (start of day or error), create a single row
-                        if df.empty:
-                            # Construct a single-row DataFrame
-                            df = pd.DataFrame({
-                                'open': [cmp], 'high': [cmp], 'low': [cmp], 'close': [cmp], 'volume': [0]
-                            }, index=[pd.Timestamp.now()])
-                        else:
-                            # Update the very last candle with the most recent price
-                            # Check if the last candle's date is today. If so, update it.
-                            # If not (e.g. yesterday's close), append a NEW candle for today.
-                            last_idx = df.index[-1]
-                            is_today = last_idx.date() == pd.Timestamp.now().date()
-                            
-                            col_close = 'Close' if 'Close' in df.columns else 'close'
-                            col_high = 'High' if 'High' in df.columns else 'high'
-                            col_low = 'Low' if 'Low' in df.columns else 'low'
-                            
-                            if is_today:
-                                df.iloc[-1, df.columns.get_loc(col_close)] = cmp
-                                # Update High/Low if CMP breaks them
-                                if cmp > df.iloc[-1, df.columns.get_loc(col_high)]:
-                                    df.iloc[-1, df.columns.get_loc(col_high)] = cmp
-                                if cmp < df.iloc[-1, df.columns.get_loc(col_low)]:
-                                    df.iloc[-1, df.columns.get_loc(col_low)] = cmp
-                            else:
-                                # Append new candle for today
-                                new_row = df.iloc[-1].copy()
-                                new_row.name = pd.Timestamp.now()
-                                new_row[col_close] = cmp
-                                new_row[col_high] = cmp
-                                new_row[col_low] = cmp
-                                # Volume unknown, set to 0 or copy? Set to 0 to be safe
-                                col_vol = 'Volume' if 'Volume' in df.columns else 'volume'
-                                new_row[col_vol] = 0
-                                
-                                df = pd.concat([df, pd.DataFrame([new_row])])
+                    cmp = MarketDataService._pick_fast_info_value(
+                        fast, 'lastPrice', 'last_price', 'regularMarketPrice'
+                    )
 
-                except Exception as fe:
-                    print(f"Fast info failed for {symbol}: {fe}")
+                    if cmp:
+                        cmp = float(cmp)
+
+                        if df.empty:
+                            return pd.DataFrame(), "INR"
+
+                        last_idx = df.index[-1]
+                        col_close = 'Close' if 'Close' in df.columns else 'close'
+                        col_high = 'High' if 'High' in df.columns else 'high'
+                        col_low = 'Low' if 'Low' in df.columns else 'low'
+                        col_vol = 'Volume' if 'Volume' in df.columns else 'volume'
+
+                        is_today = last_idx.date() == pd.Timestamp.now().date()
+
+                        if is_today:
+                            df.at[last_idx, col_close] = cmp
+                            df.at[last_idx, col_high] = max(df.at[last_idx, col_high], cmp)
+                            df.at[last_idx, col_low] = min(df.at[last_idx, col_low], cmp)
+                        else:
+                            new_idx = pd.Timestamp.now().floor("min")
+                            new_row = {
+                                col_close: cmp,
+                                col_high: cmp,
+                                col_low: cmp,
+                                'open': df.iloc[-1][col_close],
+                                col_vol: 0
+                            }
+                            df.loc[new_idx] = new_row
+
+                        df = df[~df.index.duplicated(keep="last")]
+
+                except Exception:
+                    pass
             
             if df.empty:
                 # Try .BO if .NS failed (simple fallback logic)
@@ -255,9 +249,4 @@ class MarketDataService:
             
         except Exception as e:
             print(f"Error fetching data for {symbol}: {e}")
-            # Fallback to a tiny empty DF to prevent backend crash, or re-raise
-            # For this dashboard, let's return a single dummy candle to avoid total UI crash
-            dummy_df = pd.DataFrame({
-                'open': [0], 'high': [0], 'low': [0], 'close': [0], 'volume': [0]
-            }, index=[datetime.now()])
-            return dummy_df, "INR"
+            return pd.DataFrame(), "INR"

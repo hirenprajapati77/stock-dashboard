@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 import yfinance as yf
 import concurrent.futures
 import time
@@ -24,6 +25,7 @@ Any change must update tests.
 
 from app.services.constituent_service import ConstituentService
 from app.services.sector_service import SectorService
+from app.engine.insights import InsightEngine
 
 
 @dataclass(frozen=True)
@@ -146,18 +148,51 @@ class ScreenerService:
         return bool(curr_high > prev_highs.max())
 
     @classmethod
-    def get_entry_tag(cls, stock_active: bool, sector_state: str, price_above_vwap: bool, breakout_confirmed: bool, vol_ratio: float) -> str:
-        """Entry Tagging Logic v1.0 (LOCKED)"""
+    def calculate_quality_score(cls, rs_sector: float, stock_acc: float, vol_ratio: float, 
+                               structure_bias: str, rr: float, atr_expansion: float) -> float:
+        """Phase 4: Stock Quality Score Calculation (0-100)"""
+        # 1. Stock RS inside sector (30%) - Clamped -5% to +5% -> 0-100
+        rs_clamped = max(-5, min(5, rs_sector))
+        rs_score = (rs_clamped + 5) * 10
+        
+        # 2. Stock Acceleration (20%) - Normalized -0.1 to +0.1 -> 0-100
+        acc_score = max(0, min(100, stock_acc * 500 + 50))
+        
+        # 3. Volume Ratio (15%) - 1.0 to 2.0 -> 0-100
+        vol_score = max(0, min(100, (vol_ratio - 1.0) * 100))
+        
+        # 4. Structure Bias (15%)
+        bias_score = 100 if structure_bias == "BULLISH" else 50 if structure_bias == "NEUTRAL" else 0
+        
+        # 5. Risk-Reward Bonus (10%)
+        rr_bonus = 100 if rr >= 1.8 else 0
+        
+        # 6. ATR Expansion (10%) - 1.0 to 1.5 -> 0-100
+        atr_score = max(0, min(100, (atr_expansion - 1.0) * 200))
+        
+        final_score = (
+            0.3 * rs_score +
+            0.2 * bias_score +
+            0.2 * acc_score +
+            0.1 * vol_score +
+            0.1 * atr_score +
+            0.1 * rr_bonus
+        )
+        
+        return float(round(final_score, 2))
+
+    @classmethod
+    def get_entry_tag(cls, quality_score: float, sector_state: str, stock_active: bool) -> str:
+        """Phase 4: Updated Entry Tagging Logic based on Quality Score"""
         if sector_state == "LAGGING" or not stock_active:
             return "AVOID"
         
-        # Best case
-        if price_above_vwap and breakout_confirmed and vol_ratio >= 1.8:
+        if quality_score >= 80:
+            return "STRONG_ENTRY"
+        if quality_score >= 65:
             return "ENTRY_READY"
-        
-        # Good setup, wait
-        if price_above_vwap and vol_ratio >= 1.5:
-            return "WAIT"
+        if quality_score >= 50:
+            return "WATCHLIST"
             
         return "AVOID"
 
@@ -182,7 +217,7 @@ class ScreenerService:
     @classmethod
     def get_risk_units(cls, sector_state: str, entry_tag: str, risk_level: str, stop_distance_pct: float) -> float:
         """RU Logic v1.0 (LOCKED)"""
-        if entry_tag == "AVOID": return 0.0
+        if entry_tag in ["AVOID", "WATCHLIST"]: return 0.0
         if entry_tag == "WAIT": return 0.5
         
         # ENTRY_READY
@@ -358,6 +393,21 @@ class ScreenerService:
                 
                 # Difference-based RS (avoid ratio explosions)
                 rs_sector = (stock_return - sector_return)
+
+                # Phase 4: Stock Acceleration (fixed: use pre-fetched sector data)
+                sector_pct = pd.Series(0.0, index=pct.index)
+                if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                    _sec_sym = cls.SECTOR_INDEX_BY_KEY[sector_key]
+                    _sec_df = sector_batch_df[_sec_sym] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
+                    if _sec_df is not None and not _sec_df.empty:
+                        _sec_close_col = "Close" if "Close" in _sec_df.columns else "close"
+                        _sec_close = _sec_df[_sec_close_col].dropna()
+                        sector_pct = _sec_close.pct_change().reindex(pct.index).fillna(0) * 100
+
+                s_rs = pct - sector_pct
+                s_acc_raw = s_rs.diff().iloc[hit_idx]
+                if pd.isna(s_acc_raw):
+                    s_acc_raw = 0.0
                 
                 # --- STOCK RS GATE (LOCKED v1.0) ---
                 if rs_sector <= 0:
@@ -380,8 +430,25 @@ class ScreenerService:
                 avg_range = float(ranges.rolling(20).mean().iloc[-1])
                 vol_high = bool(curr_range > (avg_range * 2.0))
                 
+                # Phase 4 Metrics
+                structure_bias = InsightEngine.get_structure_bias(symbol_df)
+                atr_expansion = min(3.0, curr_range / avg_range) if avg_range > 0 else 1.0
+                
+                # Simple RR heuristic since we don't have strategy levels here
+                # We assume target is 2x ATR and stop is 1x ATR
+                rr_heuristic = 2.0 # Default to 2.0 if we can't calculate better
+                
+                quality_score = cls.calculate_quality_score(
+                    rs_sector=rs_sector,
+                    stock_acc=s_acc_raw,
+                    vol_ratio=vol_ratio_val,
+                    structure_bias=structure_bias,
+                    rr=rr_heuristic,
+                    atr_expansion=atr_expansion
+                )
+                
                 # Compute Tags
-                entry_tag = cls.get_entry_tag(stock_active, sector_state, price_above_vwap, is_breakout, vol_ratio_val)
+                entry_tag = cls.get_entry_tag(quality_score, sector_state, stock_active)
                 exit_tag = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
                 risk_level = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
                 
@@ -431,7 +498,10 @@ class ScreenerService:
                             "isBreakout": bool(is_breakout),
                             "aboveVWAP": bool(price_above_vwap),
                             "volHigh": bool(vol_high),
-                            "stopDistance": float(stop_distance_pct)
+                            "stopDistance": float(stop_distance_pct),
+                            "qualityScore": float(quality_score),
+                            "structureBias": str(structure_bias),
+                            "atrExpansion": float(round(atr_expansion, 2))
                         },
                         "asOf": str(close.index[latest_idx]),
                         "hitAsOf": str(hit_ts),
