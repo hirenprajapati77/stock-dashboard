@@ -28,10 +28,16 @@ from app.services.sector_service import SectorService
 from app.engine.insights import InsightEngine
 
 
-@dataclass(frozen=True)
-class MomentumRule:
-    change_threshold: float
-    volume_threshold: float
+@dataclass
+class ScreenerRule:
+    """
+    Default Momentum Criteria v1.1 (Modified for better hit frequency)
+    """
+    change_threshold: float = 1.4      # Down from 2.0
+    volume_threshold: float = 1.25     # Down from 1.5
+    vol_shock_threshold: float = 2.0
+    lookback_bars: int = 15            # Up from 10
+    min_confidence: int = 50
 
 
 class ScreenerService:
@@ -44,11 +50,11 @@ class ScreenerService:
         "Daily": {"interval": "1d", "period": "6mo"},
     }
 
-    RULES_BY_TF: Dict[str, MomentumRule] = {
-        "5m": MomentumRule(change_threshold=0.7, volume_threshold=1.5),
-        "15m": MomentumRule(change_threshold=0.9, volume_threshold=1.5),
-        "1D": MomentumRule(change_threshold=2.0, volume_threshold=1.5),
-        "Daily": MomentumRule(change_threshold=2.0, volume_threshold=1.5),
+    RULES_BY_TF: Dict[str, ScreenerRule] = {
+        "5m": ScreenerRule(change_threshold=0.7, volume_threshold=1.5),
+        "15m": ScreenerRule(change_threshold=0.9, volume_threshold=1.5),
+        "1D": ScreenerRule(change_threshold=1.4, volume_threshold=1.25, lookback_bars=15),
+        "Daily": ScreenerRule(change_threshold=1.4, volume_threshold=1.25, lookback_bars=15),
     }
 
     SECTOR_INDEX_BY_KEY: Dict[str, str] = {
@@ -347,18 +353,32 @@ class ScreenerService:
         hits: List[Dict] = []
         for symbol in all_symbols:
             try:
-                symbol_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
-                if symbol_df is None or symbol_df.empty:
+                # 1. Fetch & Standardize DF
+                raw_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
+                if raw_df is None or raw_df.empty:
+                    continue
+                
+                symbol_df = raw_df.copy()
+                symbol_df.columns = [c.lower() for c in symbol_df.columns]
+                
+                close = symbol_df['close'].dropna()
+                volume = symbol_df['volume'].dropna()
+                
+                if close.empty or volume.empty:
                     continue
 
-                close_col = "Close" if "Close" in symbol_df.columns else "close"
-                vol_col = "Volume" if "Volume" in symbol_df.columns else "volume"
-                if close_col not in symbol_df.columns or vol_col not in symbol_df.columns:
+                # Handle after-hours (latest volume 0)
+                # Find the latest index with non-zero volume
+                latest_valid_idx = len(volume) - 1
+                while latest_valid_idx >= 0 and volume.iloc[latest_valid_idx] == 0:
+                    latest_valid_idx -= 1
+                
+                # If no valid volume bar found, skip
+                if latest_valid_idx < 0:
                     continue
-
-                close = symbol_df[close_col].dropna()
-                volume = symbol_df[vol_col].dropna()
-                if len(close) < 6 or len(volume) < 6:
+                
+                # Ensure we have enough data points for calculations
+                if latest_valid_idx < 5: # Need at least 6 bars for pct_change and rolling means
                     continue
 
                 pct = close.pct_change() * 100
@@ -367,14 +387,13 @@ class ScreenerService:
                 volume_expansion = vol_ratio > rule.volume_threshold
 
                 cond = (pct > rule.change_threshold) & volume_expansion
-                hit_idx = cls._find_last_hit_index(cond, lookback_bars=10)
+                hit_idx = cls._find_last_hit_index(cond, lookback_bars=rule.lookback_bars)
                 if hit_idx is None:
                     continue
 
                 hits1d, hits2d, hits3d = cls._compute_streak_flags(cond, hit_idx)
-                if not hits1d:
-                    continue
-
+                # Removed strict 'if not hits1d: continue' to allow recent hits to show
+                
                 sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
                 
                 # --- HARD SECTOR GATE (LOCKED v1.0) ---
@@ -382,6 +401,7 @@ class ScreenerService:
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
                 
                 if sector_state not in gate_states:
+                    # print(f"DEBUG SCREENER: {symbol} FAILED Sector Gate. State: {sector_state}")
                     continue
 
                 sector_return = 0.0
@@ -517,7 +537,10 @@ class ScreenerService:
                         "isLatestSession": bool(hit_idx == len(close) - 1),
                     }
                 )
-            except Exception:
+            except Exception as e:
+                print(f"ERROR SCREENER: Unexpected error for {symbol}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
         if hits:

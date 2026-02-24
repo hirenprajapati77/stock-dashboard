@@ -415,6 +415,11 @@ class RotationDashboard {
         });
     }
 
+    getTodayStr() {
+        const d = new Date();
+        return d.toISOString().split('T')[0];
+    }
+
     getQuadrantName(rs, rm, sectorReturn = 1) {
         // rs and rm are already differences (e.g. 0.02 for 2%)
         // sectorReturn must be provided for absolute guardrail

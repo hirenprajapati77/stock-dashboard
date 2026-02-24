@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import math
 import time
 import sys
 """
@@ -280,7 +281,10 @@ class SectorService:
                 curr_rm = float(last_row['rm'])
                 
                 # Phase 1: Normalize Acceleration Score (-100 to +100)
-                acc_raw = float(last_row['acc_raw'])
+                acc_raw_val = last_row['acc_raw']
+                if pd.isna(acc_raw_val) or math.isinf(float(acc_raw_val)):
+                    acc_raw_val = 0.0
+                acc_raw = float(acc_raw_val)
                 # 1000x scale (less explosive than 2000)
                 acc_score = max(-100, min(100, acc_raw * 1000))
 

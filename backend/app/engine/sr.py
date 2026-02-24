@@ -77,7 +77,7 @@ class SREngine:
         from app.engine.regime import MarketRegimeEngine
 
         cmp = float(df['close'].iloc[-1])
-        vol_ratio = float(df['volume'].iloc[-1] / df['volume'].tail(20).mean())
+        vol_ratio = InsightEngine.get_volume_ratio(df)
         avg_vol = float(df['volume'].tail(20).mean())
         adx = InsightEngine.get_adx(df)
         retest = InsightEngine.detect_retest(df, supports + resistances)

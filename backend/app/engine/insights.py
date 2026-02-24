@@ -161,3 +161,24 @@ class InsightEngine:
                 return "BEARISH"
                 
         return "NEUTRAL"
+
+    @staticmethod
+    def get_volume_ratio(df: pd.DataFrame, period: int = 20):
+        """
+        Calculates the ratio of current volume vs its 20-day average.
+        If current volume is 0 (after-hours), uses last active candle.
+        """
+        if len(df) < 5:
+            return 1.0
+            
+        # Handle after-hours (latest volume 0)
+        idx = -1
+        while idx > -len(df) and df['volume'].iloc[idx] == 0:
+            idx -= 1
+            
+        avg_vol = df['volume'].rolling(window=period, min_periods=5).mean().iloc[idx]
+        curr_vol = df['volume'].iloc[idx]
+        
+        if avg_vol > 0:
+            return float(round(curr_vol / avg_vol, 2))
+        return 1.0

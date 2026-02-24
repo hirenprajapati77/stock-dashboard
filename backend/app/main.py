@@ -35,6 +35,7 @@ ai_engine = AIEngine()
 def _json_serializable(obj):
     """Recursively convert numpy types and non-serializable objects to python types."""
     import numpy as np
+    import math
     
     if isinstance(obj, dict):
         return {_json_serializable(k): _json_serializable(v) for k, v in obj.items()}
@@ -42,18 +43,29 @@ def _json_serializable(obj):
         return [_json_serializable(v) for v in obj]
     elif isinstance(obj, np.ndarray):
         return [_json_serializable(v) for v in obj.tolist()]
-    elif hasattr(obj, 'item') and callable(getattr(obj, 'item')):
-        return obj.item()
-    elif isinstance(obj, (np.bool_, bool)):
-        return bool(obj)
-    elif str(type(obj)).find('numpy.bool') != -1:
-        return bool(obj)
+    
+    # Handle numpy scalars by converting to python types first
+    if hasattr(obj, 'item') and callable(getattr(obj, 'item')):
+        obj = obj.item()
+
+    if isinstance(obj, (np.floating, float)):
+        val = float(obj)
+        return None if math.isnan(val) or math.isinf(val) else val
     elif isinstance(obj, (np.integer, int)):
         return int(obj)
-    elif isinstance(obj, (np.floating, float)):
-        return float(obj)
+    elif isinstance(obj, (np.bool_, bool, np.bool_)):
+        return bool(obj)
     elif isinstance(obj, datetime):
         return obj.isoformat()
+    
+    # Handle string cases for numpy specifically if they slipped through
+    if str(type(obj)).find('numpy') != -1:
+        if str(type(obj)).find('bool') != -1: return bool(obj)
+        if str(type(obj)).find('int') != -1: return int(obj)
+        if str(type(obj)).find('float') != -1:
+            val = float(obj)
+            return None if math.isnan(val) or math.isinf(val) else val
+
     return obj
 
 def _to_price_list(levels):
@@ -304,16 +316,21 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             ai_analysis = {}
         if not ai_analysis: ai_analysis = {}
 
-        # 5. Final Formatting
+        # 5. Final Formatting - Filter out NaN candles that crash lightweight-charts
         ohlcv = []
+        import math
         for i in range(len(df)):
             try:
+                o, h, l, c = float(df['open'].iloc[i]), float(df['high'].iloc[i]), float(df['low'].iloc[i]), float(df['close'].iloc[i])
+                if math.isnan(o) or math.isnan(h) or math.isnan(l) or math.isnan(c):
+                    continue
+                    
                 ohlcv.append({
                     "time": int(df.index[i].timestamp()),
-                    "open": float(df['open'].iloc[i]),
-                    "high": float(df['high'].iloc[i]),
-                    "low": float(df['low'].iloc[i]),
-                    "close": float(df['close'].iloc[i])
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c
                 })
             except: continue
 
@@ -328,7 +345,9 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             "engulfing": InsightEngine.detect_engulfing(df),
             "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0,
             "adx": round(InsightEngine.get_adx(df), 2),
-            "structure": InsightEngine.get_structure_bias(df)
+            "structure": InsightEngine.get_structure_bias(df),
+            "volRatio": InsightEngine.get_volume_ratio(df),
+            "volume_ratio": InsightEngine.get_volume_ratio(df)
         }
 
         response_data = {
@@ -351,7 +370,9 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                 "risk_reward": f"1:{round(float(strategy_result.get('riskReward', 2.0)), 2)}",
                 "trade_signal": str(strategy_result.get('entryStatus', 'HOLD')),
                 "trade_signal_reason": f"{strategy} Bias: {strategy_result.get('bias', 'NEUTRAL')}. Sector: {sector_state}.",
-                "confidence": int(strategy_result.get('confidence', 0))
+                "confidence": int(strategy_result.get('confidence', 0)),
+                "volume_ratio": InsightEngine.get_volume_ratio(df),
+                "volRatio": InsightEngine.get_volume_ratio(df)
             },
             "strategy": strategy_result,
             "levels": {
