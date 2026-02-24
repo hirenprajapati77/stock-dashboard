@@ -209,7 +209,14 @@ class SectorService:
                 # Difference-based RS
                 combined['rs'] = combined['sector_return'] - combined['benchmark_return']
                 combined['rm'] = combined['rs'].diff()
-                combined = combined.dropna(subset=['rs', 'rm'])
+                
+                # Phase 1: Sector Acceleration
+                # 5-day rolling RS sum for "RS over 5 days"
+                combined['rs_5d'] = combined['rs'].rolling(5).sum()
+                # Latest vs average of previous 5 periods
+                combined['acc_raw'] = combined['rs_5d'] - combined['rs_5d'].shift(1).rolling(5).mean()
+                
+                combined = combined.dropna(subset=['rs', 'rm', 'acc_raw'])
 
                 # History (last 30)
                 history = combined.tail(30)
@@ -224,33 +231,58 @@ class SectorService:
                         "sr": float(round(hist_row['sector_return'], 4))
                     })
                 
-                # 3. Calculate Shining Metrics from pre-downloaded constituents
+                # 3. Calculate Phase 2 Metrics from pre-downloaded constituents
                 constituents = ConstituentService.get_constituents(name)
                 advances, total_vol, avg_vol, valid_cons = 0, 0, 0, 0
+                above20, above50, hi10 = 0, 0, 0
                 
                 if constituents:
                     for const in constituents:
                         c_df = get_ticker_df(const)
                         if c_df.empty or len(c_df) < 2: continue
                         
-                        last_c = c_df['Close'].iloc[-1]
-                        last_o = c_df['Open'].iloc[-1]
-                        last_v = c_df['Volume'].iloc[-1]
+                        last_c = float(c_df['Close'].iloc[-1])
+                        last_o = float(c_df['Open'].iloc[-1])
+                        last_v = float(c_df['Volume'].iloc[-1])
                         
                         if last_c > last_o: advances += 1
+                        
+                        # DMA & Highs
+                        if len(c_df) >= 20:
+                            ma20 = c_df['Close'].rolling(20).mean().iloc[-1]
+                            if last_c > ma20: above20 += 1
+                        if len(c_df) >= 50:
+                            ma50 = c_df['Close'].rolling(50).mean().iloc[-1]
+                            if last_c > ma50: above50 += 1
+                        if len(c_df) >= 10:
+                            max10 = c_df['Close'].rolling(10).max().iloc[-1]
+                            if last_c >= max10: hi10 += 1
+                            
                         valid_cons += 1
                         total_vol += last_v
                         avg_vol += c_df['Volume'].mean()
                     
                     breadth_ratio = advances / valid_cons if valid_cons > 0 else 0.5
                     rel_volume = total_vol / avg_vol if avg_vol > 0 else 1.0
+                    
+                    # Phase 2: BreadthScore
+                    pct_20 = (above20 / valid_cons * 100) if valid_cons > 0 else 50
+                    pct_50 = (above50 / valid_cons * 100) if valid_cons > 0 else 50
+                    pct_hi10 = (hi10 / valid_cons * 100) if valid_cons > 0 else 10
+                    breadth_score = (0.4 * pct_20) + (0.3 * pct_50) + (0.3 * pct_hi10)
                 else:
                     breadth_ratio, rel_volume = 0.5, 1.0
+                    breadth_score = 50.0
                 
                 # Final Current Metrics
                 last_row = history.iloc[-1]
                 curr_rs = float(last_row['rs'])
                 curr_rm = float(last_row['rm'])
+                
+                # Phase 1: Normalize Acceleration Score (-100 to +100)
+                acc_raw = float(last_row['acc_raw'])
+                # Heuristic: 0.05 (5% RS diff) is a strong move
+                acc_score = max(-100, min(100, acc_raw * 2000)) 
 
                 # State logic: Absolute direction + Relative performance
                 state = cls.calculate_state(
@@ -269,7 +301,9 @@ class SectorService:
                         "relVolume": float(round(rel_volume, 2)),
                         "state": str(state),
                         "sr": float(round(last_row['sector_return'], 4)),
-                        "br": float(round(last_row['benchmark_return'], 4))
+                        "br": float(round(last_row['benchmark_return'], 4)),
+                        "accelerationScore": float(round(acc_score, 2)),
+                        "breadthScore": float(round(breadth_score, 2))
                     }
                 }
                 
@@ -278,12 +312,26 @@ class SectorService:
             except Exception as e:
                 print(f"Error processing sector {name}: {e}")
 
-        # 4. Calculate Ranks, Trends, and History
-        if not results:
-            print("WARNING: No sector results calculated!")
-            return {}, []
+        # Phase 3: Predictive Rotation Score
+        # RotationScore = (0.4 * RS Score) + (0.3 * AccelerationScore) + (0.3 * BreadthScore)
+        # First normalize RS score across available sectors 0-100
+        all_rs = [float(r['current']['rs']) for r in results.values()]
+        min_rs, max_rs = min(all_rs) if all_rs else 0, max(all_rs) if all_rs else 1
+        
+        for name in results:
+            rs_val = float(results[name]['current']['rs'])
+            rs_norm = ((rs_val - min_rs) / (max_rs - min_rs) * 100) if max_rs != min_rs else 50
+            
+            acc_score = results[name]['metrics']['accelerationScore']
+            # Scale acc_score from [-100, 100] to [0, 100] for rotation calculation
+            acc_norm = (acc_score + 100) / 2
+            br_score = results[name]['metrics']['breadthScore']
+            
+            rotation_score = (0.4 * rs_norm) + (0.3 * acc_norm) + (0.3 * br_score)
+            results[name]['metrics']['rotationScore'] = float(round(rotation_score, 2))
 
-        sorted_sectors = sorted(results.items(), key=lambda x: x[1]['current']['rs'], reverse=True)
+        # Sort by Rotation Score instead of pure RS
+        sorted_sectors = sorted(results.items(), key=lambda x: x[1]['metrics']['rotationScore'], reverse=True)
         ranks = {name: i+1 for i, (name, _) in enumerate(sorted_sectors)}
         all_alerts = []
 
