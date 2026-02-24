@@ -87,12 +87,12 @@ class ZoneEngine:
             current_atr = atr_series.iloc[i]
             body_size = abs(closes[i] - opens[i])
             
-            # 1. Impulse Check (Relaxed from 1.5 -> 1.2)
-            is_impulse = body_size > 1.2 * current_atr
+            # 1. Impulse Check (Further Relaxed to 0.75)
+            is_impulse = body_size > 0.75 * current_atr
             
-            # Volume Confirmation: > 1.2x Avg Volume (Relaxed from 1.5)
+            # Volume Confirmation: > 0.8x Avg Volume (Relaxed from 1.0)
             avg_vol = df_slice['volume'].iloc[i-20:i].mean() if i > 20 else df_slice['volume'].iloc[:i].mean()
-            vol_valid = df_slice['volume'].iloc[i] > 1.2 * avg_vol
+            vol_valid = df_slice['volume'].iloc[i] > 0.8 * avg_vol
             
             if not is_impulse or not vol_valid: continue
 
@@ -104,17 +104,17 @@ class ZoneEngine:
             
             strong_close = False
             if is_bullish:
-                # Relaxed close from 0.2 -> 0.3
-                strong_close = (highs[i] - closes[i]) <= (0.3 * range_len)
+                # Relaxed close from 0.3 -> 0.4
+                strong_close = (highs[i] - closes[i]) <= (0.4 * range_len)
                 break_prev = closes[i] > highs[i-1]
             else:
-                strong_close = (closes[i] - lows[i]) <= (0.3 * range_len)
+                strong_close = (closes[i] - lows[i]) <= (0.4 * range_len)
                 break_prev = closes[i] < lows[i-1]
                 
             if not (strong_close and break_prev): continue
 
             # 2. Base Check
-            # Relaxed base max candle size from 0.6 ATR -> 0.8 ATR
+            # Relaxed base max candle size to 1.2 ATR
             base_candles = []
             valid_base = False
             
@@ -122,13 +122,13 @@ class ZoneEngine:
             c2_body = abs(closes[i-2] - opens[i-2])
             atr_prev = atr_series.iloc[i-1]
             
-            if c1_body < 0.8 * atr_prev and c2_body < 0.8 * atr_prev:
+            if c1_body < 1.2 * atr_prev and c2_body < 1.2 * atr_prev:
                 base_start = i-2
                 base_end = i-1
                 valid_base = True
                 
                 c3_body = abs(closes[i-3] - opens[i-3])
-                if c3_body < 0.8 * atr_prev:
+                if c3_body < 1.2 * atr_prev:
                     base_start = i-3
             
             if not valid_base: continue
@@ -229,10 +229,11 @@ class ZoneEngine:
             # Note: merged zones might have multiple creation indices, we take the latest or approx
             c_idx = z.get('creation_idx', 0)
             
+            # Scan price action after creation
             is_valid = True
             touches = 0
+            in_zone = True # Starts in zone after impulse/base usually
             
-            # Scan price action after creation
             for i in range(c_idx + 1, len(df_slice)):
                 row = df_slice.iloc[i]
                 
@@ -241,21 +242,27 @@ class ZoneEngine:
                     if row['close'] < z['price_low']:
                         is_valid = False
                         break
-                    # Touch: Low touches proximal (high)
-                    if row['low'] <= z['price_high']:
+                    
+                    # Touch logic: Only count new entries into the zone
+                    currently_in = row['low'] <= z['price_high']
+                    if currently_in and not in_zone:
                         touches += 1
+                    in_zone = currently_in
                         
                 elif z['type'] == 'SUPPLY':
                     # Violation: Close above distal (high)
                     if row['close'] > z['price_high']:
                         is_valid = False
                         break
-                    # Touch: High touches proximal (low)
-                    if row['high'] >= z['price_low']:
+                    
+                    # Touch logic: Only count new entries into the zone
+                    currently_in = row['high'] >= z['price_low']
+                    if currently_in and not in_zone:
                         touches += 1
+                    in_zone = currently_in
             
             z['touches'] = touches
-            z['last_touched'] = str(df_slice.index[-1]) # Approximate for now
+            z['last_touched'] = str(df_slice.index[-1])
             
             # Filter: Exclude if invalid or too many touches
             if is_valid and touches < 3:

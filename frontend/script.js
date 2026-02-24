@@ -146,6 +146,16 @@ async function fetchData(isBackground = false) {
         if (loader && showLoader) {
             loader.classList.remove('hidden');
             loader.style.display = 'flex';
+
+            // Centralized Safeguard: Hide loader after 15s if it hangs
+            if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
+            window._loaderTimeout = setTimeout(() => {
+                if (loader && !loader.classList.contains('hidden')) {
+                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
+                    loader.classList.add('hidden');
+                    loader.style.display = 'none';
+                }
+            }, 15000);
         }
 
         const symbolInput = document.getElementById('symbol-input');
@@ -196,7 +206,8 @@ async function fetchData(isBackground = false) {
             }
         }
     } finally {
-        if (loader && showLoader) {
+        // ALWAYS try to hide loader in finally if it was showing
+        if (loader) {
             loader.classList.add('hidden');
             loader.style.display = 'none';
         }

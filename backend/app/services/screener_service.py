@@ -67,7 +67,7 @@ class ScreenerService:
         "timestamp": 0,
         "timeframe": None
     }
-    CACHE_TTL = 300 # 5 minutes
+    CACHE_TTL = 900 # 15 minutes to reduce yfinance load
 
     @staticmethod
     def _fetch_realtime_price(symbol: str) -> Optional[Dict]:
@@ -441,36 +441,13 @@ class ScreenerService:
             except Exception:
                 continue
 
-        # --- OPTIMIZED BATCH REAL-TIME FETCH ---
         if hits:
             try:
-                # Instead of loop + fast_info, we do a single batch download for 1-day daily to get last close
-                # This is much faster and less likely to hit rate limits for small batches
-                unique_hit_symbols = sorted(list(set([h['symbol'] + ".NS" for h in hits])))
-                print(f"DEBUG: Batch verifying {len(unique_hit_symbols)} hits for real-time accuracy...")
-                
-                rt_df = yf.download(
-                    tickers=" ".join(unique_hit_symbols),
-                    period="1d",
-                    interval="1m",
-                    progress=False,
-                    group_by="ticker",
-                    auto_adjust=False
-                )
-                
-                for hit in hits:
-                    sym = hit['symbol'] + ".NS"
-                    ticker_rt = rt_df[sym] if isinstance(rt_df.columns, pd.MultiIndex) else rt_df
-                    if not ticker_rt.empty:
-                        # Update price and change with newest available minute data
-                        rt_close = float(ticker_rt['Close'].iloc[-1])
-                        # For change, we still need previous day's close for accuracy
-                        # The regular batch scan 'latest_change' is likely more accurate as it has day-1 context
-                        # but we can adjust price to the literal "now" minute price.
-                        hit['price'] = round(rt_close, 2)
-                        # We don't recalculate 'change' here as daily change needs T-1 close which aren't in rt_df
+                # Optimized: We Skip batch real-time minute download to save time and prevent hangs.
+                # The daily batch data already has latest session info.
+                pass 
             except Exception as e:
-                print(f"Batch real-time verify failed: {e}")
+                print(f"Batch real_time verify skipped/failed: {e}")
 
         hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
         

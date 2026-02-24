@@ -641,7 +641,11 @@ class MarketIntelligence {
         }
 
         if (!working.length) {
-            this.hitsBody.innerHTML = '<tr><td colspan="12" class="px-4 py-10 text-center text-gray-500 italic">No setups match the confidence threshold. Recommended: 60% (Reliable).</td></tr>';
+            const hasHiddenHits = this.allHits.length > 0;
+            const msg = hasHiddenHits
+                ? `No setups match the ${threshold}% confidence threshold. ${this.allHits.length} potential signals are being filtered. Try lowering the threshold.`
+                : 'No momentum hits found in the current market scan.';
+            this.hitsBody.innerHTML = `<tr><td colspan="12" class="px-4 py-10 text-center text-gray-500 italic">${msg}</td></tr>`;
             return;
         }
 
