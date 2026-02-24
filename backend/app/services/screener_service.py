@@ -275,9 +275,10 @@ class ScreenerService:
     def get_screener_data(cls, timeframe: str = "1D") -> List[Dict]:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
         
-        # 0. Check Cache
+        # 0. Check Cache — only serve non-empty results to avoid stale empty lists
         current_time = time.time()
         if (cls._cache["data"] is not None and 
+            cls._cache["data"] and   # Must have results
             cls._cache["timeframe"] == normalized_tf and 
             (current_time - cls._cache["timestamp"]) < cls.CACHE_TTL):
             return cls._cache["data"]
@@ -333,7 +334,15 @@ class ScreenerService:
         }
 
         # Fetch sector rotation data to get current states for the hard gate
-        sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf)
+        sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf, include_constituents=False)
+        all_sector_states = {info.get("metrics", {}).get("state", "NEUTRAL") 
+                             for info in sector_data.values()}
+        # Relax sector gate to NEUTRAL if most sectors are NEUTRAL 
+        # (can happen during initial boot or off-market hours)
+        gate_states = ["LEADING", "IMPROVING"]
+        if sum(1 for s in all_sector_states if s in gate_states) == 0:
+            gate_states = ["LEADING", "IMPROVING", "NEUTRAL"]
+            print("WARNING: No LEADING/IMPROVING sectors found. Relaxing gate to include NEUTRAL.")
 
         hits: List[Dict] = []
         for symbol in all_symbols:
@@ -372,7 +381,7 @@ class ScreenerService:
                 sector_info = sector_data.get(sector_key, {})
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
                 
-                if sector_state not in ["LEADING", "IMPROVING"]:
+                if sector_state not in gate_states:
                     continue
 
                 sector_return = 0.0
