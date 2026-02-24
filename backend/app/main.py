@@ -287,9 +287,15 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             zones = await asyncio.to_thread(ZoneEngine.calculate_demand_supply_zones, df)
             strategy_result = await asyncio.to_thread(ZoneEngine.runDemandSupplyStrategy, df, sector_state, zones)
             
-            s_zones = [z for z in zones if z['type'] == 'DEMAND' and z.get('price_high', 0) < cmp]
-            r_zones = [z for z in zones if z['type'] == 'SUPPLY' and z.get('price_low', 0) > cmp]
-            rendered_levels = {"supports": s_zones[:4], "resistances": r_zones[:4]}
+            # Map zones to levels for primary display and summary calculation
+            supports = [z for z in zones if z['type'] == 'DEMAND']
+            resistances = [z for z in zones if z['type'] == 'SUPPLY']
+            
+            # Sort by proximity to CMP
+            supports = sorted(supports, key=lambda x: x['price'], reverse=True)
+            resistances = sorted(resistances, key=lambda x: x['price'])
+            
+            rendered_levels = {"supports": supports[:4], "resistances": resistances[:4]}
 
         # 5. AI Insights (Non-blocking or Short Timeout)
         try:
@@ -336,8 +342,8 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                 "last_update": datetime.now().strftime("%H:%M:%S")
             },
             "summary": {
-                "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
-                "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
+                "nearest_support": float(round(strategy_result.get('nearest_support', supports[0]['price']), 2)) if (strategy == "DEMAND_SUPPLY" and strategy_result.get('nearest_support')) or supports else None,
+                "nearest_resistance": float(round(strategy_result.get('nearest_resistance', resistances[0]['price']), 2)) if (strategy == "DEMAND_SUPPLY" and strategy_result.get('nearest_resistance')) or resistances else None,
                 "market_regime": str(ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN')),
                 "priority": str(ai_analysis.get('priority', {}).get('level', 'LOW')),
                 "stop_loss": float(round(strategy_result.get('stopLoss', cmp * 0.98), 2)),

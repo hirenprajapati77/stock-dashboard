@@ -324,7 +324,12 @@ class ZoneEngine:
                 "target": round(cmp * 1.05, 2),
                 "riskReward": 0,
                 "confidence": 0,
-                "additionalMetrics": {}
+                "additionalMetrics": {
+                    "freshness": "N/A",
+                    "departureStrength": 0,
+                    "zoneRange": "NONE",
+                    "volSpike": False
+                }
             }
 
         zone = demand_zones[0]
@@ -375,6 +380,29 @@ class ZoneEngine:
         else:
             status = "AVOID"
 
+        # --- NEW METRICS FOR FRONTEND ---
+        touches = zone.get('touched', 0)
+        freshness = "FRESH" if touches == 0 else "TESTED"
+        
+        # Departure strength: candle body size / ATR
+        impulse_idx = zone.get('creation_idx')
+        departure_strength = 0
+        if impulse_idx is not None and impulse_idx < len(df):
+            row = df.iloc[impulse_idx]
+            body = abs(row['close'] - row['open'])
+            departure_strength = (body / atr * 100) if atr > 0 else 0
+
+        vol_spike = vol_ratio >= 1.5
+
+        # Supply zones for nearest resistance
+        supply_zones = [
+            z for z in zones
+            if z.get('type') == 'SUPPLY' and z.get('price', 0) > cmp
+        ]
+        supply_zones = sorted(supply_zones, key=lambda x: x.get('price', 0))
+        nearest_resistance = supply_zones[0].get('price') if supply_zones else None
+        nearest_support = zone.get('price')
+
         return {
             "bias": "BULLISH",
             "entryStatus": status,
@@ -382,9 +410,15 @@ class ZoneEngine:
             "target": round(target, 2),
             "riskReward": round(rr, 2),
             "confidence": confidence,
+            "nearest_support": nearest_support,
+            "nearest_resistance": nearest_resistance,
             "additionalMetrics": {
                 "zoneWidth": round(zone_width, 2),
                 "adx": round(adx, 2),
-                "volRatio": round(vol_ratio, 2)
+                "volRatio": round(vol_ratio, 2),
+                "freshness": freshness,
+                "departureStrength": round(departure_strength, 2),
+                "zoneRange": f"{price_low:.1f}-{price_high:.1f}",
+                "volSpike": vol_spike
             }
         }
