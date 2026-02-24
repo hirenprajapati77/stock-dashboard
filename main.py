@@ -132,6 +132,14 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D", strategy: str 
             zones = ZoneEngine.calculate_demand_supply_zones(df)
             strategy_result = ZoneEngine.runDemandSupplyStrategy(df, sector_state, zones)
             
+            # Map zones to levels for primary display
+            supports = [z for z in zones if z['type'] == 'DEMAND']
+            resistances = [z for z in zones if z['type'] == 'SUPPLY']
+            
+            # Sort by proximity to CMP
+            supports = sorted(supports, key=lambda x: x['price'], reverse=True)
+            resistances = sorted(resistances, key=lambda x: x['price'])
+            
         # 5. Extract MTF Levels
         higher_tfs = []
         if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
@@ -187,8 +195,8 @@ async def get_dashboard(symbol: str = "RELIANCE", tf: str = "1D", strategy: str 
                 "data_version": "v1.4.0"
             },
             "summary": {
-                "nearest_support": float(round(supports[0]['price'], 2)) if supports else None,
-                "nearest_resistance": float(round(resistances[0]['price'], 2)) if resistances else None,
+                "nearest_support": float(round(strategy_result.get('nearest_support', supports[0]['price']), 2)) if (strategy == "DEMAND_SUPPLY" and strategy_result.get('nearest_support')) or supports else None,
+                "nearest_resistance": float(round(strategy_result.get('nearest_resistance', resistances[0]['price']), 2)) if (strategy == "DEMAND_SUPPLY" and strategy_result.get('nearest_resistance')) or resistances else None,
                 "market_regime": ai_analysis.get('regime', {}).get('market_regime', 'UNKNOWN'),
                 "priority": ai_analysis.get('priority', {}).get('level', 'LOW'),
                 "stop_loss": strategy_result.get('stopLoss', cmp * 0.98),
