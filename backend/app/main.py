@@ -176,101 +176,23 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         # 0. Normalize Symbol
         norm_symbol = await asyncio.to_thread(MarketDataService.normalize_symbol, symbol)
 
-        # 1. Get Primary Data
-        df, currency = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, tf)
-        if df.empty:
-            return {"status": "error", "message": f"No data found for {symbol}."}
-            
-        cmp = float(df['close'].iloc[-1])
-        
-        # 2. Get Sector Context
-        async def get_sector_state():
-            try:
-                sec_name = await asyncio.to_thread(ConstituentService.get_sector_for_ticker, norm_symbol)
-                sec_state = "NEUTRAL"
-                if sec_name:
-                    rotation_data, _ = await asyncio.to_thread(SectorService.get_rotation_data, timeframe=tf)
-                    if rotation_data and sec_name in rotation_data:
-                        sec_state = rotation_data[sec_name]['metrics']['state']
-                return sec_name, sec_state
-            except Exception as e:
-                print(f"Sector error: {e}")
-                return None, "NEUTRAL"
-
-        sector_task = asyncio.create_task(get_sector_state())
-        
-        # 3. Primary Calculations
-        # 3. Primary Calculations & Strategy Execution
-        supports = []
-        resistances = []
-        strategy_result = {}
-        rendered_levels = {"supports": [], "resistances": []}
-        sector_name, sector_state = await sector_task
-
-        if strategy == "SR":
-            print("DEBUG: Executing SR Strategy")
-            # 3a. SR Levels (Reaction)
-            supports, resistances = await asyncio.to_thread(SREngine.calculate_sr_levels, df)
-            strategy_result = await asyncio.to_thread(SREngine.runSRStrategy, df, sector_state, supports, resistances)
-            rendered_levels = {"supports": supports, "resistances": resistances}
-
-        elif strategy == "SWING":
-            print("DEBUG: Executing SWING Strategy")
-            # 3b. Swing Levels (Structure)
-            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df)
-            
-            htf = "1D" if tf != "1D" else "1W"
-            print(f"DEBUG: Fetching HTF Data for {htf}")
-            hdf, _ = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, htf)
-            if hdf.empty:
-                print("DEBUG: HTF DF is empty, using current DF")
-                hdf = df
-            print("DEBUG: Getting Structure Bias")
-            htf_trend = await asyncio.to_thread(InsightEngine.get_structure_bias, hdf)
-            print("DEBUG: Running Swing Strategy Core")
-            strategy_result = await asyncio.to_thread(SwingEngine.runSwingStrategy, df, sector_state, htf_trend, supports, resistances)
-            rendered_levels = {"supports": supports, "resistances": resistances}
-
-        elif strategy == "DEMAND_SUPPLY":
-            print("DEBUG: Running DEMAND_SUPPLY Strategy")
-            # 3c. Zones
-            zones = await asyncio.to_thread(ZoneEngine.calculate_demand_supply_zones, df)
-            strategy_result = await asyncio.to_thread(ZoneEngine.runDemandSupplyStrategy, df, sector_state, zones)
-            
-            # Format zones for frontend (as supports/resistances but with type='DEMAND'/'SUPPLY')
-            # Rendered levels for Zones are the boundaries
-            formatted_zones = []
-            for z in zones:
-                # Add timeframe='ZONE' for frontend drawing logic, and price for simple rendering
-                z['timeframe'] = 'ZONE'
-                if 'price' not in z:
-                    z['price'] = (z.get('price_high', 0) + z.get('price_low', 0)) / 2
-                formatted_zones.append(z)
-            
-            # For backward compatibility with some UI parts, split into S/R roughly
-            s_zones = [z for z in formatted_zones if z['type'] == 'DEMAND' and z['price_high'] < cmp]
-            r_zones = [z for z in formatted_zones if z['type'] == 'SUPPLY' and z['price_low'] > cmp]
-            
-            supports = sorted(s_zones, key=lambda x: x['price_high'], reverse=True)[:4]
-            resistances = sorted(r_zones, key=lambda x: x['price_low'])[:4]
-            
-            rendered_levels = {"supports": supports, "resistances": resistances}
-
-        if strategy_result is None: strategy_result = {}
-        print(f"DEBUG: Strategy Result Bias: {strategy_result.get('bias')}")
-
-        # 4. Parallelize MTF and AI
+        # 1. Parallelize ALL Data Fetching (Primary, MTF, Sector)
         higher_tfs = []
         if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
         elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
         elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
         elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
         elif tf == "1D": higher_tfs = ["1W", "1M"]
-        
-        async def fetch_mtf_levels(htf_name):
+
+        async def fetch_mtf_wrapper(htf_name):
             try:
-                h_df, _ = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, htf_name)
-                if h_df.empty: return [], []
+                h_df, _ = await asyncio.to_thread(
+                    MarketDataService.get_ohlcv, 
+                    norm_symbol, 
+                    htf_name, 
+                    use_fast_info=False
+                )
+                if h_df.empty: return htf_name, [], []
                 
                 hs, hr = [], []
                 if strategy == "SR":
@@ -281,23 +203,99 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                     h_zones = await asyncio.to_thread(ZoneEngine.calculate_demand_supply_zones, h_df)
                     hs = [z for z in h_zones if z['type'] == 'DEMAND']
                     hr = [z for z in h_zones if z['type'] == 'SUPPLY']
-                else:
-                    hs, hr = await asyncio.to_thread(SREngine.calculate_sr_levels, h_df)
-
-                # Tag HTF logic
+                
                 for h in hs: h['timeframe'] = htf_name
                 for h in hr: h['timeframe'] = htf_name
-                return hs, hr
+                return htf_name, hs, hr
             except Exception as e:
-                print(f"DEBUG: MTF error for {htf_name}: {e}")
-                return [], []
+                print(f"MTF {htf_name} error: {e}")
+                return htf_name, [], []
 
-        mtf_task = asyncio.gather(*(fetch_mtf_levels(h) for h in higher_tfs))
-        insights_task = asyncio.to_thread(ai_engine.get_insights, df)
+        async def get_sector_state_task():
+            try:
+                sec_name = await asyncio.to_thread(ConstituentService.get_sector_for_ticker, norm_symbol)
+                sec_state = "NEUTRAL"
+                if sec_name:
+                    rotation_data, _ = await asyncio.to_thread(
+                        SectorService.get_rotation_data, 
+                        timeframe="1D", # Always use Daily for sector context
+                        include_constituents=False
+                    )
+                    if rotation_data and sec_name in rotation_data:
+                        sec_state = rotation_data[sec_name]['metrics']['state']
+                return sec_name, sec_state
+            except Exception as e:
+                print(f"Sector error: {e}")
+                return None, "NEUTRAL"
+
+        # Start everything in parallel
+        primary_task = asyncio.create_task(asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, tf))
+        sector_task = asyncio.create_task(get_sector_state_task())
+        mtf_tasks = [asyncio.create_task(fetch_mtf_wrapper(h)) for h in higher_tfs]
+
+        # 2. Await Primary Data first (Essential)
+        try:
+            df, currency = await asyncio.wait_for(primary_task, timeout=8.0)
+            if df.empty:
+                return {"status": "error", "message": f"No data found for {symbol}."}
+        except asyncio.TimeoutError:
+            print("CRITICAL: Primary data fetch timed out!")
+            return {"status": "error", "message": "Market data fetch timed out. Please retry."}
+            
+        cmp = float(df['close'].iloc[-1])
         
-        # Await them individually to be safer
-        mtf_results = await mtf_task
-        ai_analysis = await insights_task
+        # 3. Await Secondary Data (with short residual timeout)
+        # We give secondary tasks 3 more seconds or until they finish.
+        try:
+            secondary_results = await asyncio.wait_for(
+                asyncio.gather(sector_task, *mtf_tasks, return_exceptions=True),
+                timeout=4.0
+            )
+        except asyncio.TimeoutError:
+            print("WARNING: Secondary data fetching timed out. Using partial results.")
+            secondary_results = [ (None, "NEUTRAL") ] + [ (h, [], []) for h in higher_tfs ]
+
+        # Parse Secondary Results
+        sector_res = secondary_results[0]
+        if isinstance(sector_res, tuple):
+            sector_name, sector_state = sector_res
+        else:
+            sector_name, sector_state = None, "NEUTRAL"
+
+        mtf_final = {"supports": [], "resistances": []}
+        for res in secondary_results[1:]:
+            if isinstance(res, tuple) and len(res) == 3:
+                _, hs, hr = res
+                mtf_final["supports"].extend(hs)
+                mtf_final["resistances"].extend(hr)
+
+        # 4. Strategy Execution (Fast)
+        supports, resistances = [], []
+        strategy_result = {}
+        rendered_levels = {"supports": [], "resistances": []}
+
+        if strategy == "SR":
+            supports, resistances = await asyncio.to_thread(SREngine.calculate_sr_levels, df)
+            strategy_result = await asyncio.to_thread(SREngine.runSRStrategy, df, sector_state, supports, resistances)
+            rendered_levels = {"supports": supports, "resistances": resistances}
+        elif strategy == "SWING":
+            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df)
+            # Use same DF for structure if MTF failed
+            strategy_result = await asyncio.to_thread(SwingEngine.runSwingStrategy, df, sector_state, "NEUTRAL", supports, resistances)
+            rendered_levels = {"supports": supports, "resistances": resistances}
+        elif strategy == "DEMAND_SUPPLY":
+            zones = await asyncio.to_thread(ZoneEngine.calculate_demand_supply_zones, df)
+            strategy_result = await asyncio.to_thread(ZoneEngine.runDemandSupplyStrategy, df, sector_state, zones)
+            
+            s_zones = [z for z in zones if z['type'] == 'DEMAND' and z.get('price_high', 0) < cmp]
+            r_zones = [z for z in zones if z['type'] == 'SUPPLY' and z.get('price_low', 0) > cmp]
+            rendered_levels = {"supports": s_zones[:4], "resistances": r_zones[:4]}
+
+        # 5. AI Insights (Non-blocking or Short Timeout)
+        try:
+            ai_analysis = await asyncio.wait_for(asyncio.to_thread(ai_engine.get_insights, df), timeout=2.0)
+        except:
+            ai_analysis = {}
         if not ai_analysis: ai_analysis = {}
         
         mtf_levels = {"supports": [], "resistances": []}

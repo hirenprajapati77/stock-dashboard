@@ -88,7 +88,7 @@ class SectorService:
         return state
 
     @classmethod
-    def get_rotation_data(cls, days=60, timeframe="1D"):
+    def get_rotation_data(cls, days=60, timeframe="1D", include_constituents=True):
         """
         Calculates RS and RM for all sectors vs benchmark.
         Returns data for the last 30 trading sessions for playback.
@@ -120,31 +120,30 @@ class SectorService:
         interval = config["interval"]
         period = config["period"]
         
-        # 1. Collect ALL symbols needed (Benchmark + Sectors + ALL constituents)
+        # 1. Collect symbols needed
         all_sector_symbols = [cls.BENCHMARK] + list(cls.SECTORS.values())
         all_cons_symbols = []
-        for s_name in cls.SECTORS:
-            all_cons_symbols.extend(ConstituentService.get_constituents(s_name))
+        if include_constituents:
+            for s_name in cls.SECTORS:
+                all_cons_symbols.extend(ConstituentService.get_constituents(s_name))
         
         unique_symbols = list(set(all_sector_symbols + all_cons_symbols))
         
         try:
-            print(f"DEBUG: Batch downloading {len(unique_symbols)} symbols: {', '.join(unique_symbols[:5])}...")
-            # Let yfinance manage its own session (avoids curl_cffi vs requests.Session errors)
+            print(f"DEBUG: Batch downloading {len(unique_symbols)} symbols... (Include Constituents: {include_constituents})")
             batch_df = yf.download(
                 " ".join(unique_symbols),
                 period=period,
                 interval=interval,
                 progress=False,
-                group_by='ticker'
+                group_by='ticker',
+                timeout=5 # Strict timeout for Render
             )
             
-            print(f"DEBUG: Download finished. Shape: {batch_df.shape if not batch_df.empty else 'EMPTY'}")
             if batch_df.empty:
                 print(f"Warning: Batch download empty. Trying fallback.")
                 data, alerts = cls._load_fallback(timeframe)
-                if data: return data, alerts
-                return {}, []
+                return data, alerts
         except Exception as e:
             print(f"CRITICAL: Batch download failed: {e}. Trying fallback.")
             data, alerts = cls._load_fallback(timeframe)
