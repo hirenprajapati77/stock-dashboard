@@ -121,6 +121,17 @@ class ScreenerService:
         hits3d = hits2d and idx - 2 >= 0 and bool(cond.iloc[idx - 2])
         return hits1d, hits2d, hits3d
 
+    @staticmethod
+    def get_confidence_grade(quality_score: float) -> str:
+        if quality_score >= 85:
+            return "A"
+        elif quality_score >= 70:
+            return "B"
+        elif quality_score >= 55:
+            return "C"
+        else:
+            return "D"
+
 
     @staticmethod
     def _extract_fast_value(fast_info, *keys):
@@ -185,7 +196,7 @@ class ScreenerService:
             0.1 * rr_bonus
         )
         
-        return float(round(final_score, 2))
+        return float(final_score)
 
     @classmethod
     def get_entry_tag(cls, quality_score: float, sector_state: str, stock_active: bool) -> str:
@@ -287,6 +298,7 @@ class ScreenerService:
             cls._cache["data"] and   # Must have results
             cls._cache["timeframe"] == normalized_tf and 
             (current_time - cls._cache["timestamp"]) < cls.CACHE_TTL):
+            print(f"DEBUG: Serving screener data from cache for {normalized_tf}")
             return cls._cache["data"]
 
         config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
@@ -433,6 +445,14 @@ class ScreenerService:
                         _sec_close = _sec_df[_sec_close_col].dropna()
                         sector_pct = _sec_close.pct_change().reindex(pct.index).fillna(0) * 100
 
+                # --- Forward 3-Day Performance (Daily TF Only) ---
+                forward_return = None
+                if normalized_tf in ["1D", "Daily"]:
+                    if len(close) > hit_idx + 3:
+                        entry_price = float(close.iloc[hit_idx])
+                        future_price = float(close.iloc[hit_idx + 3])
+                        forward_return = ((future_price - entry_price) / entry_price) * 100
+
                 s_rs = pct - sector_pct
                 s_acc_raw = s_rs.diff().iloc[hit_idx]
                 if pd.isna(s_acc_raw):
@@ -501,6 +521,7 @@ class ScreenerService:
                         "price": float(round(latest_price, 2)),
                         "change": float(round(latest_change, 2)),
                         "hitChange": float(round(stock_return, 2)),
+                        "forward3dReturn": float(round(forward_return, 2)) if forward_return is not None else None,
                         "hits1d": bool(hits1d),
                         "hits2d": bool(hits2d),
                         "hits3d": bool(hits3d),
@@ -514,6 +535,8 @@ class ScreenerService:
                         "sectorReturn": float(round(sector_return, 4)),
                         "rsSector": float(round(rs_sector, 4)),
                         "tradeReady": bool(hits2d or hits3d),
+                        "confidence": cls.get_confidence_grade(quality_score),
+                        "grade": cls.get_confidence_grade(quality_score),
                         "entryTag": str(entry_tag),
                         "exitTag": str(exit_tag),
                         "riskLevel": str(risk_level),
@@ -528,7 +551,7 @@ class ScreenerService:
                             "aboveVWAP": bool(price_above_vwap),
                             "volHigh": bool(vol_high),
                             "stopDistance": float(stop_distance_pct),
-                            "qualityScore": float(quality_score),
+                            "qualityScore": float(round(quality_score, 2)),
                             "structureBias": str(structure_bias),
                             "atrExpansion": float(round(atr_expansion, 2))
                         },
@@ -593,6 +616,8 @@ class ScreenerService:
                     if stored.get("timeframe") == timeframe:
                         print(f"DEBUG: Loaded screener fallback for {timeframe}")
                         return stored["data"]
+            else:
+                print(f"DEBUG: Screener fallback file not found for {timeframe}")
         except Exception as e:
             print(f"Error loading screener fallback: {e}")
         return []
@@ -619,20 +644,34 @@ class ScreenerService:
             global_positive = sp_return > 0.1
             gift_nifty_positive = sp_return > 0.3 # Simple proxy for now
 
-            # 3. Sector States
+            # 3. Sector States (Sorted Display UX Improvement)
             sector_data, _ = SectorService.get_rotation_data(timeframe=timeframe)
-            leading = []
-            weakening = []
-            improving = []
-            lagging = []
+            
+            # Prioritized order for display
+            state_buckets = {
+                "LEADING": [],
+                "IMPROVING": [],
+                "WEAKENING": [],
+                "NEUTRAL": [],
+                "LAGGING": []
+            }
             
             for name, info in sector_data.items():
                 state = info.get("metrics", {}).get("state", "NEUTRAL")
                 display_name = name.replace("NIFTY_", "").replace("_", " ")
-                if state == "LEADING": leading.append(display_name)
-                elif state == "WEAKENING": weakening.append(display_name)
-                elif state == "IMPROVING": improving.append(display_name)
-                elif state == "LAGGING": lagging.append(display_name)
+                
+                # STRICT FILTERING for summary arrays
+                if state == "LEADING":
+                    leading.append(display_name)
+                elif state == "WEAKENING":
+                    weakening.append(display_name)
+                elif state == "IMPROVING":
+                    improving.append(display_name)
+                elif state == "LAGGING":
+                    lagging.append(display_name)
+
+            # UX Improvement: Ensure neutral sectors aren't accidentally shown as leading
+            neutral = state_buckets["NEUTRAL"] if "NEUTRAL" in state_buckets else []
 
             # 4. Top Stocks
             hits = cls.get_screener_data(timeframe=timeframe)
@@ -640,14 +679,60 @@ class ScreenerService:
             for h in hits:
                 # Backend filtering for summary: Only keep those that are likely high confidence
                 # (Standard momentum hits are already pre-filtered)
+                # Backend filtering for summary: Only keep those that are likely high confidence
+                quality_val = h.get("technical", {}).get("qualityScore", 0)
+                conf_grade = h.get("grade") or h.get("confidence") or cls.get_confidence_grade(quality_val)
+                conf_score = h.get("confidence") if isinstance(h.get("confidence"), (int, float)) else quality_val
+                
                 top_stocks.append({
-                    "symbol": h["symbol"],
-                    "sector": h["sector"],
-                    "confidence": 70, # Placeholder
-                    "entryTag": h["entryTag"]
+                    "symbol": h.get("symbol", "N/A"),
+                    "sector": h.get("sector", "N/A"),
+                    "grade": conf_grade,
+                    "confidence": conf_score,
+                    "entryTag": h.get("entryTag", "WATCHLIST")
                 })
 
-            return {
+            # --- Momentum Leaders ---
+            top_sector = None
+            if sector_data:
+                # Sort sectors by rotationScore descending
+                sorted_sectors = sorted(
+                    sector_data.items(),
+                    key=lambda x: x[1].get('metrics', {}).get('rotationScore', 0),
+                    reverse=True
+                )
+                if sorted_sectors:
+                    top_sector = {
+                        "name": sorted_sectors[0][0].replace("NIFTY_", ""),
+                        "rotationScore": sorted_sectors[0][1].get('metrics', {}).get('rotationScore', 0)
+                    }
+
+            top_quality_stock = None
+            top_volume_stock = None
+            if hits:
+                # Sort for quality
+                sorted_hits_quality = sorted(
+                    hits,
+                    key=lambda x: x.get('technical', {}).get('qualityScore', 0),
+                    reverse=True
+                )
+                top_quality_stock = {
+                    "symbol": sorted_hits_quality[0]['symbol'],
+                    "qualityScore": sorted_hits_quality[0]['technical'].get('qualityScore', 0)
+                }
+
+                # Sort for volume
+                sorted_hits_vol = sorted(
+                    hits,
+                    key=lambda x: x.get('volRatio', 0),
+                    reverse=True
+                )
+                top_volume_stock = {
+                    "symbol": sorted_hits_vol[0]['symbol'],
+                    "volRatio": sorted_hits_vol[0]['volRatio']
+                }
+
+            summary = {
                 "marketReturn": float(round(market_return, 2)),
                 "prevMarketReturn": float(round(market_return, 2)), # Placeholder logic
                 "globalCuesPositive": bool(global_positive),
@@ -658,6 +743,15 @@ class ScreenerService:
                 "laggingSectors": lagging,
                 "topStocks": top_stocks[:10]
             }
+
+            # Append momentum leaders (Do NOT overwrite)
+            summary["momentumLeaders"] = {
+                "topSector": top_sector,
+                "topQualityStock": top_quality_stock,
+                "topVolumeStock": top_volume_stock
+            }
+
+            return summary
         except Exception as e:
             print(f"Error generating market summary: {e}")
             return {
