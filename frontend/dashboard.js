@@ -666,13 +666,16 @@ class MarketIntelligence {
             else if (currentTag === 'WATCHLIST' || currentTag === 'WAIT') statusColor = 'bg-yellow-600/20 text-yellow-500 border border-yellow-500/30';
             if (hit.exitTag === 'EXIT') statusColor = 'bg-red-600/20 text-red-400 border border-red-500/30';
 
+            // Grade Content Mapping
+            const grade = hit.confidence || hit.grade || 'C';
+            const score = hit.technical?.qualityScore || this._calculateConfidence(hit).score;
+
             // Grade Color Logic
             let gradeColor = 'text-gray-400';
-            const grade = hit.grade || 'C';
-            if (grade === 'A+') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
-            else if (grade === 'A') gradeColor = 'text-green-400';
+            if (grade === 'A+' || grade === 'A') gradeColor = 'text-green-400';
             else if (grade === 'B') gradeColor = 'text-green-200';
             else if (grade === 'C') gradeColor = 'text-yellow-500';
+            else if (grade === 'D') gradeColor = 'text-red-400';
 
             // Risk Tag Logic
             let riskColor = 'text-gray-400';
@@ -717,9 +720,9 @@ class MarketIntelligence {
                          </div>
                     </td>
                     <td class="px-4 py-3 text-center">
-                         <div class="flex flex-col items-center gap-0.5" title="Confidence: ${hit.confidence || this._calculateConfidence(hit).score}%">
+                         <div class="flex flex-col items-center gap-0.5" title="Confidence Score: ${score}%">
                              <span class="text-sm font-black tracking-tight ${gradeColor}">${grade}</span>
-                             <span class="text-[9px] font-bold text-gray-500">${hit.confidence || this._calculateConfidence(hit).score}%</span>
+                             <span class="text-[9px] font-bold text-gray-500">${Math.round(score)}%</span>
                          </div>
                     </td>
                     <td class="px-4 py-3">

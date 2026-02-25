@@ -1,0 +1,141 @@
+{
+  "momentum_hit_sample": {
+    "symbol": "EICHERMOT",
+    "price": 8039.0,
+    "change": 1.39,
+    "hitChange": 1.54,
+    "forward3dReturn": -0.69,
+    "hits1d": true,
+    "hits2d": true,
+    "hits3d": true,
+    "volRatio": 1.65,
+    "volumeShocker": 1.65,
+    "stockActive": true,
+    "volumeExpansion": true,
+    "sector": "AUTO",
+    "sectorKey": "NIFTY_AUTO",
+    "sectorState": "LEADING",
+    "sectorReturn": 0.5222,
+    "rsSector": 1.0138,
+    "tradeReady": true,
+    "confidence": "B",
+    "entryTag": "STRONG_ENTRY",
+    "exitTag": "HOLD",
+    "riskLevel": "MEDIUM",
+    "riskUnits": 0.5,
+    "session": {
+      "phase": "MID",
+      "quality": "BEST"
+    },
+    "technical": {
+      "vwap": 7060.04,
+      "isBreakout": false,
+      "aboveVWAP": true,
+      "volHigh": false,
+      "stopDistance": 1.5,
+      "qualityScore": 84.59,
+      "structureBias": "BULLISH",
+      "atrExpansion": 1.79
+    },
+    "asOf": "2026-02-25 00:00:00",
+    "hitAsOf": "2026-02-13 00:00:00",
+    "isLatestSession": false
+  },
+  "market_summary_sample": {
+    "marketReturn": 0.02,
+    "prevMarketReturn": 0.02,
+    "globalCuesPositive": true,
+    "giftNiftyPositive": true,
+    "leadingSectors": [
+      "IT",
+      "METAL",
+      "AUTO"
+    ],
+    "weakeningSectors": [
+      "PHARMA"
+    ],
+    "improvingSectors": [],
+    "laggingSectors": [
+      "BANK",
+      "FMCG",
+      "ENERGY",
+      "PSU BANK"
+    ],
+    "topStocks": [
+      {
+        "symbol": "EICHERMOT",
+        "sector": "AUTO",
+        "confidence": "B",
+        "entryTag": "STRONG_ENTRY"
+      },
+      {
+        "symbol": "SAIL",
+        "sector": "METAL",
+        "confidence": "D",
+        "entryTag": "AVOID"
+      },
+      {
+        "symbol": "HEROMOTOCO",
+        "sector": "AUTO",
+        "confidence": "B",
+        "entryTag": "ENTRY_READY"
+      },
+      {
+        "symbol": "TVSMOTOR",
+        "sector": "AUTO",
+        "confidence": "B",
+        "entryTag": "ENTRY_READY"
+      },
+      {
+        "symbol": "BHARATFORG",
+        "sector": "AUTO",
+        "confidence": "B",
+        "entryTag": "ENTRY_READY"
+      },
+      {
+        "symbol": "INFY",
+        "sector": "IT",
+        "confidence": "C",
+        "entryTag": "WATCHLIST"
+      },
+      {
+        "symbol": "LTTS",
+        "sector": "IT",
+        "confidence": "B",
+        "entryTag": "STRONG_ENTRY"
+      },
+      {
+        "symbol": "ASHOKLEY",
+        "sector": "AUTO",
+        "confidence": "C",
+        "entryTag": "WATCHLIST"
+      },
+      {
+        "symbol": "MOTHERSON",
+        "sector": "AUTO",
+        "confidence": "B",
+        "entryTag": "ENTRY_READY"
+      },
+      {
+        "symbol": "PERSISTENT",
+        "sector": "IT",
+        "confidence": "C",
+        "entryTag": "WATCHLIST"
+      }
+    ],
+    "momentumLeaders": {
+      "topSector": {
+        "name": "METAL",
+        "rotationScore": 68.16
+      },
+      "topQualityStock": {
+        "symbol": "EICHERMOT",
+        "qualityScore": 84.59
+      },
+      "topVolumeStock": {
+        "symbol": "LTTS",
+        "volRatio": 2.62
+      }
+    }
+  }
+}

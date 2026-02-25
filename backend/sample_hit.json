@@ -1,0 +1,42 @@
+{
+  "symbol": "EICHERMOT",
+  "price": 7999.5,
+  "change": 0.89,
+  "hitChange": 1.54,
+  "forward3dReturn": -0.69,
+  "hits1d": true,
+  "hits2d": true,
+  "hits3d": true,
+  "volRatio": 1.65,
+  "volumeShocker": 1.65,
+  "stockActive": true,
+  "volumeExpansion": true,
+  "sector": "AUTO",
+  "sectorKey": "NIFTY_AUTO",
+  "sectorState": "LEADING",
+  "sectorReturn": 0.5222,
+  "rsSector": 1.0138,
+  "tradeReady": true,
+  "confidence": "B",
+  "entryTag": "STRONG_ENTRY",
+  "exitTag": "HOLD",
+  "riskLevel": "MEDIUM",
+  "riskUnits": 0.5,
+  "session": {
+    "phase": "LATE",
+    "quality": "CAUTION"
+  },
+  "technical": {
+    "vwap": 7060.63,
+    "isBreakout": false,
+    "aboveVWAP": true,
+    "volHigh": false,
+    "stopDistance": 1.5,
+    "qualityScore": 84.59,
+    "structureBias": "BULLISH",
+    "atrExpansion": 1.79
+  },
+  "asOf": "2026-02-25 00:00:00",
+  "hitAsOf": "2026-02-13 00:00:00",
+  "isLatestSession": false
+}
