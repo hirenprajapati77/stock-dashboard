@@ -10,6 +10,7 @@ import yfinance as yf
 import concurrent.futures
 import time
 from datetime import datetime
+from app.services.signal_archive_service import SignalArchiveService
 
 """
 Stock Logic v1.0 (LOCKED)
@@ -582,6 +583,10 @@ class ScreenerService:
             "timestamp": time.time(),
             "timeframe": normalized_tf
         }
+
+        # Archive Signals (V6: Persistent historical signals)
+        if normalized_tf == "1D":
+            SignalArchiveService.archive_signals(hits)
         
         # Save to Fallback
         cls._save_fallback(hits, normalized_tf)
@@ -621,33 +626,49 @@ class ScreenerService:
         except Exception as e:
             print(f"Error loading screener fallback: {e}")
         return []
+
+    @staticmethod
+    def calculate_performance_stats(hits: list) -> dict:
+        """
+        V6: System Performance is now calculated from historical archival data 
+        rather than just current hits.
+        """
+        return SignalArchiveService.get_performance_metrics()
     @classmethod
     def get_market_summary_data(cls, timeframe: str = "1D") -> Dict:
         """Aggregates data for the Daily AI Market Summary pack."""
         try:
             # 1. Market Return (NIFTY 50)
-            nifty = yf.Ticker("^NSEI")
-            fast = nifty.fast_info
-            price = fast.get('lastPrice') or fast.get('last_price', 0)
-            prev = fast.get('previousClose') or fast.get('previous_close', 0)
-            market_return = ((price - prev) / prev * 100) if prev > 0 else 0.0
+            market_return = 0.0
+            try:
+                nifty = yf.Ticker("^NSEI")
+                fast = nifty.fast_info
+                price = fast.get('lastPrice') or fast.get('last_price', 0)
+                prev = fast.get('previousClose') or fast.get('previous_close', 0)
+                market_return = ((price - prev) / prev * 100) if prev > 0 else 0.0
+            except Exception as e:
+                print(f"Warning: NIFTY fetch failed: {e}")
 
             # 2. Global Cues (S&P 500)
-            sp500 = yf.Ticker("^GSPC")
-            sp_fast = sp500.fast_info
-            sp_price = sp_fast.get('lastPrice') or sp_fast.get('last_price', 0)
-            sp_prev = sp_fast.get('previousClose') or sp_fast.get('previous_close', 0)
-            sp_return = ((sp_price - sp_prev) / sp_prev * 100) if sp_prev > 0 else 0.0
+            sp_return = 0.0
+            try:
+                sp500 = yf.Ticker("^GSPC")
+                sp_fast = sp500.fast_info
+                sp_price = sp_fast.get('lastPrice') or sp_fast.get('last_price', 0)
+                sp_prev = sp_fast.get('previousClose') or sp_fast.get('previous_close', 0)
+                sp_return = ((sp_price - sp_prev) / sp_prev * 100) if sp_prev > 0 else 0.0
+            except Exception as e:
+                print(f"Warning: S&P500 fetch failed: {e}")
             
-            # GIFT Nifty proxy (SGX Nifty or ^NSEI futures/prev close)
-            # For pre-market, we'll check global sentiment
+            # GIFT Nifty proxy
             global_positive = sp_return > 0.1
-            gift_nifty_positive = sp_return > 0.3 # Simple proxy for now
+            gift_nifty_positive = sp_return > 0.3
 
             # 3. Sector States (Sorted Display UX Improvement)
             sector_data, _ = SectorService.get_rotation_data(timeframe=timeframe)
             
             # Prioritized order for display
+            leading, improving, weakening, lagging = [], [], [], []
             state_buckets = {
                 "LEADING": [],
                 "IMPROVING": [],
@@ -675,6 +696,7 @@ class ScreenerService:
 
             # 4. Top Stocks
             hits = cls.get_screener_data(timeframe=timeframe)
+            performance = cls.calculate_performance_stats(hits)
             top_stocks = []
             for h in hits:
                 # Backend filtering for summary: Only keep those that are likely high confidence
@@ -741,7 +763,8 @@ class ScreenerService:
                 "weakeningSectors": weakening,
                 "improvingSectors": improving,
                 "laggingSectors": lagging,
-                "topStocks": top_stocks[:10]
+                "topStocks": top_stocks[:10],
+                "systemPerformance": performance
             }
 
             # Append momentum leaders (Do NOT overwrite)
@@ -763,5 +786,11 @@ class ScreenerService:
                 "weakeningSectors": [],
                 "improvingSectors": [],
                 "laggingSectors": [],
-                "topStocks": []
+                "topStocks": [],
+                "systemPerformance": {
+                    "totalSignals": 0,
+                    "winRate": 0,
+                    "avgReturn": 0,
+                    "sectorAccuracy": {}
+                }
             }
