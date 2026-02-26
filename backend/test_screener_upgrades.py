@@ -22,48 +22,50 @@ def test_screener_output():
         required_fields = ["forward3dReturn", "confidence"]
         for field in required_fields:
             if field in first_hit:
-                print(f"✓ Found field: {field} = {first_hit[field]}")
+                print(f"[OK] Found field: {field} = {first_hit[field]}")
             else:
-                print(f"✗ Missing field: {field}")
+                print(f"[FAIL] Missing field: {field}")
         
         # Check confidence grade
         if first_hit.get("confidence") in ["A", "B", "C", "D"]:
-            print(f"✓ Confidence '{first_hit['confidence']}' is a valid grade.")
+            print(f"[OK] Confidence '{first_hit['confidence']}' is a valid grade.")
         else:
-            print(f"✗ Invalid confidence grade: {first_hit.get('confidence')}")
+            print(f"[FAIL] Invalid confidence grade: {first_hit.get('confidence')}")
 
         # Check qualityScore in technical
         qs = first_hit.get("technical", {}).get("qualityScore")
         if qs is not None:
-             print(f"✓ Found qualityScore: {qs}")
+             print(f"[OK] Found qualityScore: {qs}")
         else:
-             print("✗ Missing qualityScore in technical")
+             print("[FAIL] Missing qualityScore in technical")
 
 def test_summary_output():
     print("\nTesting Market Summary Upgrades...")
     summary = ScreenerService.get_market_summary_data(timeframe="1D")
     
     if "momentumLeaders" in summary:
-        print("✓ Found 'momentumLeaders' in summary.")
+        print("[OK] Found 'momentumLeaders' in summary.")
         leaders = summary["momentumLeaders"]
         print(json.dumps(leaders, indent=2))
         
         # Check for expected keys
         for key in ["topSector", "topQualityStock", "topVolumeStock"]:
             if key in leaders:
-                print(f"✓ Found leader key: {key}")
+                print(f"[OK] Found leader key: {key}")
             else:
-                print(f"✗ Missing leader key: {key}")
+                print(f"[FAIL] Missing leader key: {key}")
     else:
-        print("✗ Missing 'momentumLeaders' in summary.")
+        print("[FAIL] Missing 'momentumLeaders' in summary.")
 
     # Check that we didn't break existing summary
-    expected_keys = ["marketReturn", "globalCuesPositive", "leadingSectors", "topStocks"]
+    expected_keys = ["marketReturn", "globalCuesPositive", "leadingSectors", "topStocks", "systemPerformance"]
     for key in expected_keys:
         if key in summary:
-            print(f"✓ Found existing summary key: {key}")
+            print(f"[OK] Found existing summary key: {key}")
+            if key == "systemPerformance":
+                print(json.dumps(summary[key], indent=2))
         else:
-            print(f"✗ Missing existing summary key: {key}")
+            print(f"[FAIL] Missing existing summary key: {key}")
 
 if __name__ == "__main__":
     try:
