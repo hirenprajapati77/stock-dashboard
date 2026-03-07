@@ -334,8 +334,20 @@ class SectorService:
             rotation_score = (0.4 * rs_norm) + (0.3 * acc_norm) + (0.3 * br_score)
             results[name]['metrics']['rotationScore'] = float(round(rotation_score, 2))
 
-        # Sort by Rotation Score instead of pure RS
-        sorted_sectors = sorted(results.items(), key=lambda x: x[1]['metrics']['rotationScore'], reverse=True)
+        # Improvement 2: Sector Panel Sorting
+        state_priority = {
+            "LEADING": 1,
+            "IMPROVING": 2,
+            "WEAKENING": 3,
+            "NEUTRAL": 4,
+            "LAGGING": 5
+        }
+
+        # Sort by (state_priority[state], -rotationScore)
+        sorted_sectors = sorted(
+            results.items(),
+            key=lambda x: (state_priority.get(x[1]['metrics'].get('state', 'NEUTRAL'), 4), -x[1]['metrics'].get('rotationScore', 0))
+        )
         ranks = {name: i+1 for i, (name, _) in enumerate(sorted_sectors)}
         all_alerts = []
 
@@ -352,6 +364,19 @@ class SectorService:
 
             results[name]['metrics']['momentumScore'] = float(round(mom_score, 2))
             results[name]['metrics']['shift'] = str(shift)
+            
+            # Momentum Trend Indicator (NEW)
+            if shift == "GAINING":
+                momentum_trend = "Strengthening"
+            elif shift == "LOSING":
+                momentum_trend = "Weakening"
+            elif rs_trend == "rising":
+                momentum_trend = "Strengthening"
+            elif rs_trend == "falling":
+                momentum_trend = "Weakening"
+            else:
+                momentum_trend = "Stable"
+            results[name]['metrics']['momentumTrend'] = momentum_trend
             # Generate Historical Alerts
             for i in range(1, len(hist)):
                 h_prev = hist[i-1]

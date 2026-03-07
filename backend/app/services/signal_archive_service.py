@@ -118,7 +118,7 @@ class SignalArchiveService:
             win_count = len([r for r in returns if r > 0])
             accuracy_by_grade[grade] = round((win_count / len(returns)) * 100, 2)
 
-        return {
+        res = {
             "totalSignals": total,
             "winRate": round(win_rate, 2),
             "avgReturn": round(avg_return, 2),
@@ -127,3 +127,12 @@ class SignalArchiveService:
             "accuracyByGrade": accuracy_by_grade,
             "sectorAccuracy": {k: round(v, 2) for k, v in sector_accuracy.items()}
         }
+
+        # Improvement 3: System Performance Stability
+        if total < 30:
+            res["insufficientData"] = True
+            # Mask sensitive metrics when data is insufficient for reliable stats
+            res["winRate"] = 0
+            res["avgReturn"] = 0
+            
+        return res

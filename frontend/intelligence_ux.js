@@ -10,7 +10,7 @@ function renderActionableSectors(sectorData) {
 
     // Filter for LEADING sectors only
     const shiningSectors = Object.entries(sectorData)
-        .filter(([name, data]) => ['LEADING','IMPROVING'].includes(data.metrics?.state))
+        .filter(([name, data]) => ['LEADING', 'IMPROVING'].includes(data.metrics?.state))
         .sort((a, b) => (b[1].metrics?.momentumScore || 0) - (a[1].metrics?.momentumScore || 0))
         .slice(0, 4); // Top 4 only
 
@@ -292,6 +292,68 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Clear filter button
     document.getElementById('clear-filter')?.addEventListener('click', clearFilter);
+
+    // Quick Filters (NEW v1.4)
+    const filterLeaders = document.getElementById('filter-leaders');
+    const filterSmart = document.getElementById('filter-smart');
+    const filterMomentum = document.getElementById('filter-momentum');
+
+    const clearQuickFilters = () => {
+        [filterLeaders, filterSmart, filterMomentum].forEach(btn => {
+            if (btn) {
+                btn.classList.remove('border-indigo-500', 'text-indigo-400', 'bg-indigo-500/10');
+                btn.classList.add('border-gray-800', 'text-gray-500', 'bg-gray-900/50');
+            }
+        });
+    };
+
+    if (filterLeaders) {
+        filterLeaders.addEventListener('click', () => {
+            const isActive = filterLeaders.classList.contains('border-indigo-500');
+            clearQuickFilters();
+            if (!isActive) {
+                filterLeaders.classList.replace('border-gray-800', 'border-indigo-500');
+                filterLeaders.classList.replace('text-gray-500', 'text-indigo-400');
+                filterLeaders.classList.replace('bg-gray-900/50', 'bg-indigo-500/10');
+                window.marketIntelligence.filterMode = 'leaders';
+            } else {
+                window.marketIntelligence.filterMode = null;
+            }
+            window.marketIntelligence.updateHits(window.marketIntelligence.lastHitsData);
+        });
+    }
+
+    if (filterSmart) {
+        filterSmart.addEventListener('click', () => {
+            const isActive = filterSmart.classList.contains('border-indigo-500');
+            clearQuickFilters();
+            if (!isActive) {
+                filterSmart.classList.replace('border-gray-800', 'border-indigo-500');
+                filterSmart.classList.replace('text-gray-500', 'text-indigo-400');
+                filterSmart.classList.replace('bg-gray-900/50', 'bg-indigo-500/10');
+                window.marketIntelligence.filterMode = 'smart';
+            } else {
+                window.marketIntelligence.filterMode = null;
+            }
+            window.marketIntelligence.updateHits(window.marketIntelligence.lastHitsData);
+        });
+    }
+
+    if (filterMomentum) {
+        filterMomentum.addEventListener('click', () => {
+            const isActive = filterMomentum.classList.contains('border-indigo-500');
+            clearQuickFilters();
+            if (!isActive) {
+                filterMomentum.classList.replace('border-gray-800', 'border-indigo-500');
+                filterMomentum.classList.replace('text-gray-500', 'text-indigo-400');
+                filterMomentum.classList.replace('bg-gray-900/50', 'bg-indigo-500/10');
+                window.marketIntelligence.filterMode = 'momentum';
+            } else {
+                window.marketIntelligence.filterMode = null;
+            }
+            window.marketIntelligence.updateHits(window.marketIntelligence.lastHitsData);
+        });
+    }
 });
 
 // ========================================

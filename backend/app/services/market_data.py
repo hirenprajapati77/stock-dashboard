@@ -45,7 +45,8 @@ class MarketDataService:
             "NIFTYPHARMA": "^CNXPHARMA",
             "NIFTYAUTO": "^CNXAUTO",
             "NIFTYMETAL": "^CNXMETAL",
-            "USDINR": "USDINR=X"
+            "USDINR": "USDINR=X",
+            "HUL": "HINDUNILVR.NS"
         }
         
         if symbol in KEYWORD_MAP:

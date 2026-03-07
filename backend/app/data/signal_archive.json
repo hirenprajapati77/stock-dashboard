@@ -1,0 +1,137 @@
+[
+  {
+    "symbol": "LTTS",
+    "hitAsOf": "2026-02-27 00:00:00",
+    "forward3dReturn": -6.12,
+    "sector": "IT",
+    "confidence": "B",
+    "qualityScore": 76.01,
+    "archivedAt": "2026-03-06T23:11:26.373329"
+  },
+  {
+    "symbol": "ZYDUSLIFE",
+    "hitAsOf": "2026-02-26 00:00:00",
+    "forward3dReturn": -4.43,
+    "sector": "PHARMA",
+    "confidence": "C",
+    "qualityScore": 69.32,
+    "archivedAt": "2026-03-06T23:11:26.373364"
+  },
+  {
+    "symbol": "HCLTECH",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": -0.52,
+    "sector": "IT",
+    "confidence": "C",
+    "qualityScore": 58.63,
+    "archivedAt": "2026-03-04T14:09:13.544835"
+  },
+  {
+    "symbol": "PERSISTENT",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": -1.22,
+    "sector": "IT",
+    "confidence": "C",
+    "qualityScore": 55.33,
+    "archivedAt": "2026-03-04T14:09:13.544848"
+  },
+  {
+    "symbol": "COLPAL",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": -2.44,
+    "sector": "FMCG",
+    "confidence": "B",
+    "qualityScore": 84.65,
+    "archivedAt": "2026-03-06T23:11:26.373270"
+  },
+  {
+    "symbol": "IOC",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": -2.14,
+    "sector": "ENERGY",
+    "confidence": "C",
+    "qualityScore": 67.34,
+    "archivedAt": "2026-03-06T23:11:26.373301"
+  },
+  {
+    "symbol": "LUPIN",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": 0.82,
+    "sector": "PHARMA",
+    "confidence": "C",
+    "qualityScore": 58.94,
+    "archivedAt": "2026-03-06T23:11:26.373338"
+  },
+  {
+    "symbol": "ALKEM",
+    "hitAsOf": "2026-02-25 00:00:00",
+    "forward3dReturn": -1.05,
+    "sector": "PHARMA",
+    "confidence": "B",
+    "qualityScore": 74.92,
+    "archivedAt": "2026-03-06T23:11:26.373391"
+  },
+  {
+    "symbol": "TORNTPHARM",
+    "hitAsOf": "2026-02-24 00:00:00",
+    "forward3dReturn": -1.47,
+    "sector": "PHARMA",
+    "confidence": "C",
+    "qualityScore": 68.1,
+    "archivedAt": "2026-03-06T23:11:26.373406"
+  },
+  {
+    "symbol": "DRREDDY",
+    "hitAsOf": "2026-02-23 00:00:00",
+    "forward3dReturn": 0.91,
+    "sector": "PHARMA",
+    "confidence": "C",
+    "qualityScore": 59.92,
+    "archivedAt": "2026-03-06T23:11:26.373413"
+  },
+  {
+    "symbol": "ONGC",
+    "hitAsOf": "2026-02-20 00:00:00",
+    "forward3dReturn": -0.43,
+    "sector": "ENERGY",
+    "confidence": "C",
+    "qualityScore": 57.66,
+    "archivedAt": "2026-03-06T23:11:26.373320"
+  },
+  {
+    "symbol": "ITC",
+    "hitAsOf": "2026-02-18 00:00:00",
+    "forward3dReturn": -2.12,
+    "sector": "FMCG",
+    "confidence": "D",
+    "qualityScore": 43.7,
+    "archivedAt": "2026-03-06T23:11:26.373312"
+  },
+  {
+    "symbol": "INFY",
+    "hitAsOf": "2026-02-17 00:00:00",
+    "forward3dReturn": -2.73,
+    "sector": "IT",
+    "confidence": "C",
+    "qualityScore": 63.55,
+    "archivedAt": "2026-03-04T14:09:13.544798"
+  },
+  {
+    "symbol": "COFORGE",
+    "hitAsOf": "2026-02-16 00:00:00",
+    "forward3dReturn": -2.26,
+    "sector": "IT",
+    "confidence": "C",
+    "qualityScore": 55.44,
+    "archivedAt": "2026-03-04T14:33:23.981883"
+  },
+  {
+    "symbol": "GLENMARK",
+    "hitAsOf": "2026-02-16 00:00:00",
+    "forward3dReturn": -0.68,
+    "sector": "PHARMA",
+    "confidence": "B",
+    "qualityScore": 71.83,
+    "archivedAt": "2026-03-06T23:11:26.373374"
+  }
+]
