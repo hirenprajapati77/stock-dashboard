@@ -162,7 +162,8 @@
             <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white">S</div>
             <div class="flex flex-col -space-y-1">
                 <h1 class="text-xl font-bold tracking-tight">S&R <span class="text-blue-500">PRO</span> <span
-                        id="ver-tag" class="text-[8px] text-gray-600 ml-1 font-mono">v1.4.3</span></h1>
+                        id="ver-tag" class="text-[8px] text-gray-600 ml-1 font-mono">v1.5.0 Intelligence Layer</span>
+                </h1>
                 <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic">Last updated: --:--:--</p>
             </div>
         </div>
@@ -270,6 +271,53 @@
     </header>
 
     <main id="dashboard-main" class="p-6 max-w-[1600px] mx-auto space-y-6 transition-all duration-500">
+        <!-- Market Regime Warning Banner -->
+        <div id="market-regime-banner"
+            class="hidden glass rounded-xl border border-yellow-500/50 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500">
+            <span class="text-xl">⚠</span>
+            <div>
+                <h3 id="regime-status" class="text-xs font-bold uppercase tracking-widest text-yellow-400">MARKET
+                    REGIME: RISK-OFF</h3>
+                <p id="regime-desc" class="text-[10px] text-gray-400">Most sectors are lagging. Momentum signals should
+                    be traded cautiously.</p>
+            </div>
+        </div>
+
+        <!-- Market Breadth Intelligence Card (NEW) -->
+        <div id="market-breadth-card"
+            class="glass rounded-2xl border border-blue-500/20 p-4 mb-6 hidden animate-in slide-in-from-top duration-500">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-blue-500/10 rounded-lg">
+                        <span class="text-xl">📊</span>
+                    </div>
+                    <div>
+                        <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Market Breadth</h3>
+                        <div class="flex items-baseline gap-2">
+                            <span id="breadth-score" class="text-xl font-bold mono text-blue-400">0%</span>
+                            <span id="breadth-label" class="text-[9px] font-bold text-gray-500">POOR</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-span-2">
+                    <div class="flex justify-between items-end mb-1">
+                        <span class="text-[9px] font-bold text-gray-500 uppercase">Sector Alignment</span>
+                        <span id="breadth-stats" class="text-[9px] font-mono text-gray-400">0 / 0 SECTORS LEADING</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                        <div id="breadth-bar" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%">
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-end">
+                    <div id="breadth-regime"
+                        class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-1">
+                        RISK-ON</div>
+                    <p class="text-[9px] text-gray-500 text-right">Sector rotation is currently healthy</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Strategy Screener Results -->
         <div id="screener-panel"
             class="hidden border border-indigo-900 bg-indigo-950/20 rounded-2xl p-4 animate-in slide-in-from-top duration-300">
@@ -337,6 +385,23 @@
                         </div>
                     </div>
 
+                    <!-- Top Momentum Setup Card -->
+                    <div id="top-setup-card"
+                        class="hidden glass rounded-2xl border border-indigo-500/40 p-5 mb-6 bg-gradient-to-br from-indigo-900/10 to-transparent animate-in slide-in-from-left duration-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🔥</span>
+                                <h2 class="text-xs font-bold uppercase tracking-widest text-indigo-400">Top Momentum
+                                    Setup</h2>
+                            </div>
+                            <span class="text-[9px] text-gray-500 font-mono italic">Highest Quality Score
+                                Alignment</span>
+                        </div>
+                        <div id="top-setup-content" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
                     <div class="glass rounded-2xl overflow-hidden border border-gray-800">
                         <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
                             <div>
@@ -368,16 +433,40 @@
                                 <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
                                     <tr>
                                         <th class="px-4 py-3 font-bold">Symbol</th>
+                                        <th class="px-4 py-3 font-bold">Sector</th>
                                         <th class="px-4 py-3 font-bold text-right">Price</th>
                                         <th class="px-4 py-3 font-bold text-right">Chg%</th>
-                                        <th class="px-4 py-3 text-center">Momentum</th>
+                                        <th class="px-4 py-3 text-right">Vol</th>
+                                        <th
+                                            class="px-4 py-3 text-center cursor-help group relative text-[10px] uppercase tracking-widest text-indigo-400">
+                                            Smart Money
+                                            <div
+                                                class="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-gray-900 border border-gray-700 rounded-lg text-[9px] w-48 text-left z-50 shadow-2xl normal-case font-normal leading-relaxed text-gray-300">
+                                                <span class="text-blue-400 font-bold">Smart Money:</span> Highlights
+                                                stocks with institutional-grade volume expansion.
+                                            </div>
+                                        </th>
+                                        <th
+                                            class="px-4 py-3 text-center cursor-help group relative text-[10px] uppercase tracking-widest text-indigo-400">
+                                            Momentum
+                                            <div
+                                                class="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-gray-900 border border-gray-700 rounded-lg text-[9px] w-48 text-left z-50 shadow-2xl normal-case font-normal leading-relaxed text-gray-300">
+                                                <span class="text-indigo-400 font-bold">1D:</span> Momentum today<br>
+                                                <span class="text-indigo-400 font-bold">2D:</span> 2 sessions<br>
+                                                <span class="text-indigo-400 font-bold">3D:</span> 3 sessions
+                                            </div>
+                                        </th>
+                                        <th
+                                            class="px-4 py-3 text-center cursor-help group relative text-[10px] uppercase tracking-widest text-indigo-400">
+                                            Strength
+                                            <div
+                                                class="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-gray-900 border border-gray-700 rounded-lg text-[9px] w-48 text-left z-50 shadow-2xl normal-case font-normal leading-relaxed text-gray-300">
+                                                <span class="text-indigo-400 font-bold">Momentum Strength:</span>
+                                                Derived metric based on price change, volume, and acceleration.
+                                            </div>
+                                        </th>
                                         <th class="px-4 py-3">Status</th>
                                         <th class="px-4 py-3 text-center">Confidence</th>
-                                        <th class="px-4 py-3">Risk</th>
-                                        <th class="px-4 py-3 text-center">RU</th>
-                                        <th class="px-4 py-3">Session</th>
-                                        <th class="px-4 py-3 text-right">Vol</th>
-                                        <th class="px-4 py-3 text-right">Sector</th>
                                     </tr>
                                 </thead>
                                 <tbody id="momentum-hits-body" class="divide-y divide-gray-800/50">
@@ -673,58 +762,100 @@
                             <span id="fund-sector"
                                 class="text-[10px] font-bold uppercase tracking-widest text-gray-500">—</span>
                         </div>
-                        <div class="grid grid-cols-4 divide-x divide-gray-800 text-center p-4">
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
-                                <p id="fund-mcap" class="text-sm font-bold">—</p>
+                        <!-- Market Health Card (Compact v1.3) -->
+                        <div id="market-health-card" class="bg-card border border-border rounded-xl p-3 shadow-xl mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-[9px] font-black tracking-widest text-indigo-400 uppercase">Market
+                                    Health Intelligence</h3>
+                                <div id="breadth-regime"
+                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800">
+                                    NEUTRAL</div>
                             </div>
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">P/E</p>
-                                <p id="fund-pe" class="text-sm font-bold">—</p>
+                            <div class="flex items-center gap-4">
+                                <div id="breadth-score" class="text-3xl font-black text-white tracking-tighter">—%</div>
+                                <div class="flex-1">
+                                    <div id="breadth-stats"
+                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-tight mb-1">— / —
+                                        SECTORS LEADING</div>
+                                    <div id="breadth-labels"></div>
+                                </div>
+                                <div class="text-right">
+                                    <div id="market-bias"
+                                        class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">NEUTRAL
+                                        BIAS</div>
+                                </div>
                             </div>
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">ROE</p>
-                                <p id="fund-roe" class="text-sm font-bold">—</p>
-                            </div>
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">DIV</p>
-                                <p id="fund-div" class="text-sm font-bold">—</p>
-                            </div>
-                        </div>
-                        <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
-                            <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
-                                <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
-                                        class="text-down font-bold">—</span>
-                                    <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
-                                        <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
-                                    </div><span id="fund-52h" class="text-up font-bold">—</span>
+                            <div class="h-1 w-full bg-gray-800 rounded-full overflow-hidden mt-2">
+                                <div id="breadth-bar" class="h-full bg-indigo-500 w-0 transition-all duration-1000">
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <!-- Levels Sidebar -->
-                <div class="col-span-1 space-y-6">
-                    <div class="glass rounded-2xl overflow-hidden">
-                        <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                            <h3 class="font-bold text-sm">Structural Levels</h3>
+                        <!-- Quick Filters (NEW v1.4) -->
+                        <div class="flex gap-2 mb-4">
+                            <button id="filter-leaders"
+                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-green-500/50 hover:text-green-400 transition-all">Leaders
+                                Only</button>
+                            <button id="filter-smart"
+                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-blue-500/50 hover:text-blue-400 transition-all">Smart
+                                Money</button>
+                            <button id="filter-momentum"
+                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-indigo-500/50 hover:text-indigo-400 transition-all">Strong
+                                Mom</button>
                         </div>
-                        <div class="p-4 space-y-6">
-                            <div>
-                                <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
-                                    Resistances</p>
-                                <div id="resistance-list" class="space-y-2"></div>
-                            </div>
-                            <div>
-                                <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
-                                    Supports</p>
-                                <div id="support-list" class="space-y-2"></div>
+                    </div>
+                    <div class="grid grid-cols-4 divide-x divide-gray-800 text-center p-4">
+                        <div>
+                            <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
+                            <p id="fund-mcap" class="text-sm font-bold">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-500 mb-1">P/E</p>
+                            <p id="fund-pe" class="text-sm font-bold">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-500 mb-1">ROE</p>
+                            <p id="fund-roe" class="text-sm font-bold">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-500 mb-1">DIV</p>
+                            <p id="fund-div" class="text-sm font-bold">—</p>
+                        </div>
+                    </div>
+                    <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
+                        <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
+                            <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
+                                    class="text-down font-bold">—</span>
+                                <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
+                                    <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
+                                </div><span id="fund-52h" class="text-up font-bold">—</span>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Levels Sidebar -->
+            <div class="col-span-1 space-y-6">
+                <div class="glass rounded-2xl overflow-hidden">
+                    <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                        <h3 class="font-bold text-sm">Structural Levels</h3>
+                    </div>
+                    <div class="p-4 space-y-6">
+                        <div>
+                            <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                                Resistances</p>
+                            <div id="resistance-list" class="space-y-2"></div>
+                        </div>
+                        <div>
+                            <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                                Supports</p>
+                            <div id="support-list" class="space-y-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         </div>
     </main>
 
@@ -749,7 +880,7 @@
                         <h2 id="expl-title" class="text-xl font-bold text-white uppercase tracking-tight">Signal
                             Analysis</h2>
                         <p id="expl-subtitle" class="text-xs text-gray-400 font-mono uppercase tracking-widest mt-0.5">
-                            LOCKED v1.0 Intelligence</p>
+                            LOCKED v1.5.0 Intelligence</p>
                     </div>
                 </div>
                 <button onclick="document.getElementById('signal-modal-overlay').classList.add('hidden')"
@@ -798,19 +929,30 @@
                     <div class="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 grid grid-cols-2 gap-3">
                         <div class="flex flex-col">
                             <span class="text-[9px] text-gray-500 uppercase font-bold">VWAP Bias</span>
-                            <span id="expl-vwap" class="text-xs font-bold text-white">Above VWAP</span>
+                            <span id="expl-vwap" class="text-xs font-bold text-white">LOADING...</span>
                         </div>
                         <div class="flex flex-col">
-                            <span class="text-[9px] text-gray-500 uppercase font-bold">Breakout</span>
-                            <span id="expl-breakout" class="text-xs font-bold text-white">Confirmed</span>
+                            <span class="text-[9px] text-gray-500 uppercase font-bold">Breakout Status</span>
+                            <span id="expl-breakout" class="text-xs font-bold text-white">LOADING...</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 4. Session Timing -->
+                <!-- 4. Quality Score Breakdown (NEW) -->
                 <div class="space-y-2">
                     <div class="flex items-center gap-2 text-indigo-400">
-                        <span class="text-sm font-bold uppercase tracking-widest">4️⃣ Session Timing</span>
+                        <span class="text-sm font-bold uppercase tracking-widest">4️⃣ Quality Score Breakdown</span>
+                    </div>
+                    <div id="expl-breakdown" class="glass p-4 rounded-2xl border border-gray-800 space-y-3">
+                        <!-- Dynamic Breakdown Items -->
+                        <p class="text-[10px] text-gray-500 italic">Calculating scoring components...</p>
+                    </div>
+                </div>
+
+                <!-- 5. Session Timing -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-indigo-400">
+                        <span class="text-sm font-bold uppercase tracking-widest">5️⃣ Session Timing</span>
                     </div>
                     <div class="glass p-4 rounded-2xl border-l-4 border-l-purple-500">
                         <p class="text-xs text-white font-bold mb-1">Quality: <span id="expl-session-quality"

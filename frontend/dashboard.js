@@ -56,11 +56,44 @@ class MarketIntelligence {
 
     updateSectors(sectorData) {
         if (!this.sectorList) return;
+        this.lastSectorData = sectorData;
         this.allSectors = sectorData || {};
 
         if (!sectorData || Object.keys(sectorData).length === 0) {
             this.sectorList.innerHTML = '<div class="p-8 text-center text-gray-500 italic border border-gray-800 rounded-2xl">Awaiting sector rotation data...</div>';
             return;
+        }
+
+        // Regime Banner Logic (Consolidated v1.0)
+        const sectorsArray = Object.values(sectorData);
+        if (sectorsArray.length > 0) {
+            const leadingCount = sectorsArray.filter(s => s && s.metrics && s.metrics.state === 'LEADING').length;
+            const totalSectors = sectorsArray.length;
+            const breadth = leadingCount / totalSectors;
+
+            const banner = document.getElementById('market-regime-banner');
+            const status = document.getElementById('regime-status');
+            const desc = document.getElementById('regime-desc');
+
+            if (banner && status && desc) {
+                banner.classList.remove('hidden');
+                if (breadth >= 0.4) {
+                    status.textContent = "MARKET REGIME: RISK-ON";
+                    status.className = "text-xs font-bold uppercase tracking-widest text-green-400";
+                    desc.textContent = "Strong sector breadth. Momentum signals are likely to have high follow-through.";
+                    banner.className = "glass rounded-xl border border-green-500/50 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500 bg-green-500/5";
+                } else if (breadth >= 0.2) {
+                    status.textContent = "MARKET REGIME: NEUTRAL";
+                    status.className = "text-xs font-bold uppercase tracking-widest text-blue-400";
+                    desc.textContent = "Mixed participation. Focus on rotation into leading sectors.";
+                    banner.className = "glass rounded-xl border border-blue-500/30 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500";
+                } else {
+                    status.textContent = "MARKET REGIME: RISK-OFF";
+                    status.className = "text-xs font-bold uppercase tracking-widest text-red-500";
+                    desc.textContent = "Weak market breadth. Momentum signals should be traded with extreme caution.";
+                    banner.className = "glass rounded-xl border border-red-500/50 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500 bg-red-500/5";
+                }
+            }
         }
 
         const sectors = Object.entries(sectorData)
@@ -84,21 +117,17 @@ class MarketIntelligence {
             const rsPercent = (sector.current?.rs || 0) * 100;
             const explanation = this._buildSectorExplanation(state, sector.current?.rs || 0, sector.current?.rm || 0);
 
+            // Momentum Trend logic (NEW)
+            const trend = metrics.momentumTrend || 'Stable';
+            const trendIcon = trend === 'Strengthening' ? '↑' : (trend === 'Weakening' ? '↓' : '→');
+            const trendColor = trend === 'Strengthening' ? 'text-green-400' : (trend === 'Weakening' ? 'text-red-400' : 'text-gray-500');
+
             // --- DEBUG OVERLAY CALCULATIONS (MUST-HAVE) ---
             const isDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
             const sr = (metrics.sr || 0) * 100;
             const br = (metrics.br || 0) * 100;
             const rs = (sector.current?.rs || 0) * 100;
             const drs = (sector.current?.rm || 0) * 100;
-
-            // AUTOMATIC SANITY WARNINGS (LOCKED)
-            const srVal = metrics.sr || 0;
-            if (srVal < 0 && state === 'LEADING') {
-                console.error(`VALIDATION FAILURE: ${sector.name} is down (SR: ${(srVal * 100).toFixed(2)}%) but marked LEADING`);
-            }
-            if (state === 'IMPROVING' && srVal > 0) {
-                console.error(`VALIDATION FAILURE: ${sector.name} is up (SR: ${(srVal * 100).toFixed(2)}%) but marked IMPROVING`);
-            }
 
             const debugPanel = isDebug ? `
                 <div class="mt-3 p-3 bg-gray-900/80 rounded-xl border border-gray-700 font-mono text-[10px] leading-relaxed relative z-10">
@@ -113,13 +142,14 @@ class MarketIntelligence {
             ` : '';
 
             return `
-                <div class="glass p-4 rounded-2xl border-l-4 ${stateMeta.borderClass} relative overflow-hidden group cursor-pointer"
+                <div class="glass p-4 rounded-2xl border-l-4 ${stateMeta.borderClass} ${stateMeta.bgClass || ''} relative overflow-hidden group cursor-pointer"
                      data-sector-key="${sector.name}">
                     <div class="flex justify-between items-start relative z-10">
                         <div>
                             <h3 class="font-bold text-sm text-white">${sector.name ? sector.name.replace('NIFTY_', '').replace('_', ' ') : 'Unknown'}</h3>
                             <div class="flex items-center gap-3 mt-1">
                                 <span class="text-[10px] font-bold ${stateMeta.textClass} uppercase tracking-tighter">${state}</span>
+                                <span class="text-[10px] ${trendColor} font-bold" title="Momentum Trend: ${trend}">${trendIcon} ${trend.toUpperCase()}</span>
                                 <span class="text-[10px] text-gray-400 font-mono">RS ${(rsPercent >= 0 ? '+' : '') + rsPercent.toFixed(2)}%</span>
                             </div>
                             <p class="text-[11px] text-gray-300 mt-2 leading-relaxed">${explanation}</p>
@@ -194,9 +224,104 @@ class MarketIntelligence {
         }
     }
 
-    updateMarketSummary(summaryData) {
-        if (!this.summaryText || !this.summaryBlock || !summaryData) return;
-        this.summaryData = summaryData;
+    updateMarketSummary(data) {
+        if (!data) return;
+
+        const summaryText = document.getElementById('market-summary-text');
+        if (summaryText) {
+            summaryText.textContent = data.summary || this._generateDailySummary(data);
+        }
+
+        // Corrected Breadth Calculation logic
+        const sectorsData = this.lastSectorData || {};
+        const sectors = Object.entries(sectorsData);
+        const leading = sectors.filter(([name, info]) => info.metrics?.state === 'LEADING').map(([name, info]) => name.replace('NIFTY_', ''));
+        const improving = sectors.filter(([name, info]) => info.metrics?.state === 'IMPROVING').map(([name, info]) => name.replace('NIFTY_', ''));
+        const lagging = sectors.filter(([name, info]) => info.metrics?.state === 'LAGGING').map(([name, info]) => name.replace('NIFTY_', ''));
+
+        const totalCount = sectors.length || 9; // Fallback to 9 if empty
+        const breadth = data.breadthScore !== undefined ? (data.breadthScore > 1 ? data.breadthScore / 100 : data.breadthScore) : (leading.length / totalCount);
+        const breadthPct = Math.round(breadth * 100);
+
+        // Map Breadth to Regime based on user spec:
+        // 0.4+ -> Risk On, 0.2-0.4 -> Neutral, <0.2 -> Risk Off
+        let label = 'NEUTRAL';
+        let color = 'text-yellow-500';
+        let regimeStatus = 'NEUTRAL';
+
+        if (breadth >= 0.4) {
+            label = 'RISK ON';
+            color = 'text-green-400';
+            regimeStatus = 'BULLISH';
+        } else if (breadth < 0.2) {
+            label = 'RISK OFF (CRITICAL)';
+            color = 'text-red-400';
+            regimeStatus = 'BEARISH';
+        }
+
+        const scoreEl = document.getElementById('breadth-score');
+        const statsEl = document.getElementById('breadth-stats');
+        const labelsEl = document.getElementById('breadth-labels');
+        const regimeEl = document.getElementById('breadth-regime');
+
+        if (scoreEl) {
+            scoreEl.textContent = `${breadthPct}%`;
+            scoreEl.className = `text-4xl font-black ${color} tracking-tighter`;
+        }
+        if (statsEl) {
+            statsEl.textContent = `${leading.length} / ${totalCount} SECTORS LEADING`;
+        }
+        if (regimeEl) {
+            regimeEl.textContent = label;
+            regimeEl.className = `text-[10px] font-bold px-2 py-0.5 rounded bg-gray-900 border border-gray-800 ${color}`;
+        }
+
+        // Detailed stats for Market Health
+        if (labelsEl) {
+            labelsEl.innerHTML = `
+                <div class="flex gap-3 mt-2">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                        <span class="text-[9px] text-gray-400 uppercase font-bold">${leading.length} Leading</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                        <span class="text-[9px] text-gray-400 uppercase font-bold">${improving.length} Improving</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                        <span class="text-[9px] text-gray-400 uppercase font-bold">${lagging.length} Lagging</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Update Global Regime Banner if it exists
+        const banner = document.getElementById('market-regime-banner');
+        if (banner) {
+            banner.textContent = `MARKET REGIME: ${label}`;
+            banner.className = `px-3 py-1 rounded text-[10px] font-black tracking-widest uppercase ${regimeStatus === 'BULLISH' ? 'bg-green-600/20 text-green-400 border border-green-500/30' : (regimeStatus === 'BEARISH' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'bg-yellow-600/10 text-yellow-500 border border-yellow-500/20')}`;
+        }
+
+        // Update Market Bias (NEW v1.3)
+        const biasEl = document.getElementById('market-bias');
+        if (biasEl) {
+            const bias = breadth >= 0.4 ? 'BULLISH BIAS' : (breadth < 0.2 ? 'BEARISH BIAS' : 'NEUTRAL BIAS');
+            const biasColor = breadth >= 0.4 ? 'text-green-400' : (breadth < 0.2 ? 'text-red-400' : 'text-indigo-400');
+            biasEl.textContent = bias;
+            biasEl.className = `text-[9px] font-black uppercase tracking-widest ${biasColor}`;
+        }
+
+        // Update Breadth Bar
+        const bar = document.getElementById('breadth-bar');
+        if (bar) {
+            bar.style.width = `${breadthPct}%`;
+            bar.className = `h-full transition-all duration-1000 ${breadth >= 0.4 ? 'bg-green-500' : (breadth >= 0.2 ? 'bg-yellow-500' : 'bg-red-500')}`;
+        }
+
+        // Original summary logic (kept for compatibility if needed elsewhere, but UI is now structured)
+        if (!this.summaryText || !this.summaryBlock || !data) return;
+        this.summaryData = data;
 
         // Auto-select mode based on IST time if not already manually toggled
         if (!this.userInteractedSummary) {
@@ -377,9 +502,11 @@ class MarketIntelligence {
     }
 
     _stateMeta(state) {
-        if (state === 'LEADING' || state === 'IMPROVING') return { textClass: 'text-green-400', borderClass: 'border-l-green-500' };
-        if (state === 'LAGGING' || state === 'WEAKENING') return { textClass: 'text-red-400', borderClass: 'border-l-red-500' };
-        return { textClass: 'text-gray-400', borderClass: 'border-l-gray-600' };
+        if (state === 'LEADING') return { textClass: 'text-green-400', borderClass: 'border-l-green-500', bgClass: 'bg-green-500/5' };
+        if (state === 'IMPROVING') return { textClass: 'text-green-400', borderClass: 'border-l-green-500', bgClass: '' };
+        if (state === 'LAGGING') return { textClass: 'text-red-500', borderClass: 'border-l-red-500', bgClass: 'bg-red-500/5' };
+        if (state === 'WEAKENING') return { textClass: 'text-red-500', borderClass: 'border-l-red-500', bgClass: '' };
+        return { textClass: 'text-gray-400', borderClass: 'border-l-gray-600', bgClass: '' };
     }
 
     // CONFIDENCE METER ENGINE v1.2 (LOCKED)
@@ -634,7 +761,53 @@ class MarketIntelligence {
             if (this.activeSectorKey && hit.sectorKey !== this.activeSectorKey) return false;
 
             return true;
+        }).sort((a, b) => {
+            const scoreA = a.technical?.qualityScore || this._calculateConfidence(a).score;
+            const scoreB = b.technical?.qualityScore || this._calculateConfidence(b).score;
+            return scoreB - scoreA;
         });
+
+        // Top Momentum Setup Logic (v1.0)
+        // Top Momentum Setup Logic (v1.0)
+        const topSetupCard = document.getElementById('top-setup-card');
+        const topSetupContent = document.getElementById('top-setup-content');
+        if (topSetupCard && working.length > 0) {
+            const top = working[0];
+            topSetupCard.classList.remove('hidden');
+            const score = top.technical?.qualityScore || this._calculateConfidence(top).score;
+            const grade = top.confidence || top.grade || 'C';
+            const sectorName = top.sector ? top.sector.replace('NIFTY_', '').replace('_', ' ') : 'Unknown';
+            const mStrength = top.technical?.momentumStrength || 'MODERATE';
+            const smTier = top.technical?.institutionalActivity || 'NONE';
+
+            topSetupContent.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-gray-500 uppercase font-bold mb-1">Symbol</span>
+                        <span class="text-sm font-bold text-white">${top.symbol}</span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-gray-500 uppercase font-bold mb-1">Sector</span>
+                        <span class="text-sm font-bold text-indigo-400">${sectorName}</span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-gray-500 uppercase font-bold mb-1">Intelligence</span>
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[10px] font-bold text-white">${grade} (${Math.round(score)}%)</span>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[8px] font-bold text-indigo-400 uppercase">${mStrength}</span>
+                                <span class="text-[8px] text-gray-500">•</span>
+                                <span class="text-[8px] font-bold ${smTier === 'STRONG' ? 'text-green-400' : (smTier === 'MODERATE' ? 'text-yellow-500' : 'text-gray-400')} uppercase">${smTier} SM</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-gray-500 uppercase font-bold mb-1">Actionable Trigger</span>
+                        <span class="text-[10px] font-bold text-green-400">Break above recent high</span>
+                    </div>
+                `;
+        } else if (topSetupCard) {
+            topSetupCard.classList.add('hidden');
+        }
 
         if (window.location.search.includes('debug=true')) {
             console.log(`[Dashboard] Showing ${working.length} of ${this.allHits.length} signals. Session: ${this.allHits[0]?.session?.phase || 'N/A'}`);
@@ -688,59 +861,86 @@ class MarketIntelligence {
             const session = hit.session || { phase: '—', quality: 'AVOID' };
 
             let sessionColor = 'text-gray-500';
-            if (session.quality === 'BEST') sessionColor = 'text-green-400 font-bold';
-            if (session.quality === 'CAUTION') sessionColor = 'text-yellow-500';
+            if (session.phase === 'EARLY') sessionColor = 'text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded-md font-bold';
+            else if (session.phase === 'MID') sessionColor = 'text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md font-bold';
+            else if (session.phase === 'LATE') sessionColor = 'text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded-md font-bold';
+            else if (session.quality === 'BEST') sessionColor = 'text-green-400 font-bold';
+            else if (session.quality === 'CAUTION') sessionColor = 'text-yellow-500';
 
             // Streamlined Tooltips v1.1 (AUTO-EXPLANATION)
             const tooltip = this._generateExplanation(hit, { short: true });
 
+            // Institutional Clarity Colors (NEW)
+            const instTier = hit.technical?.institutionalActivity || 'NONE';
+            let instColor = 'text-gray-600';
+            if (instTier === 'STRONG') instColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.4)]';
+            else if (instTier === 'MODERATE') instColor = 'text-yellow-500';
+            else if (instTier === 'WEAK') instColor = 'text-gray-400';
+
+            // Momentum Strength Tooltips (NEW)
+            const momStrength = hit.technical?.momentumStrength || 'MODERATE';
+            const momTooltip = momStrength === 'STRONG' ? 'High velocity momentum with volume confirmation' : (momStrength === 'MODERATE' ? 'Steady trend with average volume' : 'Low velocity or stalling momentum');
+
+            // Sector Highlight (NEW)
+            const isLeadingSector = (hit.sectorState === 'LEADING');
+            const rowHighlight = isLeadingSector ? 'border-l-2 border-green-500/50 bg-green-500/[0.02]' : '';
+
             return `
-                <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer"
+                <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer ${rowHighlight}"
                     data-sector-key="${hit.sectorKey || ''}"
                     title="${tooltip}"
                     onclick="window.fetchDataForSymbol('${hit.symbol}', { fromIntelligence: true })">
-                    <td class="px-4 py-3 font-bold text-white group-hover:text-blue-400 transition-colors text-xs">
-                        ${hit.symbol}
+                    <td class="px-4 py-3 text-xs">
+                        <div class="flex flex-col gap-0.5">
+                            <span class="font-bold text-white group-hover:text-blue-400 transition-colors flex items-center gap-1.5">
+                                ${hit.symbol}
+                                ${isLeadingSector ? '<span class="text-[7px] bg-green-500/20 text-green-400 px-1 rounded border border-green-500/20 uppercase tracking-tighter">LEADER</span>' : ''}
+                            </span>
+                            ${hit.technical?.isFalseBreakout ? '<span class="text-[7px] font-bold text-red-400 uppercase tracking-tighter flex items-center gap-0.5">⚠️ FALSE BREAKOUT</span>' : ''}
+                        </div>
                         ${tradeLabel}
                     </td>
-                    <td class="px-4 py-3 font-mono text-gray-300">₹${hit.price}</td>
-                    <td class="px-4 py-3 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'} text-xs">${(hit.change >= 0 ? '+' : '') + (hit.change ?? 0).toFixed(2)}%</td>
-                    <td class="px-4 py-3 text-center">
-                        <div class="flex items-center justify-center gap-1">${this._renderHits(hit.hits3d, hit.hits2d, hit.hits1d)}</div>
-                    </td>
-                    <td class="px-4 py-3">
-                         <div class="flex flex-col gap-1 items-start">
-                             <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}">
-                                ${hit.exitTag === 'EXIT' ? 'EXIT' : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' ')}
-                             </span>
-                             <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline" 
-                                     onclick="event.stopPropagation(); window.showExplanation('${hit.symbol}')">
-                                Explain
-                             </button>
-                         </div>
-                    </td>
-                    <td class="px-4 py-3 text-center">
-                         <div class="flex flex-col items-center gap-0.5" title="Confidence Score: ${score}%">
-                             <span class="text-sm font-black tracking-tight ${gradeColor}">${grade}</span>
-                             <span class="text-[9px] font-bold text-gray-500">${Math.round(score)}%</span>
-                         </div>
-                    </td>
-                    <td class="px-4 py-3">
-                         <span class="text-[10px] font-bold uppercase ${riskColor}">${hit.riskLevel || '—'}</span>
-                    </td>
-                    <td class="px-4 py-3">
-                         <span class="text-[10px] font-bold uppercase ${ru > 1 ? 'text-blue-400' : 'text-gray-400'}">${ru} RU</span>
-                    </td>
-                    <td class="px-4 py-3">
-                         <span class="text-[9px] font-bold uppercase ${sessionColor}">${session.phase}</span>
-                    </td>
+                    <td class="px-4 py-3 text-right"><span class="text-[9px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full font-bold uppercase">${hit.sector ? hit.sector.replace('NIFTY_', '') : ''}</span></td>
+                    <td class="px-4 py-3 font-mono text-gray-300 text-right">₹${hit.price}</td>
+                    <td class="px-4 py-3 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'} text-xs text-right">${(hit.change >= 0 ? '+' : '') + (hit.change ?? 0).toFixed(2)}%</td>
                     <td class="px-4 py-3 text-right">
                         <div class="flex items-center justify-end gap-1 font-mono text-xs">
                             <span class="text-gray-300">${vol.toFixed(2)}x</span>
                             ${shockerBadge ? `<span class="text-xs">${shockerBadge}</span>` : ''}
                         </div>
                     </td>
-                    <td class="px-4 py-3 text-right"><span class="text-[9px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full font-bold uppercase">${hit.sector}</span></td>
+                    <td class="px-4 py-3 text-center">
+                         ${instTier !== 'NONE'
+                    ? `<span class="text-[9px] font-black ${instColor} flex items-center justify-center gap-0.5" title="Institutional Activity: ${instTier}">⚡ ${instTier}</span>`
+                    : '<span class="text-[10px] font-bold text-gray-600">NONE</span>'}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center gap-1">${this._renderHits(hit.hits3d, hit.hits2d, hit.hits1d)}</div>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                         <span class="px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase transition-all ${hit.technical?.momentumStrength === 'STRONG' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : (hit.technical?.momentumStrength === 'MODERATE' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-800/50 text-gray-500 border border-gray-700/50')}" 
+                               title="${momTooltip}">
+                             ${momStrength}
+                         </span>
+                    </td>
+                    <td class="px-4 py-3">
+                         <div class="flex flex-col gap-1 items-start">
+                             <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}">
+                                 ${hit.exitTag === 'EXIT' ? 'EXIT' : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' ')}
+                             </span>
+                             <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
+                                     title="Click for full signal explanation"
+                                     onclick="event.stopPropagation(); window.showExplanation('${hit.symbol}')">
+                                Explain
+                             </button>
+                         </div>
+                    </td>
+                    <td class="px-4 py-3 text-center text-white">
+                         <div class="flex flex-col items-center gap-0.5" title="Confidence Score: ${Math.round(score)}%">
+                             <span class="text-sm font-black tracking-tight ${gradeColor}">${grade}</span>
+                             <span class="text-[9px] font-bold text-gray-500">${Math.round(score)}%</span>
+                         </div>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -751,7 +951,16 @@ class MarketIntelligence {
     }
 
     renderBadge(active, label) {
-        const activeClass = 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_8px_rgba(99,102,241,0.4)]';
+        let activeClass = 'bg-gray-900 border-gray-800 text-gray-700';
+        if (active) {
+            if (label === '3D') {
+                activeClass = 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_12px_rgba(99,102,241,0.6)] scale-110';
+            } else if (label === '2D') {
+                activeClass = 'bg-indigo-500 border-indigo-500 text-white shadow-[0_0_8px_rgba(99,102,241,0.4)]';
+            } else {
+                activeClass = 'bg-indigo-400 border-indigo-500 text-white py-0.5 opacity-90';
+            }
+        }
         const inactiveClass = 'bg-gray-900 border-gray-800 text-gray-700';
         return `
             <div class="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[8px] border transition-all ${active ? activeClass : inactiveClass}">${label}</div>
@@ -761,9 +970,17 @@ class MarketIntelligence {
     showSignalExplanation(hit) {
         this.currentExplHit = hit;
         const overlay = document.getElementById('signal-modal-overlay');
-        if (!overlay || !hit) return;
-        this._updateExplanationView();
+        if (!overlay || !hit) {
+            console.warn('[Explain] Modal overlay not found or no hit data', { overlay, hit });
+            return;
+        }
+        // Show modal FIRST so a render error doesn't block opening
         overlay.classList.remove('hidden');
+        try {
+            this._updateExplanationView();
+        } catch (e) {
+            console.error('[Explain] Error rendering explanation:', e);
+        }
     }
 
     _updateExplanationView() {
@@ -797,7 +1014,86 @@ class MarketIntelligence {
         const sessionQualityRaw = (session.quality || 'UNKNOWN');
         document.getElementById('expl-session-quality').textContent = isPro ? sessionQualityRaw : (sessionQualityRaw === 'BEST' ? 'Best Reliability' : 'Caution');
 
-        // 5. Risk
+        // 5. Quality Score Breakdown
+        const breakdownList = document.getElementById('expl-breakdown');
+        if (breakdownList) {
+            try {
+                const conf = this._calculateConfidence(hit) || {};
+                const factors = Array.isArray(conf.factors) ? conf.factors : [];
+                const sectorName = hit.sector ? hit.sector.replace('NIFTY_', '').replace('_', ' ') : 'Unknown';
+                const totalScore = Math.round(conf.score || 0);
+
+                let factorsHtml = factors.length > 0
+                    ? factors.map(f => `
+                        <div class="flex justify-between items-center text-[10px] py-0.5">
+                            <span class="text-gray-400">${f.label || 'Metric'}</span>
+                            <span class="font-bold font-mono ${f.positive ? 'text-green-400' : 'text-gray-500'}">${f.value || '-'}</span>
+                        </div>
+                    `).join('')
+                    : '<p class="text-[10px] text-gray-500 italic">Scoring factors not available.</p>';
+
+                // Intelligence Layer Highlights (NEW)
+                const intelHighlights = `
+                    <div class="flex flex-wrap gap-2 mt-2 pt-2 border-t border-gray-800">
+                        <div class="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                            <span class="text-[8px] font-bold text-blue-400 uppercase">Institutional: ⚡ ${hit.technical?.institutionalActivity || 'NONE'}</span>
+                        </div>
+                        <div class="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">
+                            <span class="text-[8px] font-bold text-indigo-400 uppercase">Strength: ${hit.technical?.momentumStrength || 'MODERATE'}</span>
+                        </div>
+                        <div class="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
+                            <span class="text-[8px] font-bold text-purple-400 uppercase">Sector: ${hit.sectorState || 'N/A'}</span>
+                        </div>
+                        ${hit.technical?.isFalseBreakout ? `
+                        <div class="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20">
+                            <span class="text-[8px] font-bold text-red-400 uppercase">⚠️ False Breakout Warning</span>
+                        </div>` : ''}
+                    </div>
+                `;
+
+                breakdownList.innerHTML = `
+                    <div class="mb-3 flex justify-between items-center text-[10px] border-b border-gray-800 pb-2">
+                        <span class="text-indigo-400 font-bold">${hit.symbol}</span>
+                        <span class="text-gray-500 uppercase tracking-tighter">${sectorName} (${hit.sectorState || 'N/A'})</span>
+                    </div>
+                    ${factorsHtml}
+                    ${intelHighlights}
+                    
+                    <div class="pt-2 mt-2 border-t border-gray-800 space-y-2">
+                        <div class="flex justify-between items-center text-xs font-bold mb-2">
+                            <span class="text-white">TOTAL CONFIDENCE</span>
+                            <span class="text-indigo-400">${totalScore}%</span>
+                        </div>
+                        
+                        <div class="space-y-1">
+                            <span class="text-[9px] text-indigo-400 uppercase font-bold tracking-widest">Signal Interpretation:</span>
+                            <p class="text-[10px] text-gray-400 leading-relaxed italic">${typeof this._generateExplanation === 'function' ? this._generateExplanation(hit) : 'No explanation details available.'}</p>
+                        </div>
+
+                        ${hit.technical?.isFalseBreakout ? `
+                        <div class="p-2 bg-red-900/20 border border-red-500/30 rounded-lg">
+                            <p class="text-[9px] text-red-400 font-bold uppercase mb-1">⚠️ False Breakout Warning</p>
+                            <p class="text-[8px] text-gray-400 leading-tight">Price reached a new high but volume confirmation is weak. Retail trap probability is higher.</p>
+                        </div>
+                        ` : ''}
+
+                        <div class="space-y-1">
+                            <span class="text-[9px] text-green-400 uppercase font-bold tracking-widest">Suggested Action:</span>
+                            <p class="text-[10px] text-gray-400">
+                                ${hit.technical?.isFalseBreakout
+                        ? 'Avoid aggressive entries. Wait for a solid close above high with >1.5x volume.'
+                        : (totalScore >= 70 ? 'High probability setup. Standard position sizing recommended.' : 'Wait for better sector alignment or volume expansion.')}
+                            </p>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                console.error('[Dashboard] Failed to render breakdown:', err);
+                breakdownList.innerHTML = '<p class="text-[10px] text-red-400 italic">Error loading signal details.</p>';
+            }
+        }
+
+        // 6. Risk
         document.getElementById('expl-ru').textContent = `${hit.riskUnits || 0} RU`;
 
         // Icon

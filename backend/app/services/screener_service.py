@@ -215,6 +215,22 @@ class ScreenerService:
         return "AVOID"
 
     @classmethod
+    def get_smart_money_tier(cls, vol_ratio: float) -> str:
+        """Categorizes institutional activity based on volume expansion."""
+        if vol_ratio >= 2.5: return "STRONG"
+        if vol_ratio >= 1.8: return "MODERATE"
+        if vol_ratio >= 1.5: return "WEAK"
+        return "NONE"
+
+    @classmethod
+    def get_momentum_strength(cls, score: float, vol_ratio: float, acc: float) -> str:
+        """Derived metric based on price change, volume and acceleration with color-coded classification."""
+        m_strength_val = (score * (vol_ratio / 2.0)) + (acc * 5)
+        if m_strength_val >= 75: return "STRONG"
+        if m_strength_val >= 45: return "MODERATE"
+        return "WEAK"
+
+    @classmethod
     def get_exit_tag(cls, price_below_vwap: bool, vol_drop: bool, sector_state: str) -> str:
         """Exit Tagging Logic v1.0 (LOCKED)"""
         if sector_state == "LAGGING" or (price_below_vwap and vol_drop):
@@ -497,10 +513,61 @@ class ScreenerService:
                     atr_expansion=atr_expansion
                 )
                 
-                # Compute Tags
+                # Compute Tags (Base)
                 entry_tag = cls.get_entry_tag(quality_score, sector_state, stock_active)
+                
+                # --- INTELLIGENCE LAYER: FALSE BREAKOUT FILTER (NEW) ---
+                # breakout = price > highestHigh(20)
+                h20 = symbol_df[high_col].rolling(20).max().iloc[-2] if len(symbol_df) >= 21 else symbol_df[high_col].iloc[0]
+                is_breakout_actual = latest_price > h20
+                
+                # volumeRatio > 1.5 AND close > VWAP
+                false_breakout = is_breakout_actual and (vol_ratio_val < 1.5 or not price_above_vwap)
+                
+                if false_breakout:
+                    # Downgrade signal to WATCHLIST if it was ENTRY_READY or STRONG_ENTRY
+                    if entry_tag in ["ENTRY_READY", "STRONG_ENTRY"]:
+                        entry_tag = "WATCHLIST"
+                
+                # --- INTELLIGENCE LAYER: INSTITUTIONAL DETECTION (NEW) ---
+                # institutionalActivity = volumeRatio >= 2
+                institutional_activity = vol_ratio_val >= 2.0
+                
+                # --- MOMENTUM STRENGTH (NEW) ---
+                momentum_strength = cls.get_momentum_strength(quality_score, vol_ratio_val, s_acc_raw)
+
                 exit_tag = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
                 risk_level = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
+
+                # Safety Rule: Avoid ENTRY_READY on sharp red candles
+                if latest_change <= -2 and sector_state != "LEADING":
+                    if entry_tag == "ENTRY_READY":
+                        entry_tag = "WATCHLIST"
+
+                # Improvement 1: Market Regime Filter Adjustment
+                # We need the market return to determine regime
+                # Since get_market_summary_data is expensive, we'll use a simplified check or assume it's passed/cached
+                # For this implementation, we'll calculate NIFTY return inline for the regime
+                market_regime = "NEUTRAL"
+                try:
+                    nifty_ticker = yf.Ticker("^NSEI")
+                    n_fast = nifty_ticker.fast_info
+                    n_price = n_fast.get('lastPrice') or n_fast.get('last_price', 0)
+                    n_prev = n_fast.get('previousClose') or n_fast.get('previous_close', 0)
+                    n_return = ((n_price - n_prev) / n_prev * 100) if n_prev > 0 else 0.0
+                    
+                    if n_return > 0.5:
+                        market_regime = "STRONG"
+                    elif n_return < -0.5:
+                        market_regime = "WEAK"
+                except:
+                    pass
+
+                if market_regime == "WEAK":
+                    if entry_tag == "STRONG_ENTRY":
+                        entry_tag = "ENTRY_READY"
+                    elif entry_tag == "ENTRY_READY":
+                        entry_tag = "WATCHLIST"
                 
                 # POSITION SIZING & SESSION (LOCKED v1.0)
                 phase, session_quality = cls.get_session_tag()
@@ -549,12 +616,15 @@ class ScreenerService:
                         "technical": {
                             "vwap": float(round(vwap, 2)),
                             "isBreakout": bool(is_breakout),
+                            "isFalseBreakout": bool(false_breakout),
                             "aboveVWAP": bool(price_above_vwap),
                             "volHigh": bool(vol_high),
                             "stopDistance": float(stop_distance_pct),
                             "qualityScore": float(round(quality_score, 2)),
                             "structureBias": str(structure_bias),
-                            "atrExpansion": float(round(atr_expansion, 2))
+                            "atrExpansion": float(round(atr_expansion, 2)),
+                            "institutionalActivity": cls.get_smart_money_tier(vol_ratio_val),
+                            "momentumStrength": str(momentum_strength)
                         },
                         "asOf": str(close.index[latest_idx]),
                         "hitAsOf": str(hit_ts),
@@ -649,58 +719,38 @@ class ScreenerService:
             except Exception as e:
                 print(f"Warning: NIFTY fetch failed: {e}")
 
-            # 2. Global Cues (S&P 500)
-            sp_return = 0.0
-            try:
-                sp500 = yf.Ticker("^GSPC")
-                sp_fast = sp500.fast_info
-                sp_price = sp_fast.get('lastPrice') or sp_fast.get('last_price', 0)
-                sp_prev = sp_fast.get('previousClose') or sp_fast.get('previous_close', 0)
-                sp_return = ((sp_price - sp_prev) / sp_prev * 100) if sp_prev > 0 else 0.0
-            except Exception as e:
-                print(f"Warning: S&P500 fetch failed: {e}")
+            # Fetch sector data for breadth calculation (Optimized: No constituents needed for breadth)
+            from app.services.sector_service import SectorService
+            sector_data, alerts = SectorService.get_rotation_data(timeframe=timeframe, include_constituents=False)
             
-            # GIFT Nifty proxy
-            global_positive = sp_return > 0.1
-            gift_nifty_positive = sp_return > 0.3
+            sectors = list(sector_data.values()) if isinstance(sector_data, dict) else []
+            
+            leading = [s for s in sectors if s.get('metrics', {}).get('state') == 'LEADING']
+            weakening = [s for s in sectors if s.get('metrics', {}).get('state') == 'WEAKENING']
+            improving = [s for s in sectors if s.get('metrics', {}).get('state') == 'IMPROVING']
+            lagging = [s for s in sectors if s.get('metrics', {}).get('state') == 'LAGGING']
+            
+            total_sectors = len(sector_data) if sector_data else 9 # Fallback to 9
+            leading_count = len(leading)
+            breadth_score = (leading_count / total_sectors) # Return 0-1 for frontend consistency, though frontend handles 0-100 too
 
-            # 3. Sector States (Sorted Display UX Improvement)
-            sector_data, _ = SectorService.get_rotation_data(timeframe=timeframe)
-            
-            # Prioritized order for display
-            leading, improving, weakening, lagging = [], [], [], []
-            state_buckets = {
-                "LEADING": [],
-                "IMPROVING": [],
-                "WEAKENING": [],
-                "NEUTRAL": [],
-                "LAGGING": []
-            }
-            
-            for name, info in sector_data.items():
-                state = info.get("metrics", {}).get("state", "NEUTRAL")
-                display_name = name.replace("NIFTY_", "").replace("_", " ")
-                
-                # STRICT FILTERING for summary arrays
-                if state == "LEADING":
-                    leading.append(display_name)
-                elif state == "WEAKENING":
-                    weakening.append(display_name)
-                elif state == "IMPROVING":
-                    improving.append(display_name)
-                elif state == "LAGGING":
-                    lagging.append(display_name)
+            # Improvement 1: Enhanced Market Regime Filter
+            if breadth_score >= 40:
+                market_regime = "RISK-ON"
+            elif breadth_score >= 20:
+                market_regime = "NEUTRAL"
+            else:
+                market_regime = "RISK-OFF"
 
-            # UX Improvement: Ensure neutral sectors aren't accidentally shown as leading
-            neutral = state_buckets["NEUTRAL"] if "NEUTRAL" in state_buckets else []
+            # Global cues (positive if market return > 0, simple heuristic)
+            global_positive = market_return > 0
+            gift_nifty_positive = market_return > 0  # Simplified proxy
 
             # 4. Top Stocks
             hits = cls.get_screener_data(timeframe=timeframe)
             performance = cls.calculate_performance_stats(hits)
             top_stocks = []
             for h in hits:
-                # Backend filtering for summary: Only keep those that are likely high confidence
-                # (Standard momentum hits are already pre-filtered)
                 # Backend filtering for summary: Only keep those that are likely high confidence
                 quality_val = h.get("technical", {}).get("qualityScore", 0)
                 conf_grade = h.get("grade") or h.get("confidence") or cls.get_confidence_grade(quality_val)
@@ -711,7 +761,9 @@ class ScreenerService:
                     "sector": h.get("sector", "N/A"),
                     "grade": conf_grade,
                     "confidence": conf_score,
-                    "entryTag": h.get("entryTag", "WATCHLIST")
+                    "entryTag": h.get("entryTag", "WATCHLIST"),
+                    "institutionalActivity": h.get("technical", {}).get("institutionalActivity", "NONE"),
+                    "momentumStrength": h.get("technical", {}).get("momentumStrength", "WEAK")
                 })
 
             # --- Momentum Leaders ---
@@ -726,7 +778,8 @@ class ScreenerService:
                 if sorted_sectors:
                     top_sector = {
                         "name": sorted_sectors[0][0].replace("NIFTY_", ""),
-                        "rotationScore": sorted_sectors[0][1].get('metrics', {}).get('rotationScore', 0)
+                        "rotationScore": sorted_sectors[0][1].get('metrics', {}).get('rotationScore', 0),
+                        "state": sorted_sectors[0][1].get('metrics', {}).get('state', 'NEUTRAL')
                     }
 
             top_quality_stock = None
@@ -740,7 +793,10 @@ class ScreenerService:
                 )
                 top_quality_stock = {
                     "symbol": sorted_hits_quality[0]['symbol'],
-                    "qualityScore": sorted_hits_quality[0]['technical'].get('qualityScore', 0)
+                    "qualityScore": sorted_hits_quality[0]['technical'].get('qualityScore', 0),
+                    "sector": sorted_hits_quality[0].get('sector', 'N/A'),
+                    "sectorState": sorted_hits_quality[0].get('sectorState', 'NEUTRAL'),
+                    "institutionalActivity": sorted_hits_quality[0].get('technical', {}).get('institutionalActivity', 'NONE')
                 }
 
                 # Sort for volume
@@ -763,9 +819,12 @@ class ScreenerService:
                 "weakeningSectors": weakening,
                 "improvingSectors": improving,
                 "laggingSectors": lagging,
+                "marketRegime": market_regime,
+                "breadthScore": float(round(breadth_score, 2)),
                 "topStocks": top_stocks[:10],
                 "systemPerformance": performance
             }
+
 
             # Append momentum leaders (Do NOT overwrite)
             summary["momentumLeaders"] = {
