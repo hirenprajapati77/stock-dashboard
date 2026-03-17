@@ -27,6 +27,40 @@ function isIntelligenceModeActive() {
     return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
 }
 
+// Quick Filter State
+window.activeQuickFilters = {
+    leaders: false,
+    smart: false,
+    momentum: false
+};
+
+window.toggleQuickFilter = function (filterName) {
+    if (window.activeQuickFilters[filterName] !== undefined) {
+        window.activeQuickFilters[filterName] = !window.activeQuickFilters[filterName];
+
+        // Update UI Button states
+        const btn = document.getElementById(`filter-${filterName}`);
+        if (btn) {
+            if (window.activeQuickFilters[filterName]) {
+                btn.classList.add('bg-gray-800', 'border-gray-600', 'text-white');
+                if (filterName === 'leaders') btn.classList.add('border-green-500/50', 'text-green-400');
+                if (filterName === 'smart') btn.classList.add('border-blue-500/50', 'text-blue-400');
+                if (filterName === 'momentum') btn.classList.add('border-indigo-500/50', 'text-indigo-400');
+            } else {
+                btn.className = `flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase transition-all`;
+                if (filterName === 'leaders') btn.classList.add('hover:border-green-500/50', 'hover:text-green-400');
+                if (filterName === 'smart') btn.classList.add('hover:border-blue-500/50', 'hover:text-blue-400');
+                if (filterName === 'momentum') btn.classList.add('hover:border-indigo-500/50', 'hover:text-indigo-400');
+            }
+        }
+
+        // Trigger table re-render
+        if (window.intelligenceApp) {
+            window.intelligenceApp._renderHitsTable();
+        }
+    }
+}
+
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
     console.log('Initializing chart, container:', chartContainer);

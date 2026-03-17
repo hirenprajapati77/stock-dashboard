@@ -723,8 +723,20 @@ class ScreenerService:
             from app.services.sector_service import SectorService
             sector_data, alerts = SectorService.get_rotation_data(timeframe=timeframe, include_constituents=False)
             
-            sectors = list(sector_data.values()) if isinstance(sector_data, dict) else []
-            
+            # IMPORTANT: Attach sector names for frontend rendering (UI-only enhancement).
+            # SectorService returns a dict keyed by sector name; values don't include the key,
+            # which causes "[object Object]" when the UI tries to render leadership lists.
+            sectors = []
+            if isinstance(sector_data, dict):
+                for sector_key, payload in sector_data.items():
+                    if not isinstance(payload, dict):
+                        continue
+                    sectors.append({
+                        "name": sector_key.replace("NIFTY_", ""),
+                        "sectorKey": sector_key,
+                        **payload
+                    })
+
             leading = [s for s in sectors if s.get('metrics', {}).get('state') == 'LEADING']
             weakening = [s for s in sectors if s.get('metrics', {}).get('state') == 'WEAKENING']
             improving = [s for s in sectors if s.get('metrics', {}).get('state') == 'IMPROVING']
