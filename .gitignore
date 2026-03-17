@@ -12,3 +12,6 @@ venv/
 build/
 dist/
 *.log
+
+# Runtime analytics logs
+backend/app/data/signal_performance_daily.json

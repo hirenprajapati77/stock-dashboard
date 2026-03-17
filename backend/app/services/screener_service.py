@@ -484,6 +484,21 @@ class ScreenerService:
                 is_breakout = cls._is_breakout(symbol_df)
                 price_above_vwap = latest_price > vwap
                 vol_ratio_val = float(vol_ratio.iloc[hit_idx])
+
+                # --- INTELLIGENCE LAYER: EARLY BREAKOUT DETECTION (ADDITIVE) ---
+                # This does NOT alter Quality Score formulas or existing signal generation.
+                early_tag = None
+                early_tooltip = None
+                early_details = {}
+                try:
+                    from app.engine.early_breakout import detect_early_breakout
+                    eb = detect_early_breakout(symbol_df)
+                    if eb.signal:
+                        early_tag = "EARLY_SETUP"
+                        early_tooltip = eb.tooltip
+                        early_details = eb.details or {}
+                except Exception:
+                    pass
                 
                 # Assume active if standard momentum criteria met (which they are if we reached here)
                 stock_active = True 
@@ -624,7 +639,11 @@ class ScreenerService:
                             "structureBias": str(structure_bias),
                             "atrExpansion": float(round(atr_expansion, 2)),
                             "institutionalActivity": cls.get_smart_money_tier(vol_ratio_val),
-                            "momentumStrength": str(momentum_strength)
+                            "momentumStrength": str(momentum_strength),
+                            "earlyBreakoutSignal": bool(early_tag == "EARLY_SETUP"),
+                            "earlyTag": early_tag,
+                            "earlyTooltip": early_tooltip,
+                            "earlyDetails": early_details,
                         },
                         "asOf": str(close.index[latest_idx]),
                         "hitAsOf": str(hit_ts),
@@ -662,6 +681,98 @@ class ScreenerService:
         cls._save_fallback(hits, normalized_tf)
         
         return hits
+
+    @classmethod
+    def get_early_breakout_setups(cls, timeframe: str = "1D", limit: int = 5) -> List[Dict]:
+        """
+        Returns early accumulation candidates (pre-breakout) as an additive intelligence layer.
+        This does NOT modify existing screener signals; it's a separate output.
+        """
+        normalized_tf = "1D" if timeframe == "Daily" else timeframe
+        config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
+
+        sector_map = {
+            sector_key: symbols
+            for sector_key, symbols in ConstituentService.SECTOR_CONSTITUENTS.items()
+            if symbols
+        }
+        all_symbols = sorted({symbol for symbols in sector_map.values() for symbol in symbols})
+        if not all_symbols:
+            return []
+
+        try:
+            stock_batch_df = yf.download(
+                tickers=" ".join(all_symbols),
+                period=config["period"],
+                interval=config["interval"],
+                progress=False,
+                group_by="ticker",
+                auto_adjust=False,
+                threads=True,
+            )
+        except Exception as e:
+            print(f"Early breakout batch download failed: {e}")
+            return []
+
+        if stock_batch_df is None or stock_batch_df.empty:
+            return []
+
+        sector_by_symbol = {
+            symbol: sector
+            for sector, symbols in sector_map.items()
+            for symbol in symbols
+        }
+
+        sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf, include_constituents=False)
+        all_sector_states = {info.get("metrics", {}).get("state", "NEUTRAL") for info in sector_data.values()}
+        gate_states = ["LEADING", "IMPROVING"]
+        if sum(1 for s in all_sector_states if s in gate_states) == 0:
+            gate_states = ["LEADING", "IMPROVING", "NEUTRAL"]
+
+        from app.engine.early_breakout import detect_early_breakout
+
+        setups: List[Dict] = []
+        for symbol in all_symbols:
+            try:
+                raw_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
+                if raw_df is None or raw_df.empty:
+                    continue
+                sdf = raw_df.copy()
+                sdf.columns = [c.lower() for c in sdf.columns]
+
+                sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
+                sector_info = sector_data.get(sector_key, {})
+                sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
+                if sector_state not in gate_states:
+                    continue
+
+                eb = detect_early_breakout(sdf)
+                if not eb.signal:
+                    continue
+
+                close = float(pd.to_numeric(sdf["close"], errors="coerce").dropna().iloc[-1])
+                vol_ratio = float(eb.details.get("volRatio20", 0.0))
+                range_pct = float(eb.details.get("rangePct", 0.0))
+
+                display_symbol = symbol.replace(".NS", "").replace(".BO", "")
+                setups.append({
+                    "symbol": display_symbol,
+                    "price": round(close, 2),
+                    "sector": sector_key.replace("NIFTY_", "").replace("_", " "),
+                    "sectorKey": sector_key,
+                    "sectorState": sector_state,
+                    "tag": "EARLY_SETUP",
+                    "tooltip": eb.tooltip,
+                    "details": eb.details,
+                    "volRatio": vol_ratio,
+                    "rangePct": range_pct,
+                })
+            except Exception:
+                continue
+
+        # Rank: tighter range first, then higher vol ratio, then nearer resistance (implicitly in signal)
+        setups.sort(key=lambda x: (x.get("rangePct", 99), -x.get("volRatio", 0)), reverse=False)
+        return setups[: max(1, int(limit))]
 
     @classmethod
     def _save_fallback(cls, data: List[Dict], timeframe: str):

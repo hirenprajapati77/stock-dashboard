@@ -402,6 +402,60 @@
                         </div>
                     </div>
 
+                    <!-- Signal Performance (NEW) -->
+                    <div id="signal-performance-card"
+                        class="glass rounded-2xl border border-blue-500/20 p-4 mb-6 bg-gradient-to-br from-blue-900/10 to-transparent animate-in slide-in-from-left duration-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-lg">📈</span>
+                                <h2 class="text-[11px] font-bold uppercase tracking-widest text-blue-300">Signal Performance</h2>
+                            </div>
+                            <span id="signal-performance-asof" class="text-[9px] text-gray-500 font-mono italic">As of --:--:--</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+                            <div class="p-3 rounded-xl border border-purple-500/20 bg-purple-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Early Setups</div>
+                                <div id="perf-early" class="text-xl font-black text-purple-300 mono">0</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-green-500/20 bg-green-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Entry Ready</div>
+                                <div id="perf-entry" class="text-xl font-black text-green-400 mono">0</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-green-500/30 bg-green-500/10">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Strong Entry</div>
+                                <div id="perf-strong" class="text-xl font-black text-green-300 mono">0</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Early → Entry</div>
+                                <div id="perf-conv-early-entry" class="text-lg font-black text-blue-300 mono">0%</div>
+                                <div id="perf-conv-early-entry-count" class="text-[9px] text-gray-500 font-mono">0 converted</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Entry → Strong</div>
+                                <div id="perf-conv-entry-strong" class="text-lg font-black text-blue-300 mono">0%</div>
+                                <div id="perf-conv-entry-strong-count" class="text-[9px] text-gray-500 font-mono">0 converted</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Early Opportunities (NEW) -->
+                    <div id="early-setup-card"
+                        class="hidden glass rounded-2xl border border-purple-500/30 p-5 mb-6 bg-gradient-to-br from-purple-900/10 to-transparent animate-in slide-in-from-left duration-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🟣</span>
+                                <h2 class="text-xs font-bold uppercase tracking-widest text-purple-300">Early Opportunities</h2>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span id="early-setup-count" class="text-[9px] font-bold text-purple-300/80 font-mono uppercase tracking-widest">Early Setups Today: 0</span>
+                                <span class="text-[9px] text-gray-500 font-mono italic">Pre-breakout accumulation</span>
+                            </div>
+                        </div>
+                        <div id="early-setup-content" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
                     <div class="glass rounded-2xl overflow-hidden border border-gray-800">
                         <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
                             <div>
@@ -802,6 +856,9 @@
                             <button id="filter-momentum" onclick="window.toggleQuickFilter('momentum')"
                                 class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-indigo-500/50 hover:text-indigo-400 transition-all">Strong
                                 Mom</button>
+                            <button id="filter-early" onclick="window.toggleQuickFilter('early')"
+                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-purple-500/50 hover:text-purple-300 transition-all">Early
+                                Setups</button>
                         </div>
                     </div>
                     <div class="grid grid-cols-4 divide-x divide-gray-800 text-center p-4">

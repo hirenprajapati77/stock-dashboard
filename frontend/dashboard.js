@@ -198,6 +198,94 @@ class MarketIntelligence {
         }
     }
 
+    updateEarlySetups(setups) {
+        this.earlySetups = Array.isArray(setups) ? setups : [];
+        this._renderEarlySetups();
+    }
+
+    updateSignalPerformance(data) {
+        this.signalPerformance = data || null;
+        this._renderSignalPerformance();
+    }
+
+    _renderSignalPerformance() {
+        const data = this.signalPerformance || {};
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        setTxt('perf-early', data.earlySetups ?? 0);
+        setTxt('perf-entry', data.entryReady ?? 0);
+        setTxt('perf-strong', data.strongEntry ?? 0);
+        setTxt('perf-conv-early-entry', `${data.conversionRateEarlyToEntry ?? 0}%`);
+        setTxt('perf-conv-entry-strong', `${data.conversionRateEntryToStrong ?? 0}%`);
+        setTxt('perf-conv-early-entry-count', `${data.convertedToEntryReady ?? 0} converted`);
+        setTxt('perf-conv-entry-strong-count', `${data.strongEntry ?? 0} strong`);
+
+        const asof = document.getElementById('signal-performance-asof');
+        if (asof) {
+            const t = data.asOfTime || '--:--:--';
+            asof.textContent = `As of ${t}`;
+        }
+    }
+
+    _renderEarlySetups() {
+        const card = document.getElementById('early-setup-card');
+        const content = document.getElementById('early-setup-content');
+        const countEl = document.getElementById('early-setup-count');
+        if (!(card && content)) return;
+
+        const setups = Array.isArray(this.earlySetups) ? this.earlySetups : [];
+        if (!setups.length) {
+            card.classList.add('hidden');
+            if (countEl) countEl.textContent = 'Early Setups Today: 0';
+            return;
+        }
+
+        card.classList.remove('hidden');
+        if (countEl) countEl.textContent = `Early Setups Today: ${setups.length}`;
+        content.innerHTML = setups.slice(0, 5).map(s => {
+            const sector = (s.sector || '').toString().replace('NIFTY_', '').replace('_', ' ');
+            const state = (s.sectorState || 'NEUTRAL').toString();
+            const stateColor = state === 'LEADING' ? 'text-green-400' : (state === 'IMPROVING' ? 'text-blue-400' : 'text-gray-400');
+            const details = s.details || {};
+            const rangePct = details.rangePct ?? s.rangePct ?? '—';
+            const volRatio = details.volRatio20 ?? s.volRatio ?? '—';
+            const tooltip = (s.tooltip || 'Stock showing early accumulation with tight range and volume build-up. Potential breakout candidate.').toString().replace(/"/g, '&quot;');
+
+            return `
+                <div class="p-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 transition-colors cursor-pointer"
+                     title="${tooltip}"
+                     onclick="window.fetchDataForSymbol('${s.symbol}', { fromIntelligence: true })">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-bold text-white">${s.symbol}</span>
+                                <span class="text-[9px] font-black uppercase bg-purple-500/15 text-purple-300 border border-purple-500/25 px-2 py-0.5 rounded-full">EARLY SETUP</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-gray-400 font-mono">${sector} • <span class="${stateColor} font-bold">${state}</span></div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-[10px] text-gray-500 uppercase font-bold">Price</div>
+                            <div class="text-sm font-bold text-white mono">₹${s.price ?? '—'}</div>
+                        </div>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                        <div class="bg-black/20 border border-gray-800 rounded-lg p-2">
+                            <div class="text-gray-500 uppercase font-bold text-[9px]">Range</div>
+                            <div class="text-white font-bold">${rangePct}%</div>
+                        </div>
+                        <div class="bg-black/20 border border-gray-800 rounded-lg p-2">
+                            <div class="text-gray-500 uppercase font-bold text-[9px]">Vol Build</div>
+                            <div class="text-white font-bold">${volRatio}x</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
     setSummaryMode(mode) {
         this.summaryMode = mode;
         this._renderSummary();
@@ -780,6 +868,7 @@ class MarketIntelligence {
                 if (window.activeQuickFilters.leaders && hit.sectorState !== 'LEADING' && hit.leader !== true) return false;
                 if (window.activeQuickFilters.smart && hit.technical?.institutionalActivity !== 'STRONG' && hit.technical?.institutionalActivity !== 'MODERATE') return false;
                 if (window.activeQuickFilters.momentum && hit.technical?.momentumStrength !== 'STRONG') return false;
+                if (window.activeQuickFilters.early && hit.technical?.earlyTag !== 'EARLY_SETUP') return false;
             }
 
             return true;
@@ -856,10 +945,16 @@ class MarketIntelligence {
             let statusColor = 'bg-gray-800 text-gray-400';
             const currentTag = hit.entryStatus || hit.entryTag;
 
+            // EARLY SETUP hierarchy: only surface when the base tag is not already actionable
+            const earlyTag = hit.technical?.earlyTag;
+            const isEarlySetup = (earlyTag === 'EARLY_SETUP') && (currentTag === 'WATCHLIST' || currentTag === 'WAIT' || currentTag === 'AVOID' || !currentTag);
+            const earlyTooltip = hit.technical?.earlyTooltip || 'Stock showing early accumulation with tight range and volume build-up. Potential breakout candidate.';
+
             if (currentTag === 'STRONG_ENTRY') statusColor = 'bg-green-600/30 text-green-400 border border-green-500/50 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]';
             else if (currentTag === 'ENTRY_READY') statusColor = 'bg-green-600/20 text-green-400 border border-green-500/30';
             else if (currentTag === 'WATCHLIST' || currentTag === 'WAIT') statusColor = 'bg-yellow-600/20 text-yellow-500 border border-yellow-500/30';
             if (hit.exitTag === 'EXIT') statusColor = 'bg-red-600/20 text-red-400 border border-red-500/30';
+            if (isEarlySetup) statusColor = 'bg-purple-600/20 text-purple-300 border border-purple-500/40';
 
             // Grade Content Mapping
             const grade = hit.confidence || hit.grade || 'C';
@@ -953,8 +1048,12 @@ class MarketIntelligence {
                     </td>
                     <td class="px-4 py-3">
                          <div class="flex flex-col gap-1 items-start">
-                             <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}">
-                                 ${hit.exitTag === 'EXIT' ? 'EXIT' : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' ')}
+                             <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}" title="${isEarlySetup ? earlyTooltip : ''}">
+                                 ${hit.exitTag === 'EXIT'
+                    ? 'EXIT'
+                    : (isEarlySetup
+                        ? '🟣 EARLY SETUP'
+                        : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' '))}
                              </span>
                              <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
                                      title="Click for full signal explanation"

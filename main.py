@@ -513,6 +513,32 @@ async def get_momentum_hits(tf: str = "1D"):
             "message": str(e)
         }
 
+@app.get("/api/v1/early-setups")
+async def get_early_setups(tf: str = "1D", limit: int = 5):
+    """
+    Returns early accumulation candidates before breakout.
+    Additive intelligence layer (does not modify existing screener signals).
+    """
+    try:
+        from app.services.screener_service import ScreenerService as MomentumScreener
+        data = MomentumScreener.get_early_breakout_setups(timeframe=tf, limit=limit)
+        return {"status": "success", "count": len(data), "data": data}
+    except Exception as e:
+        return {"status": "error", "count": 0, "data": [], "message": str(e)}
+
+@app.get("/api/v1/signal-performance")
+async def get_signal_performance(tf: str = "1D"):
+    """
+    Returns daily signal performance metrics and conversions.
+    Analytics-only endpoint; does not alter scoring or signal generation.
+    """
+    try:
+        from app.services.signal_performance_service import SignalPerformanceService
+        perf = SignalPerformanceService.compute(timeframe=tf)
+        return {"status": "success", "data": perf.to_dict()}
+    except Exception as e:
+        return {"status": "error", "data": {}, "message": str(e)}
+
 @app.get("/api/v1/market-summary")
 async def get_market_summary(tf: str = "1D"):
     """
