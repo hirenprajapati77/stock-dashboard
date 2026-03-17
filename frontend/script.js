@@ -8,6 +8,7 @@ const ROTATION_URL = `${API_BASE}/api/v1/sector-rotation`;
 const HITS_URL = `${API_BASE}/api/v1/momentum-hits`;
 const EARLY_SETUPS_URL = `${API_BASE}/api/v1/early-setups`;
 const SIGNAL_PERF_URL = `${API_BASE}/api/v1/signal-performance`;
+const TRADE_PERF_URL = `${API_BASE}/api/v1/trade-performance`;
 
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
@@ -915,12 +916,13 @@ async function fetchIntelligence() {
         const now = Date.now();
 
         // 1. Fetch data in parallel
-        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes] = await Promise.all([
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
-            fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; })
+            fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; }),
+            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; })
         ]);
 
         // 2. Parse responses carefully
@@ -929,6 +931,7 @@ async function fetchIntelligence() {
         let summaryData = null;
         let earlyData = { data: [] };
         let perfData = null;
+        let tradePerfData = null;
 
         if (hitsRes && hitsRes.ok) {
             hitsData = await hitsRes.json();
@@ -964,6 +967,13 @@ async function fetchIntelligence() {
             console.error(`Signal Performance API error: ${perfRes.status}`);
         }
 
+        if (tradePerfRes && tradePerfRes.ok) {
+            const tradePerfJson = await tradePerfRes.json();
+            if (tradePerfJson.status === 'success') tradePerfData = tradePerfJson.data;
+        } else if (tradePerfRes) {
+            console.error(`Trade Performance API error: ${tradePerfRes.status}`);
+        }
+
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
@@ -974,6 +984,9 @@ async function fetchIntelligence() {
             }
             if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
                 intelligenceApp.updateSignalPerformance(perfData);
+            }
+            if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
+                intelligenceApp.updateTradePerformance(tradePerfData);
             }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;

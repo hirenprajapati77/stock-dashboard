@@ -208,6 +208,37 @@ class MarketIntelligence {
         this._renderSignalPerformance();
     }
 
+    updateTradePerformance(data) {
+        this.tradePerformance = data || null;
+        this._renderTradePerformance();
+    }
+
+    _renderTradePerformance() {
+        const data = this.tradePerformance || {};
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        setTxt('trade-total', data.totalTrades ?? 0);
+        setTxt('trade-win-rate', `${data.winRate ?? 0}%`);
+        setTxt('trade-avg-r', `${(data.avgR ?? 0).toFixed ? (data.avgR ?? 0).toFixed(2) : data.avgR}R`);
+        setTxt('trade-max-dd', `${(data.maxDrawdownR ?? 0).toFixed ? (data.maxDrawdownR ?? 0).toFixed(2) : data.maxDrawdownR}R`);
+        setTxt('trade-profit-factor', (data.profitFactor ?? 0).toFixed ? (data.profitFactor ?? 0).toFixed(2) : data.profitFactor);
+
+        const best = document.getElementById('trade-best-setups');
+        const worst = document.getElementById('trade-worst-setups');
+
+        if (best) {
+            const rows = Array.isArray(data.bestSetups) ? data.bestSetups.slice(0, 3) : [];
+            best.textContent = rows.length ? rows.map(r => `${r.symbol} (${Number(r.pnlR).toFixed(2)}R)`).join(' • ') : '—';
+        }
+        if (worst) {
+            const rows = Array.isArray(data.worstSetups) ? data.worstSetups.slice(0, 3) : [];
+            worst.textContent = rows.length ? rows.map(r => `${r.symbol} (${Number(r.pnlR).toFixed(2)}R)`).join(' • ') : '—';
+        }
+    }
+
     _renderSignalPerformance() {
         const data = this.signalPerformance || {};
         const setTxt = (id, val) => {
@@ -843,6 +874,8 @@ class MarketIntelligence {
         // Current threshold from UI (Handover v1.3)
         const filterEl = document.getElementById('confidence-filter');
         const threshold = filterEl ? parseInt(filterEl.value) : 60;
+        const highProbabilityOnlyEl = document.getElementById('high-probability-only');
+        const highProbabilityOnly = !!(highProbabilityOnlyEl && highProbabilityOnlyEl.checked);
 
         const working = this.allHits.filter(hit => {
             const conf = this._calculateConfidence(hit);
@@ -859,6 +892,9 @@ class MarketIntelligence {
                 }
                 return false;
             }
+
+            const filterCategory = hit.filterMeta?.filterCategory || hit.filterCategory || this._deriveFilterMeta(hit).filterCategory;
+            if (highProbabilityOnly && filterCategory !== 'HIGH PROBABILITY') return false;
 
             // Existing Sector Focus filter
             if (this.activeSectorKey && hit.sectorKey !== this.activeSectorKey) return false;
@@ -998,6 +1034,14 @@ class MarketIntelligence {
             const momStrength = hit.technical?.momentumStrength || 'MODERATE';
             const momTooltip = momStrength === 'STRONG' ? 'High velocity momentum with volume confirmation' : (momStrength === 'MODERATE' ? 'Steady trend with average volume' : 'Low velocity or stalling momentum');
 
+            const filterMeta = hit.filterMeta || this._deriveFilterMeta(hit);
+            const probabilityCategory = filterMeta.filterCategory || 'LOW';
+            const probabilityClass = probabilityCategory === 'HIGH PROBABILITY'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : (probabilityCategory === 'MEDIUM'
+                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+                    : 'bg-gray-800/60 text-gray-400 border border-gray-700/60');
+
             // Sector Highlight & STRONG ENTRY Highlight (v1.6 Enhancements)
             const isLeadingSector = (hit.sectorState === 'LEADING') || (hit.leader === true);
             const isStrongEntry = (currentTag === 'STRONG_ENTRY') || (hit.tradeReady) || (score >= 80);
@@ -1018,6 +1062,7 @@ class MarketIntelligence {
                             <span class="font-bold text-white group-hover:text-blue-400 transition-colors flex items-center gap-1.5">
                                 ${hit.symbol}
                                 ${isLeadingSector ? '<span class="text-[7px] bg-green-500/20 text-green-400 px-1 rounded border border-green-500/20 uppercase tracking-tighter">LEADER</span>' : ''}
+                                <span class="text-[7px] px-1 rounded uppercase tracking-tighter ${probabilityClass}">${probabilityCategory}</span>
                             </span>
                             ${hit.technical?.isFalseBreakout ? '<span class="text-[7px] font-bold text-red-400 uppercase tracking-tighter flex items-center gap-0.5">⚠️ FALSE BREAKOUT</span>' : ''}
                         </div>
@@ -1053,7 +1098,7 @@ class MarketIntelligence {
                     ? 'EXIT'
                     : (isEarlySetup
                         ? '🟣 EARLY SETUP'
-                        : (hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' '))}
+                        : (hit.tradeDecisionTag || hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' '))}
                              </span>
                              <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
                                      title="Click for full signal explanation"
@@ -1061,6 +1106,30 @@ class MarketIntelligence {
                                 Explain
                              </button>
                          </div>
+                    </td>
+                    <td class="px-4 py-3">
+                        ${(() => {
+                            const tp = hit.executionPlan || {};
+                            const rr = Number(tp.riskRewardToT1 || 0);
+                            const rrClass = rr >= 1.5 ? 'text-green-400' : 'text-red-400';
+                            const q = tp.tradeQuality || 'LOW QUALITY TRADE';
+                            const qClass = q === 'HIGH QUALITY TRADE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/25';
+                            const conf = tp.executionConfidence || 'LOW';
+                            const confClass = conf === 'HIGH CONFIDENCE' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : (conf === 'MEDIUM' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/25' : 'bg-gray-800 text-gray-400 border border-gray-700');
+                            return `
+                                <div class="text-[9px] leading-4 font-mono space-y-1">
+                                    <div class="flex items-center gap-1 flex-wrap">
+                                        <span class="px-1 py-0.5 rounded text-[8px] font-bold uppercase ${qClass}">${q}</span>
+                                        <span class="px-1 py-0.5 rounded text-[8px] font-bold uppercase ${confClass}">${conf}</span>
+                                    </div>
+                                    <div><span class="text-gray-500">E:</span> <span class="text-white">₹${tp.entry ?? '—'}</span></div>
+                                    <div><span class="text-gray-500">SL:</span> <span class="text-red-300">₹${tp.stopLoss ?? '—'}</span></div>
+                                    <div><span class="text-gray-500">T1:</span> <span class="text-green-300">₹${tp.target1 ?? '—'}</span> <span class="text-gray-500">T2:</span> <span class="text-green-300">₹${tp.target2 ?? '—'}</span></div>
+                                    <div><span class="text-gray-500">R/R:</span> <span class="${rrClass}">${rr ? rr.toFixed(2) : '—'}</span></div>
+                                    <div><span class="text-gray-500">Rule:</span> <span class="text-yellow-300">Move SL to breakeven at 1R</span></div>
+                                </div>
+                            `;
+                        })()}
                     </td>
                     <td class="px-4 py-3 text-center text-white">
                          <div class="flex flex-col items-center gap-0.5" title="Confidence Score: ${Math.round(score)}%">
@@ -1092,6 +1161,28 @@ class MarketIntelligence {
         return `
             <div class="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[8px] border transition-all relative ${active ? activeClass : inactiveClass}">${label}</div>
         `;
+    }
+
+    _deriveFilterMeta(hit) {
+        const vol = Number(hit?.volRatio ?? 0);
+        const volumeStrength = vol >= 2 ? 'STRONG' : (vol >= 1.2 ? 'MODERATE' : 'WEAK');
+        const momentumCount = [hit?.hits1d, hit?.hits2d, hit?.hits3d].filter(Boolean).length;
+        let score = 50;
+
+        if (volumeStrength === 'STRONG') score += 16;
+        else if (volumeStrength === 'MODERATE') score += 8;
+        else score -= 8;
+
+        if (momentumCount >= 3) score += 16;
+        else if (momentumCount === 2) score += 8;
+        else if (momentumCount === 1) score -= 8;
+
+        const entryTag = (hit?.entryTag || '').toUpperCase();
+        if (entryTag === 'STRONG_ENTRY') score += 16;
+        else if (entryTag === 'ENTRY_READY') score += 8;
+
+        const category = score >= 70 ? 'HIGH PROBABILITY' : (score >= 55 ? 'MEDIUM' : 'LOW');
+        return { filterCategory: category, filterScore: Math.max(0, Math.min(100, Math.round(score))) };
     }
 
     showSignalExplanation(hit) {

@@ -4,6 +4,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
 
+from app.services.signal_filter_service import SignalFilterService
+
 class SignalArchiveService:
     ARCHIVE_FILE = Path(__file__).parent.parent / "data" / "signal_archive.json"
     MAX_ARCHIVE_SIZE = 500  # Total signals to keep in history
@@ -25,18 +27,23 @@ class SignalArchiveService:
         """
         cls.initialize()
         
-        valid_completed = [
-            {
+        valid_completed = []
+        for h in hits:
+            if h.get("forward3dReturn") is None:
+                continue
+
+            meta = h.get("filterMeta") if isinstance(h.get("filterMeta"), dict) else SignalFilterService.compute_filter_meta(h).to_dict()
+            valid_completed.append({
                 "symbol": h["symbol"],
                 "hitAsOf": h["hitAsOf"],
                 "forward3dReturn": h["forward3dReturn"],
                 "sector": h.get("sector", "Unknown"),
                 "confidence": h.get("confidence", "C"),
                 "qualityScore": h.get("technical", {}).get("qualityScore", 0),
+                "filterCategory": meta.get("filterCategory", "UNKNOWN"),
+                "filterScore": meta.get("filterScore", 0),
                 "archivedAt": datetime.now().isoformat()
-            }
-            for h in hits if h.get("forward3dReturn") is not None
-        ]
+            })
 
         if not valid_completed:
             return
@@ -118,6 +125,26 @@ class SignalArchiveService:
             win_count = len([r for r in returns if r > 0])
             accuracy_by_grade[grade] = round((win_count / len(returns)) * 100, 2)
 
+        # Filter category tracking (post-scoring optimization layer)
+        category_stats = {"HIGH PROBABILITY": [], "MEDIUM": [], "LOW": []}
+        for s in signals:
+            cat = s.get("filterCategory")
+            if cat in category_stats:
+                category_stats[cat].append(s["forward3dReturn"])
+
+        win_rate_by_filter = {}
+        count_by_filter = {}
+        for cat, returns in category_stats.items():
+            count_by_filter[cat] = len(returns)
+            if not returns:
+                win_rate_by_filter[cat] = 0.0
+                continue
+            wins_cat = len([r for r in returns if r > 0])
+            win_rate_by_filter[cat] = round((wins_cat / len(returns)) * 100, 2)
+
+        high_med = category_stats["HIGH PROBABILITY"] + category_stats["MEDIUM"]
+        prioritized_win_rate = round((len([r for r in high_med if r > 0]) / len(high_med)) * 100, 2) if high_med else 0.0
+
         res = {
             "totalSignals": total,
             "winRate": round(win_rate, 2),
@@ -125,7 +152,11 @@ class SignalArchiveService:
             "bestSector": best_sector,
             "worstSector": worst_sector,
             "accuracyByGrade": accuracy_by_grade,
-            "sectorAccuracy": {k: round(v, 2) for k, v in sector_accuracy.items()}
+            "sectorAccuracy": {k: round(v, 2) for k, v in sector_accuracy.items()},
+            "filterCategoryWinRate": win_rate_by_filter,
+            "filterCategoryCounts": count_by_filter,
+            "prioritizedWinRate": prioritized_win_rate,
+            "winRateLiftVsBaseline": round(prioritized_win_rate - round(win_rate, 2), 2) if high_med else 0.0,
         }
 
         # Improvement 3: System Performance Stability
