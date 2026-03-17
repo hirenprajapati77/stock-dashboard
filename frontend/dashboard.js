@@ -358,6 +358,13 @@ class MarketIntelligence {
         // Convert **bold** to <strong>bold</strong> to fix UI visibility issue
         const html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         this.summaryText.innerHTML = html.split('\n\n').map(p => `<p class="mb-3 last:mb-0">${p}</p>`).join('');
+
+        // Market Insight Line (Enhancement 5)
+        if (this.summaryData && this.summaryData.leadingSectors && this.summaryData.leadingSectors.length > 0) {
+            const leadingSectorsNames = this.summaryData.leadingSectors.map(s => s.name || s.sector || s).join(" and ");
+            this.summaryText.innerHTML += `<p class="mt-4 pt-4 border-t border-indigo-500/20 text-indigo-300 font-medium">💡 <span class="text-white">Quick Insight:</span> Momentum is currently concentrated in ${leadingSectorsNames} sectors.</p>`;
+        }
+
     }
 
     _generateDailySummary(data) {
@@ -375,15 +382,18 @@ class MarketIntelligence {
 
         if (data.leadingSectors && data.leadingSectors.length) {
             const leadershipWord = isNeutralMarket ? "selective strength or relative leadership" : "Sector leadership";
-            lines.push(`**${leadershipWord}** was observed in **${data.leadingSectors.join(", ")}**, showing higher participation versus the broader market.`);
+            const sectorNames = data.leadingSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`**${leadershipWord}** was observed in **${sectorNames}**, showing higher participation versus the broader market.`);
         }
 
         if (data.weakeningSectors && data.weakeningSectors.length) {
-            lines.push(`Momentum slowed in **${data.weakeningSectors.join(", ")}**, suggesting reduced follow-through.`);
+            const sectorNames = data.weakeningSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`Momentum slowed in **${sectorNames}**, suggesting reduced follow-through.`);
         }
 
         if (data.improvingSectors && data.improvingSectors.length) {
-            lines.push(`**${data.improvingSectors.join(", ")}** are down in absolute terms but showing relative improvement versus the market despite broader weakness.`);
+            const sectorNames = data.improvingSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`**${sectorNames}** are down in absolute terms but showing relative improvement versus the market despite broader weakness.`);
         }
 
         const strongStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
@@ -413,11 +423,13 @@ class MarketIntelligence {
         }
 
         if (data.leadingSectors && data.leadingSectors.length) {
-            lines.push(`Strength was observed in **${data.leadingSectors.join(", ")}**, which remain key sectors to track.`);
+            const sectorNames = data.leadingSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`Strength was observed in **${sectorNames}**, which remain key sectors to track.`);
         }
 
         if (data.weakeningSectors && data.weakeningSectors.length) {
-            lines.push(`**${data.weakeningSectors.join(", ")}** showed signs of momentum fatigue and may remain selective.`);
+            const sectorNames = data.weakeningSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`**${sectorNames}** showed signs of momentum fatigue and may remain selective.`);
         }
 
         lines.push("Traders may focus on stocks aligned with strong sectors while maintaining discipline in weaker areas.");
@@ -428,15 +440,18 @@ class MarketIntelligence {
         const lines = [];
 
         if (data.leadingSectors && data.leadingSectors.length) {
-            lines.push(`**${data.leadingSectors.join(", ")}** continue to display relative strength and may remain in focus if momentum sustains.`);
+            const sectorNames = data.leadingSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`**${sectorNames}** continue to display relative strength and may remain in focus if momentum sustains.`);
         }
 
         if (data.improvingSectors && data.improvingSectors.length) {
-            lines.push(`**${data.improvingSectors.join(", ")}** are showing early improvement and may offer selective opportunities on confirmation.`);
+            const sectorNames = data.improvingSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`**${sectorNames}** are showing early improvement and may offer selective opportunities on confirmation.`);
         }
 
         if (data.weakeningSectors && data.weakeningSectors.length) {
-            lines.push(`Momentum in **${data.weakeningSectors.join(", ")}** is slowing, and follow-through may remain limited.`);
+            const sectorNames = data.weakeningSectors.map(s => s.name || s.sector || s).join(", ");
+            lines.push(`Momentum in **${sectorNames}** is slowing, and follow-through may remain limited.`);
         }
 
         lines.push("Overall, continuation depends on sector participation and volume confirmation.");
@@ -455,14 +470,14 @@ class MarketIntelligence {
 
         if (mode === 'morning') {
             text = `🧠 Pre-Market Focus\n`;
-            text += `Strong sectors from previous session: ${data.leadingSectors.join(", ")}\n`;
-            if (data.weakeningSectors.length) text += `Weak areas: ${data.weakeningSectors.join(", ")}\n`;
+            text += `Strong sectors from previous session: ${data.leadingSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
+            if (data.weakeningSectors.length) text += `Weak areas: ${data.weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
             text += `Track stocks aligned with strong sectors.`;
         } else {
             text = `🧠 Daily Market Snapshot\n\n`;
             text += `Market: ${marketStatus}\n`;
-            text += `Leading Sectors: ${data.leadingSectors.join(", ")}\n`;
-            if (data.weakeningSectors.length) text += `Weakening: ${data.weakeningSectors.join(", ")}\n`;
+            text += `Leading Sectors: ${data.leadingSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
+            if (data.weakeningSectors.length) text += `Weakening: ${data.weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
 
             const highConfidenceStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
             if (highConfidenceStocks.length) {
@@ -760,6 +775,13 @@ class MarketIntelligence {
             // Existing Sector Focus filter
             if (this.activeSectorKey && hit.sectorKey !== this.activeSectorKey) return false;
 
+            // NEW: Quick Filters Logic (v1.6)
+            if (window.activeQuickFilters) {
+                if (window.activeQuickFilters.leaders && hit.sectorState !== 'LEADING' && hit.leader !== true) return false;
+                if (window.activeQuickFilters.smart && hit.technical?.institutionalActivity !== 'STRONG' && hit.technical?.institutionalActivity !== 'MODERATE') return false;
+                if (window.activeQuickFilters.momentum && hit.technical?.momentumStrength !== 'STRONG') return false;
+            }
+
             return true;
         }).sort((a, b) => {
             const scoreA = a.technical?.qualityScore || this._calculateConfidence(a).score;
@@ -794,9 +816,9 @@ class MarketIntelligence {
                         <div class="flex flex-col gap-1">
                             <span class="text-[10px] font-bold text-white">${grade} (${Math.round(score)}%)</span>
                             <div class="flex items-center gap-1">
-                                <span class="text-[8px] font-bold text-indigo-400 uppercase">${mStrength}</span>
+                                <span class="text-[8px] font-bold text-indigo-400 uppercase">Mom: ${mStrength}</span>
                                 <span class="text-[8px] text-gray-500">•</span>
-                                <span class="text-[8px] font-bold ${smTier === 'STRONG' ? 'text-green-400' : (smTier === 'MODERATE' ? 'text-yellow-500' : 'text-gray-400')} uppercase">${smTier} SM</span>
+                                <span class="text-[8px] font-bold ${smTier === 'STRONG' ? 'text-green-400' : (smTier === 'MODERATE' ? 'text-yellow-500' : (smTier === 'WEAK' ? 'text-gray-400' : 'text-gray-600'))} uppercase">SM: ${smTier}</span>
                             </div>
                         </div>
                     </div>
@@ -881,12 +903,18 @@ class MarketIntelligence {
             const momStrength = hit.technical?.momentumStrength || 'MODERATE';
             const momTooltip = momStrength === 'STRONG' ? 'High velocity momentum with volume confirmation' : (momStrength === 'MODERATE' ? 'Steady trend with average volume' : 'Low velocity or stalling momentum');
 
-            // Sector Highlight (NEW)
-            const isLeadingSector = (hit.sectorState === 'LEADING');
-            const rowHighlight = isLeadingSector ? 'border-l-2 border-green-500/50 bg-green-500/[0.02]' : '';
+            // Sector Highlight & STRONG ENTRY Highlight (v1.6 Enhancements)
+            const isLeadingSector = (hit.sectorState === 'LEADING') || (hit.leader === true);
+            const isStrongEntry = (currentTag === 'STRONG_ENTRY') || (hit.tradeReady) || (score >= 80);
+
+            let rowHighlightClasses = [];
+            if (isLeadingSector) rowHighlightClasses.push('border-l-[3px] border-green-500/70 bg-green-500/[0.03]');
+            if (isStrongEntry) rowHighlightClasses.push('ring-1 ring-green-500/60 shadow-[0_0_10px_rgba(0,192,118,0.15)] z-10 relative');
+
+            const rowHighlight = rowHighlightClasses.join(' ');
 
             return `
-                <tr class="hover:bg-gray-800/30 transition-colors group cursor-pointer ${rowHighlight}"
+                <tr class="hover:bg-gray-800/60 transition-colors group cursor-pointer border-b border-gray-800/50 ${rowHighlight}"
                     data-sector-key="${hit.sectorKey || ''}"
                     title="${tooltip}"
                     onclick="window.fetchDataForSymbol('${hit.symbol}', { fromIntelligence: true })">
@@ -954,16 +982,16 @@ class MarketIntelligence {
         let activeClass = 'bg-gray-900 border-gray-800 text-gray-700';
         if (active) {
             if (label === '3D') {
-                activeClass = 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_12px_rgba(99,102,241,0.6)] scale-110';
+                activeClass = 'bg-indigo-500 border-indigo-400 text-white shadow-[0_0_10px_rgba(99,102,241,0.8)] scale-110 ring-1 ring-indigo-400 z-10';
             } else if (label === '2D') {
-                activeClass = 'bg-indigo-500 border-indigo-500 text-white shadow-[0_0_8px_rgba(99,102,241,0.4)]';
+                activeClass = 'bg-indigo-500/40 border-indigo-500/50 text-indigo-200 z-0';
             } else {
-                activeClass = 'bg-indigo-400 border-indigo-500 text-white py-0.5 opacity-90';
+                activeClass = 'bg-gray-800 border-gray-700 text-gray-400 z-0';
             }
         }
         const inactiveClass = 'bg-gray-900 border-gray-800 text-gray-700';
         return `
-            <div class="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[8px] border transition-all ${active ? activeClass : inactiveClass}">${label}</div>
+            <div class="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[8px] border transition-all relative ${active ? activeClass : inactiveClass}">${label}</div>
         `;
     }
 

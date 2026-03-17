@@ -544,4 +544,33 @@ except Exception as e:
     print(f"Failed to mount frontend: {e}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import socket
+
+    def _pick_port(preferred: int) -> int:
+        """
+        Pick a port to bind for local/dev runs.
+        - Uses preferred if free.
+        - Otherwise falls back to an ephemeral free port chosen by OS.
+        """
+        bind_host = "0.0.0.0"
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((bind_host, preferred))
+            return preferred
+        except OSError:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((bind_host, 0))
+                return int(s.getsockname()[1])
+
+    env_port = os.getenv("PORT") or os.getenv("UVICORN_PORT")
+    try:
+        preferred_port = int(env_port) if env_port else 8000
+    except ValueError:
+        preferred_port = 8000
+
+    port = _pick_port(preferred_port)
+    if port != preferred_port:
+        print(f"Port {preferred_port} is busy; starting on {port} instead.")
+
+    uvicorn.run(app, host="0.0.0.0", port=port)
