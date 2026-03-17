@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/app ./app
 
+# Copy root entry point
+COPY main.py .
+
 # Copy frontend code
 COPY frontend ./frontend
 
@@ -20,4 +23,4 @@ EXPOSE 8000
 
 # Run the application
 # Render sets PORT environment variable, defaulting to 8000 if not set
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
