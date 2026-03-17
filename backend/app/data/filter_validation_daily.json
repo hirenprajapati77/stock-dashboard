@@ -1,0 +1,93 @@
+{
+  "2026-02-27": {
+    "window": 100,
+    "totalSignals": 15,
+    "highProbabilitySignals": 0,
+    "mediumLowSignals": 15,
+    "unknownSignals": 0,
+    "baselineWinRate": 13.33,
+    "prioritizedWinRate": 0.0,
+    "winRateLiftVsBaseline": -13.33,
+    "noiseReductionIfHighOnlyPct": 100.0,
+    "highSharePct": 0.0,
+    "finalDecision": "REWORK",
+    "categoryMetrics": [
+      {
+        "category": "HIGH PROBABILITY",
+        "count": 0,
+        "wins": 0,
+        "winRate": 0.0,
+        "avgReturn": 0.0
+      },
+      {
+        "category": "MEDIUM",
+        "count": 0,
+        "wins": 0,
+        "winRate": 0.0,
+        "avgReturn": 0.0
+      },
+      {
+        "category": "LOW",
+        "count": 15,
+        "wins": 2,
+        "winRate": 13.33,
+        "avgReturn": -1.73
+      },
+      {
+        "category": "UNKNOWN",
+        "count": 0,
+        "wins": 0,
+        "winRate": 0.0,
+        "avgReturn": 0.0
+      }
+    ],
+    "dailyRows": [
+      {
+        "date": "2026-02-27",
+        "totalSignals": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 1,
+        "winRate": 0.0
+      },
+      {
+        "date": "2026-02-26",
+        "totalSignals": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 1,
+        "winRate": 0.0
+      },
+      {
+        "date": "2026-02-25",
+        "totalSignals": 6,
+        "high": 0,
+        "medium": 0,
+        "low": 6,
+        "winRate": 16.67
+      },
+      {
+        "date": "2026-02-24",
+        "totalSignals": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 1,
+        "winRate": 0.0
+      },
+      {
+        "date": "2026-02-23",
+        "totalSignals": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 1,
+        "winRate": 100.0
+      }
+    ],
+    "successCriteria": {
+      "high_win_rate_ge_65": false,
+      "prioritized_gt_baseline": false,
+      "high_vs_low_separation": false,
+      "high_selective_20_30pct": false
+    }
+  }
+}

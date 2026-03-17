@@ -497,12 +497,18 @@ async def get_momentum_hits(tf: str = "1D"):
     """
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
+        from app.services.signal_filter_service import SignalFilterService
+        from app.services.trade_decision_service import TradeDecisionService
+        from app.services.trade_tracking_service import TradeTrackingService
 
         data = MomentumScreener.get_screener_data(timeframe=tf)
+        filtered = SignalFilterService.annotate_many(data)
+        enriched = TradeDecisionService.annotate_many(filtered)
+        TradeTrackingService.log_trades(enriched)
         return {
             "status": "success",
-            "count": len(data),
-            "data": data
+            "count": len(enriched),
+            "data": enriched
         }
     except Exception as e:
         # Keep response shape stable so UI can render an empty-state instead of hanging.
@@ -525,6 +531,18 @@ async def get_early_setups(tf: str = "1D", limit: int = 5):
         return {"status": "success", "count": len(data), "data": data}
     except Exception as e:
         return {"status": "error", "count": 0, "data": [], "message": str(e)}
+
+@app.get("/api/v1/trade-performance")
+async def get_trade_performance():
+    """
+    Returns execution-layer trade tracking and PnL performance metrics.
+    Additive analytics endpoint; does not alter signal generation logic.
+    """
+    try:
+        from app.services.trade_tracking_service import TradeTrackingService
+        return {"status": "success", "data": TradeTrackingService.get_performance()}
+    except Exception as e:
+        return {"status": "error", "data": {}, "message": str(e)}
 
 @app.get("/api/v1/signal-performance")
 async def get_signal_performance(tf: str = "1D"):

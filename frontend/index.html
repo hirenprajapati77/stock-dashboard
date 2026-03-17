@@ -438,6 +438,49 @@
                         </div>
                     </div>
 
+                    <div id="trade-performance-card"
+                        class="glass rounded-2xl border border-emerald-500/20 p-4 mb-6 bg-gradient-to-br from-emerald-900/10 to-transparent animate-in slide-in-from-left duration-500">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-lg">💼</span>
+                                <h2 class="text-[11px] font-bold uppercase tracking-widest text-emerald-300">Trade Performance</h2>
+                            </div>
+                            <span id="trade-performance-asof" class="text-[9px] text-gray-500 font-mono italic">Tracking latest outcomes</span>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <div class="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Total Trades</div>
+                                <div id="trade-total" class="text-xl font-black text-emerald-300 mono">0</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Win Rate</div>
+                                <div id="trade-win-rate" class="text-xl font-black text-blue-300 mono">0%</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Avg R</div>
+                                <div id="trade-avg-r" class="text-xl font-black text-indigo-300 mono">0.00R</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-rose-500/20 bg-rose-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Max Drawdown</div>
+                                <div id="trade-max-dd" class="text-xl font-black text-rose-300 mono">0.00R</div>
+                            </div>
+                            <div class="p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                                <div class="text-[9px] text-gray-500 uppercase font-bold">Profit Factor</div>
+                                <div id="trade-profit-factor" class="text-xl font-black text-amber-300 mono">0.00</div>
+                            </div>
+                        </div>
+                        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-[9px] font-mono">
+                            <div class="p-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
+                                <div class="text-gray-500 uppercase font-bold mb-1">Best Setups</div>
+                                <div id="trade-best-setups" class="text-emerald-300">—</div>
+                            </div>
+                            <div class="p-2 rounded-lg border border-rose-500/20 bg-rose-500/5">
+                                <div class="text-gray-500 uppercase font-bold mb-1">Worst Setups</div>
+                                <div id="trade-worst-setups" class="text-rose-300">—</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Early Opportunities (NEW) -->
                     <div id="early-setup-card"
                         class="hidden glass rounded-2xl border border-purple-500/30 p-5 mb-6 bg-gradient-to-br from-purple-900/10 to-transparent animate-in slide-in-from-left duration-500">
@@ -475,6 +518,11 @@
                                         <option value="80">80% (Strongest)</option>
                                     </select>
                                 </div>
+                                <label class="flex items-center gap-1.5 text-[9px] text-gray-400 font-bold uppercase tracking-wider cursor-pointer">
+                                    <input id="high-probability-only" type="checkbox" onchange="window.intelligenceApp._renderHitsTable()"
+                                        class="accent-indigo-500 w-3 h-3">
+                                    High Probability Only
+                                </label>
                                 <div id="hits-sync-status"
                                     class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
                                     <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
@@ -520,12 +568,13 @@
                                             </div>
                                         </th>
                                         <th class="px-4 py-3">Status</th>
+                                        <th class="px-4 py-3">Trade Plan</th>
                                         <th class="px-4 py-3 text-center">Confidence</th>
                                     </tr>
                                 </thead>
                                 <tbody id="momentum-hits-body" class="divide-y divide-gray-800/50">
                                     <tr>
-                                        <td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">Scanning
+                                        <td colspan="12" class="px-4 py-10 text-center text-gray-500 italic">Scanning
                                             market for momentum hits...</td>
                                     </tr>
                                 </tbody>
