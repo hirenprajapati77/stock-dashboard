@@ -668,19 +668,25 @@ class ScreenerService:
 
         hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
         
-        # Update Cache
-        cls._cache = {
-            "data": hits,
-            "timestamp": time.time(),
-            "timeframe": normalized_tf
-        }
-
-        # Archive Signals (V6: Persistent historical signals)
-        if normalized_tf == "1D":
-            SignalArchiveService.archive_signals(hits)
-        
-        # Save to Fallback
-        cls._save_fallback(hits, normalized_tf)
+        # Update Cache only if hits exist, otherwise keep previous valid data
+        if hits:
+            cls._cache = {
+                "data": hits,
+                "timestamp": time.time(),
+                "timeframe": normalized_tf
+            }
+            # Archive Signals (V6: Persistent historical signals)
+            if normalized_tf == "1D":
+                SignalArchiveService.archive_signals(hits)
+            
+            # Save to Fallback
+            cls._save_fallback(hits, normalized_tf)
+        else:
+            # If hits is empty (e.g., market closed/no volume), try serving the last valid scan
+            fallback_data = cls._load_fallback(normalized_tf)
+            if fallback_data:
+                print(f"DEBUG: 0 hits found live, returning fallback EOD data for {normalized_tf}")
+                return fallback_data
         
         return hits
 
