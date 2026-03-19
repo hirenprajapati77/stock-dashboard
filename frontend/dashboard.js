@@ -52,6 +52,9 @@ class MarketIntelligence {
 
         this.allHits = Array.isArray(hits) ? hits : [];
         this._renderHitsTable();
+        if (window.renderTopPicks) {
+            window.renderTopPicks(this.allHits);
+        }
     }
 
     updateSectors(sectorData) {
@@ -647,6 +650,14 @@ class MarketIntelligence {
     _calculateConfidence(hit) {
         if (!hit) return { score: 0, factors: [] };
 
+        // Prefer backend scoring if available (Decision Engine v2.0)
+        if (hit.score !== undefined || hit.confidence !== undefined) {
+            return { 
+                score: hit.score || hit.confidence, 
+                factors: hit.confidenceFactors || [] // Fallback to empty if not provided
+            };
+        }
+
         const technical = hit.technical || {};
         const session = hit.session || {};
         const sectorState = hit.sectorState || "NEUTRAL";
@@ -1057,57 +1068,57 @@ class MarketIntelligence {
                     data-sector-key="${hit.sectorKey || ''}"
                     title="${tooltip}"
                     onclick="window.fetchDataForSymbol('${hit.symbol}', { fromIntelligence: true })">
-                    <td class="px-4 py-3 text-xs">
+                    <td class="px-3 py-1.5 text-xs">
                         <div class="flex flex-col gap-0.5">
                             <span class="font-bold text-white group-hover:text-blue-400 transition-colors flex items-center gap-1.5">
                                 ${hit.symbol}
                                 ${isLeadingSector ? '<span class="text-[7px] bg-green-500/20 text-green-400 px-1 rounded border border-green-500/20 uppercase tracking-tighter">LEADER</span>' : ''}
                                 <span class="text-[7px] px-1 rounded uppercase tracking-tighter ${probabilityClass}">${probabilityCategory}</span>
                             </span>
-                            ${hit.technical?.isFalseBreakout ? '<span class="text-[7px] font-bold text-red-400 uppercase tracking-tighter flex items-center gap-0.5">⚠️ FALSE BREAKOUT</span>' : ''}
+                            ${hit.technical?.isFalseBreakout ? '<span class="text-[7px] font-bold text-red-400 uppercase tracking-tighter flex items-center gap-0.5">⚠️ FALSE</span>' : ''}
                         </div>
                         ${tradeLabel}
                     </td>
-                    <td class="px-4 py-3 text-right"><span class="text-[9px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full font-bold uppercase">${hit.sector ? hit.sector.replace('NIFTY_', '') : ''}</span></td>
-                    <td class="px-4 py-3 font-mono text-gray-300 text-right">₹${hit.price}</td>
-                    <td class="px-4 py-3 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'} text-xs text-right">${(hit.change >= 0 ? '+' : '') + (hit.change ?? 0).toFixed(2)}%</td>
-                    <td class="px-4 py-3 text-right">
+                    <td class="px-3 py-1.5 text-right"><span class="text-[9px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded font-bold uppercase">${hit.sector ? hit.sector.replace('NIFTY_', '') : ''}</span></td>
+                    <td class="px-3 py-1.5 font-mono text-gray-300 text-right">₹${hit.price}</td>
+                    <td class="px-3 py-1.5 font-bold ${hit.change >= 0 ? 'text-up' : 'text-down'} text-xs text-right">${(hit.change >= 0 ? '+' : '') + (hit.change ?? 0).toFixed(2)}%</td>
+                    <td class="px-3 py-1.5 text-right">
                         <div class="flex items-center justify-end gap-1 font-mono text-xs">
                             <span class="text-gray-300">${vol.toFixed(2)}x</span>
                             ${shockerBadge ? `<span class="text-xs">${shockerBadge}</span>` : ''}
                         </div>
                     </td>
-                    <td class="px-4 py-3 text-center">
+                    <td class="px-3 py-1.5 text-center">
                          ${instTier !== 'NONE'
                     ? `<span class="text-[9px] font-black ${instColor} flex items-center justify-center gap-0.5" title="Institutional Activity: ${instTier}">⚡ ${instTier}</span>`
                     : '<span class="text-[10px] font-bold text-gray-600">NONE</span>'}
                     </td>
-                    <td class="px-4 py-3 text-center">
+                    <td class="px-3 py-1.5 text-center">
                         <div class="flex items-center justify-center gap-1">${this._renderHits(hit.hits3d, hit.hits2d, hit.hits1d)}</div>
                     </td>
-                    <td class="px-4 py-3 text-center">
-                         <span class="px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase transition-all ${hit.technical?.momentumStrength === 'STRONG' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : (hit.technical?.momentumStrength === 'MODERATE' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-800/50 text-gray-500 border border-gray-700/50')}" 
+                    <td class="px-3 py-1.5 text-center">
+                         <span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase transition-all ${hit.technical?.momentumStrength === 'STRONG' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : (hit.technical?.momentumStrength === 'MODERATE' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-gray-800/50 text-gray-500 border border-gray-700/50')}" 
                                title="${momTooltip}">
                              ${momStrength}
                          </span>
                     </td>
-                    <td class="px-4 py-3">
-                         <div class="flex flex-col gap-1 items-start">
-                             <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}" title="${isEarlySetup ? earlyTooltip : ''}">
+                    <td class="px-3 py-1.5">
+                         <div class="flex flex-col gap-0.5 items-start">
+                             <span class="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${statusColor}" title="${isEarlySetup ? earlyTooltip : ''}">
                                  ${hit.exitTag === 'EXIT'
                     ? 'EXIT'
                     : (isEarlySetup
-                        ? '🟣 EARLY SETUP'
+                        ? '🟣 EARLY'
                         : (hit.tradeDecisionTag || hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' '))}
                              </span>
-                             <button class="text-[8px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
+                             <button class="text-[7px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
                                      title="Click for full signal explanation"
                                      onclick="event.stopPropagation(); window.showExplanation('${hit.symbol}')">
-                                Explain
+                                 Explain
                              </button>
                          </div>
                     </td>
-                    <td class="px-4 py-3">
+                    <td class="px-3 py-1.5">
                         ${(() => {
                             const tp = hit.executionPlan || {};
                             const rr = Number(tp.riskRewardToT1 || 0);
@@ -1117,24 +1128,27 @@ class MarketIntelligence {
                             const conf = tp.executionConfidence || 'LOW';
                             const confClass = conf === 'HIGH CONFIDENCE' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : (conf === 'MEDIUM' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/25' : 'bg-gray-800 text-gray-400 border border-gray-700');
                             return `
-                                <div class="text-[9px] leading-4 font-mono space-y-1">
-                                    <div class="flex items-center gap-1 flex-wrap">
-                                        <span class="px-1 py-0.5 rounded text-[8px] font-bold uppercase ${qClass}">${q}</span>
-                                        <span class="px-1 py-0.5 rounded text-[8px] font-bold uppercase ${confClass}">${conf}</span>
+                                <div class="text-[8px] leading-3 font-mono">
+                                    <div class="flex items-center gap-1 mb-1">
+                                        <span class="px-1 rounded text-[7px] font-bold uppercase ${qClass}">${q.replace(' TRADE', '')}</span>
+                                        <span class="px-1 rounded text-[7px] font-bold uppercase ${confClass}">${conf.replace(' CONFIDENCE', '')}</span>
                                     </div>
-                                    <div><span class="text-gray-500">E:</span> <span class="text-white">₹${tp.entry ?? '—'}</span></div>
-                                    <div><span class="text-gray-500">SL:</span> <span class="text-red-300">₹${tp.stopLoss ?? '—'}</span></div>
-                                    <div><span class="text-gray-500">T1:</span> <span class="text-green-300">₹${tp.target1 ?? '—'}</span> <span class="text-gray-500">T2:</span> <span class="text-green-300">₹${tp.target2 ?? '—'}</span></div>
-                                    <div><span class="text-gray-500">R/R:</span> <span class="${rrClass}">${rr ? rr.toFixed(2) : '—'}</span></div>
-                                    <div><span class="text-gray-500">Rule:</span> <span class="text-yellow-300">Move SL to breakeven at 1R</span></div>
+                                    <div class="flex gap-2">
+                                        <div><span class="text-gray-500">E:</span> <span class="text-white">₹${tp.entry ?? '—'}</span></div>
+                                        <div><span class="text-gray-500">SL:</span> <span class="text-red-300">₹${tp.stopLoss ?? '—'}</span></div>
+                                        <div><span class="text-gray-500">T1:</span> <span class="text-green-300">₹${tp.target1 ?? '—'}</span></div>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <div><span class="text-gray-500">R/R:</span> <span class="${rrClass}">${rr ? rr.toFixed(2) : '—'}</span></div>
+                                    </div>
                                 </div>
                             `;
                         })()}
                     </td>
-                    <td class="px-4 py-3 text-center text-white">
-                         <div class="flex flex-col items-center gap-0.5" title="Confidence Score: ${Math.round(score)}%">
+                    <td class="px-3 py-1.5 text-center text-white">
+                         <div class="flex flex-col items-center gap-0" title="Confidence Score: ${Math.round(score)}%">
                              <span class="text-sm font-black tracking-tight ${gradeColor}">${grade}</span>
-                             <span class="text-[9px] font-bold text-gray-500">${Math.round(score)}%</span>
+                             <span class="text-[8px] font-bold text-gray-500">${Math.round(score)}%</span>
                          </div>
                     </td>
                 </tr>

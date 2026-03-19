@@ -219,27 +219,34 @@ async function fetchData(isBackground = false) {
     } catch (error) {
         console.error("Fetch failed:", error);
 
-        if (!isBackground) {
+        const isRateLimit = error.message.includes("Rate Limit") || error.message.includes("Too Many Requests") || error.message.includes("No data found");
+        
+        // Show error UI if NOT background, OR if it's a critical rate limit error
+        if (!isBackground || isRateLimit) {
             const chartParent = document.getElementById('chart-parent');
             if (chartParent) {
-                // If we don't have a chart yet, show error in the area
-                if (!chart || chartParent.innerHTML.includes('Failed to load data')) {
+                // If we don't have a chart yet, or it's a rate limit error, show/update error area
+                if (!chart || chartParent.innerHTML.includes('Failed to load data') || isRateLimit) {
                     const tvChart = document.getElementById('tv-chart');
-                    if (tvChart) tvChart.classList.add('hidden');
+                    if (tvChart && isRateLimit) tvChart.classList.add('hidden'); // Hide chart area for rate limit message
 
                     let errDiv = document.getElementById('chart-error-msg');
                     if (!errDiv) {
                         errDiv = document.createElement('div');
                         errDiv.id = 'chart-error-msg';
-                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/50 z-20';
+                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
                         chartParent.appendChild(errDiv);
                     }
                     errDiv.classList.remove('hidden');
+                    
                     errDiv.innerHTML = `
-                        <p class="text-red-500 font-bold mb-2">Sync Error</p>
-                        <p class="text-[10px] text-gray-400 mb-4">${error.message}</p>
-                        <button onclick="window.fetchData()" class="px-4 py-2 bg-indigo-600 rounded text-xs font-bold hover:bg-indigo-500">RETRY SYNC</button>
-                     `;
+                        <div class="flex flex-col items-center gap-3">
+                            <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
+                            <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error'}</p>
+                            <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
+                            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+                        </div>
+                    `;
                 }
             }
         }
@@ -258,65 +265,49 @@ function updateStrategyUI(data) {
         const strategy = data.meta.strategy || 'SR';
         const strat = data.strategy || {};
         const metrics = strat.additionalMetrics || {};
+        const tech = data.technical || {};
+        const insights = data.insights || {};
+        const summary = data.summary || {};
 
-        console.log(`[UI] Updating strategy panel to: ${strategy}`);
+        console.log(`[UI] Updating decision metrics panel`);
 
-        // 1. Hide all strategy cards first
-        const allPanels = document.querySelectorAll('.strategy-card');
-        allPanels.forEach(card => {
-            card.classList.add('hidden-strategy');
-        });
+        // Update Positives
+        const adxVal = parseFloat(insights.adx || metrics.adx || 0);
+        const adxText = adxVal > 25 ? 'Strong Trend' : adxVal > 15 ? 'Moderate' : 'Weak';
+        document.getElementById('metric-adx').textContent = `${adxVal.toFixed(1)} (${adxText})`;
+        document.getElementById('metric-adx').className = `text-sm font-bold ${adxVal > 25 ? 'text-up' : 'text-white'}`;
 
-        // 2. Clear old state if it's not SR
-        if (strategy !== 'SR') {
-            // Optional: clear SR specific fields if needed
-        }
+        const volRatio = parseFloat(insights.volRatio || metrics.volRatio || 1);
+        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volRatio > 1.2 ? 'Spike' : 'Normal'}`;
+        document.getElementById('metric-volume').className = `text-sm font-bold ${volRatio > 1.2 ? 'text-up' : 'text-white'}`;
 
-        if (strategy === 'SR') {
-            const panel = document.getElementById('strategy-sr-metrics');
-            if (panel) {
-                panel.classList.remove('hidden-strategy');
-                document.getElementById('sr-adx').textContent = metrics.adx || '—';
-                document.getElementById('sr-vol').textContent = `${metrics.volRatio || '—'}x`;
-                document.getElementById('sr-breakout').textContent = metrics.breakout ? "YES" : "NO";
-                document.getElementById('sr-retest').textContent = metrics.retest ? "YES" : "NO";
+        const setupText = (insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : '');
+        document.getElementById('metric-setup').textContent = setupText || 'No Setup';
+        document.getElementById('metric-setup').className = `text-sm font-bold ${setupText ? 'text-up' : 'text-gray-500'}`;
 
-                const adxVal = parseFloat(metrics.adx);
-                const adxLabel = document.getElementById('sr-adx-label');
-                if (adxLabel && !isNaN(adxVal)) {
-                    adxLabel.textContent = adxVal > 25 ? 'STRONG' : adxVal > 18 ? 'MODERATE' : 'WEAK';
-                    adxLabel.className = `text-[10px] font-bold ${adxVal > 25 ? 'text-up' : adxVal > 18 ? 'text-blue-400' : 'text-gray-500'}`;
-                }
-            }
-        } else if (strategy === 'SWING') {
-            const panel = document.getElementById('strategy-swing-metrics');
-            if (panel) {
-                panel.classList.remove('hidden-strategy');
-                document.getElementById('swing-structure').textContent = metrics.structure || '—';
-                document.getElementById('swing-ema').textContent = metrics.emaAlignment ? "ALIGNED" : "MIXED";
-                document.getElementById('swing-htf').textContent = metrics.htfTrend || '—';
-                document.getElementById('swing-pullback').textContent = metrics.pullback ? "YES" : "NO";
+        const s0 = summary.nearest_support;
+        const cmp = data.meta.cmp;
+        const distS = s0 ? ((cmp - s0) / cmp * 100).toFixed(1) : '--';
+        document.getElementById('metric-sr').textContent = s0 ? `${distS}% from S` : 'No Level';
+        document.getElementById('metric-sr').className = `text-sm font-bold ${parseFloat(distS) < 2 ? 'text-up' : 'text-white'}`;
 
-                const structEl = document.getElementById('swing-structure');
-                if (structEl) {
-                    structEl.className = `text-lg font-bold uppercase tracking-widest ${metrics.structure === 'BULLISH' ? 'text-up' : metrics.structure === 'BEARISH' ? 'text-down' : 'text-purple-400'}`;
-                }
-            }
-        } else if (strategy === 'DEMAND_SUPPLY') {
-            const panel = document.getElementById('strategy-zones-metrics');
-            if (panel) {
-                panel.classList.remove('hidden-strategy');
-                document.getElementById('zone-freshness').textContent = metrics.freshness || '—';
-                document.getElementById('zone-departure').textContent = formatVal(metrics.departureStrength) + '%';
-                document.getElementById('zone-range').textContent = metrics.zoneRange || '—';
-                document.getElementById('zone-vol').textContent = metrics.volSpike ? "CONFIRMED" : "NONE";
+        // Update Risks
+        const mo = (tech.momentumStrength || 'WEAK').toUpperCase();
+        document.getElementById('metric-momentum').textContent = mo;
+        document.getElementById('metric-momentum').className = `text-sm font-bold ${mo === 'STRONG' ? 'text-white' : 'text-down'}`;
 
-                const freshEl = document.getElementById('zone-freshness');
-                if (freshEl) {
-                    freshEl.className = `text-lg font-bold uppercase tracking-widest ${metrics.freshness === 'FRESH' ? 'text-up' : 'text-orange-400'}`;
-                }
-            }
-        }
+        const vola = tech.volHigh ? 'High Volatility' : 'Stable';
+        document.getElementById('metric-vola').textContent = vola;
+        document.getElementById('metric-vola').className = `text-sm font-bold ${tech.volHigh ? 'text-down' : 'text-white'}`;
+
+        const sector = (data.sector_info?.state || 'NEUTRAL').toUpperCase();
+        document.getElementById('metric-sector').textContent = sector;
+        document.getElementById('metric-sector').className = `text-sm font-bold ${['LEADING', 'IMPROVING'].includes(sector) ? 'text-white' : 'text-down'}`;
+
+        const regime = summary.market_regime || 'UNKNOWN';
+        document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
+        document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
+
     } catch (err) {
         console.error("Strategy UI update error:", err);
     }
@@ -422,7 +413,13 @@ function updateUI(data) {
         if (data.insights) {
             setTxt('inside-candle', data.insights.inside_candle ? "YES" : "NO");
             setTxt('retest', data.insights.retest ? "CONFIRMED" : "NONE");
-            setTxt('upside-pct', `+${data.insights.upside_pct}%`);
+            
+            const upside = data.insights.upside_pct;
+            if (upside !== undefined && upside !== null) {
+                setTxt('upside-pct', `+${upside}%`);
+            } else {
+                setTxt('upside-pct', '0.00%');
+            }
 
             const biasBadge = document.getElementById('bias-badge');
             if (biasBadge) {
@@ -524,14 +521,47 @@ function updateUI(data) {
 
         // 7. Finally draw levels on chart
         window.lastReceivedData = data;
-        drawLevelsOnChart(data.levels);
+        drawLevelsOnChart(data.levels, data);
 
-        // 8. Strategy Specific UI Toggles
+        // 8. Decision Strip (v2.0)
+        updateDecisionStrip(data);
+
+        // 9. Strategy Specific UI Toggles
         updateStrategyUI(data);
 
     } catch (e) {
         console.error("UI Update Error:", e);
     }
+}
+
+function updateDecisionStrip(data) {
+    const strip = document.getElementById('decision-strip');
+    const actionEl = document.getElementById('decision-action');
+    const confEl = document.getElementById('decision-confidence');
+    const entryEl = document.getElementById('strip-entry');
+    const slEl = document.getElementById('strip-sl');
+    const tgtEl = document.getElementById('strip-target');
+    const reasonsEl = document.getElementById('decision-reasons');
+
+    if (!strip || !data.action) return;
+
+    // 1. Action & Confidence
+    actionEl.textContent = data.action;
+    actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
+    confEl.textContent = `${data.score}%`;
+
+    // 2. Execution Levels
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
+    
+    entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
+    slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
+    tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
+
+    // 3. Reason Tags
+    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
+        `<span class="reason-tag">${tag}</span>`
+    ).join('');
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
@@ -544,27 +574,21 @@ function renderLevelList(containerId, levels, color, isMTF) {
 
     levels.forEach((level, index) => {
         const div = document.createElement('div');
-        div.className = `flex items-center justify-between p-3 rounded-xl bg-gray-900 border ${isMTF ? 'border-gray-800/50 opacity-70' : 'border-gray-800'} hover:border-gray-700 transition-all cursor-default scale-95 origin-left`;
+        div.className = `flex items-center justify-between px-2 py-1 rounded-lg bg-gray-900/60 border ${isMTF ? 'border-gray-800/30 opacity-60' : 'border-gray-800/50'} hover:border-gray-700 transition-all cursor-default`;
 
-        const labelText = level.timeframe === 'ZONE' ? 'ZONE' : (isMTF ? 'MTF' : 'L' + (index + 1));
+        const labelText = level.timeframe === 'ZONE' ? 'Z' : (isMTF ? level.timeframe || 'MTF' : level.timeframe || ('L' + (index + 1)));
         const timeframeLabel = level.timeframe || '—';
 
         div.title = `Price: ${level.price}\nTimeframe: ${timeframeLabel}\nTouches: ${level.touches || 0}`;
         div.innerHTML = `
-            <div>
-                <p class="text-[9px] text-gray-500 font-medium">${labelText}</p>
-                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">${currencySym}${formatVal(level.price)}</p>
-            </div>
-            <div class="text-right">
-                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 uppercase">${timeframeLabel}</span>
-                <p class="text-[9px] text-gray-600 mt-1">${level.touches || 0}T</p>
-            </div>
+            <span class="text-[9px] font-bold px-1 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400 uppercase">${labelText}</span>
+            <span class="font-bold mono text-[11px] ${isMTF ? 'text-gray-500' : 'text-white'}">${currencySym}${formatVal(level.price)}</span>
         `;
         list.appendChild(div);
     });
 }
 
-function drawLevelsOnChart(levels) {
+function drawLevelsOnChart(levels, fullData = null) {
     if (!candlestickSeries) return;
 
     // Clear existing primitives
@@ -572,6 +596,42 @@ function drawLevelsOnChart(levels) {
         candlestickSeries.removePriceLine(line);
     });
     levelsLayer = [];
+
+    // 1. Draw Execution Overlays (Entry, SL, Target)
+    if (fullData && fullData.summary) {
+        const s = fullData.summary;
+        const cmp = fullData.meta.cmp;
+
+        // Entry (Blue)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: cmp,
+            color: '#3b82f6',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'ENTRY',
+        }));
+
+        // Stop Loss (Red)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.stop_loss,
+            color: '#f6465d',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'SL',
+        }));
+
+        // Target (Green)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.target,
+            color: '#00c076',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'TGT',
+        }));
+    }
 
     if (!levels) return;
 

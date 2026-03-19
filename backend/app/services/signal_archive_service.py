@@ -28,20 +28,21 @@ class SignalArchiveService:
         cls.initialize()
         
         valid_completed = []
-        for h in hits:
-            if h.get("forward3dReturn") is None:
+        for h in (hits or []):
+            if not isinstance(h, dict) or h.get("forward3dReturn") is None:
                 continue
 
             meta = h.get("filterMeta") if isinstance(h.get("filterMeta"), dict) else SignalFilterService.compute_filter_meta(h).to_dict()
+            if meta is None: meta = {}
             valid_completed.append({
-                "symbol": h["symbol"],
-                "hitAsOf": h["hitAsOf"],
-                "forward3dReturn": h["forward3dReturn"],
-                "sector": h.get("sector", "Unknown"),
-                "confidence": h.get("confidence", "C"),
-                "qualityScore": h.get("technical", {}).get("qualityScore", 0),
-                "filterCategory": meta.get("filterCategory", "UNKNOWN"),
-                "filterScore": meta.get("filterScore", 0),
+                "symbol": str(h.get("symbol", "UNKNOWN")),
+                "hitAsOf": str(h.get("hitAsOf", "")),
+                "forward3dReturn": float(h["forward3dReturn"]),
+                "sector": str(h.get("sector", "Unknown")),
+                "confidence": str(h.get("confidence", "C")),
+                "qualityScore": float(h.get("technical", {}).get("qualityScore", 0.0)),
+                "filterCategory": str(meta.get("filterCategory", "UNKNOWN")),
+                "filterScore": int(meta.get("filterScore", 0)),
                 "archivedAt": datetime.now().isoformat()
             })
 
@@ -97,15 +98,20 @@ class SignalArchiveService:
         avg_return = sum(s["forward3dReturn"] for s in signals) / total
 
         # Sector Stats
-        sector_stats = {}
+        sector_stats: Dict[str, List[float]] = {}
         for s in signals:
-            sector = s["sector"]
-            sector_stats.setdefault(sector, []).append(s["forward3dReturn"])
+            sector = str(s.get("sector", "Unknown"))
+            if sector not in sector_stats: sector_stats[sector] = []
+            sector_stats[sector].append(float(s.get("forward3dReturn", 0.0)))
 
         sector_accuracy = {}
         for sector, returns in sector_stats.items():
-            win_count = len([r for r in returns if r > 0])
-            sector_accuracy[sector] = (win_count / len(returns)) * 100
+            valid_returns = [float(r) for r in returns if r is not None]
+            if not valid_returns:
+                sector_accuracy[sector] = 0.0
+                continue
+            win_count = len([r for r in valid_returns if r > 0])
+            sector_accuracy[sector] = (win_count / len(valid_returns)) * 100
 
         best_sector = max(sector_accuracy.items(), key=lambda x: x[1])[0] if sector_accuracy else "N/A"
         worst_sector = min(sector_accuracy.items(), key=lambda x: x[1])[0] if sector_accuracy else "N/A"
@@ -123,7 +129,7 @@ class SignalArchiveService:
                 accuracy_by_grade[grade] = 0.0
                 continue
             win_count = len([r for r in returns if r > 0])
-            accuracy_by_grade[grade] = round((win_count / len(returns)) * 100, 2)
+            accuracy_by_grade[grade] = float(round((win_count / len(returns)) * 100.0, 2))
 
         # Filter category tracking (post-scoring optimization layer)
         category_stats = {"HIGH PROBABILITY": [], "MEDIUM": [], "LOW": []}
@@ -140,23 +146,23 @@ class SignalArchiveService:
                 win_rate_by_filter[cat] = 0.0
                 continue
             wins_cat = len([r for r in returns if r > 0])
-            win_rate_by_filter[cat] = round((wins_cat / len(returns)) * 100, 2)
+            win_rate_by_filter[cat] = float(round((wins_cat / len(returns)) * 100.0, 2))
 
         high_med = category_stats["HIGH PROBABILITY"] + category_stats["MEDIUM"]
-        prioritized_win_rate = round((len([r for r in high_med if r > 0]) / len(high_med)) * 100, 2) if high_med else 0.0
+        prioritized_win_rate = float(round((len([r for r in high_med if r > 0]) / len(high_med)) * 100.0, 2)) if high_med else 0.0
 
         res = {
             "totalSignals": total,
-            "winRate": round(win_rate, 2),
-            "avgReturn": round(avg_return, 2),
+            "winRate": float(round(win_rate, 2)),
+            "avgReturn": float(round(avg_return, 2)),
             "bestSector": best_sector,
             "worstSector": worst_sector,
             "accuracyByGrade": accuracy_by_grade,
-            "sectorAccuracy": {k: round(v, 2) for k, v in sector_accuracy.items()},
+            "sectorAccuracy": {k: float(round(v, 2)) for k, v in sector_accuracy.items()},
             "filterCategoryWinRate": win_rate_by_filter,
             "filterCategoryCounts": count_by_filter,
             "prioritizedWinRate": prioritized_win_rate,
-            "winRateLiftVsBaseline": round(prioritized_win_rate - round(win_rate, 2), 2) if high_med else 0.0,
+            "winRateLiftVsBaseline": float(round(prioritized_win_rate - round(win_rate, 2), 2)) if high_med else 0.0,
         }
 
         # Improvement 3: System Performance Stability

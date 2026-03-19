@@ -152,6 +152,37 @@
         .hidden-strategy {
             display: none !important;
         }
+
+        /* Decision Strip Styles */
+        .decision-strip {
+            background: linear-gradient(90deg, #131722 0%, #1c212e 100%);
+            border-bottom: 2px solid #1e222d;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .action-chip {
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 14px;
+        }
+
+        .action-chip.strong-buy { background: #00c076; color: #0b0e11; box-shadow: 0 0 15px rgba(0, 192, 118, 0.4); }
+        .action-chip.buy { background: rgba(0, 192, 118, 0.2); color: #00c076; border: 1px solid #00c076; }
+        .action-chip.watch { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid #3b82f6; }
+        .action-chip.avoid { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
+
+        .reason-tag {
+            padding: 2px 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            font-size: 10px;
+            color: #9ca3af;
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -161,16 +192,17 @@
         <div class="flex flex-wrap items-center gap-3 justify-between md:justify-end">
             <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white">S</div>
             <div class="flex flex-col -space-y-1">
-                <h1 class="text-xl font-bold tracking-tight">S&R <span class="text-blue-500">PRO</span> <span
-                        id="ver-tag" class="text-[8px] text-gray-600 ml-1 font-mono">v1.5.0 Intelligence Layer</span>
-                </h1>
-                <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic">Last updated: --:--:--</p>
+                <div class="flex items-baseline gap-2 overflow-hidden">
+                    <h1 class="text-xl font-bold tracking-tight whitespace-nowrap">S&R <span class="text-blue-500">PRO</span></h1>
+                    <span id="ver-tag" class="text-[10px] text-gray-500 font-mono hidden sm:inline-block whitespace-nowrap">v1.5.0 Intelligence Layer</span>
+                </div>
+                <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic">Market Data: --:--:--</p>
             </div>
         </div>
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 flex-shrink-0">
             <!-- Screener Toggle -->
-            <div class="flex items-center space-x-3 bg-gray-900 px-3 py-1.5 rounded-xl border border-gray-800">
-                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Screener</span>
+            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded-xl border border-gray-800">
+                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:inline">Screener</span>
                 <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="screener-toggle" class="sr-only peer">
                     <div
@@ -180,8 +212,8 @@
             </div>
 
             <!-- Rotation Toggle -->
-            <div class="flex items-center space-x-3 bg-gray-900 px-3 py-1.5 rounded-xl border border-gray-800">
-                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rotation</span>
+            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded-xl border border-gray-800">
+                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:inline">Rotation</span>
                 <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="rotation-toggle" class="sr-only peer">
                     <div
@@ -191,24 +223,24 @@
             </div>
 
             <!-- View Mode Toggle -->
-            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1 rounded-xl border border-gray-700">
+            <div class="flex items-center space-x-1 bg-gray-900 px-1.5 py-1 rounded-xl border border-gray-700">
                 <button id="view-dashboard"
-                    class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white transition-colors">
+                    class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white transition-colors">
                     Dashboard
                 </button>
                 <button id="view-intelligence"
-                    class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-400 hover:bg-gray-800 transition-colors">
+                    class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-400 hover:bg-gray-800 transition-colors">
                     Intelligence
                 </button>
             </div>
 
             <!-- Search Box (Relative for Dropdown) -->
             <div class="relative">
-                <div class="flex items-center space-x-3 bg-gray-900 px-3 py-1.5 rounded-xl border border-gray-800">
+                <div class="flex items-center space-x-2 bg-gray-900 px-2.5 py-1.5 rounded-xl border border-gray-800">
                     <input type="text" id="symbol-input" value="RELIANCE"
-                        class="bg-transparent border-none text-sm font-semibold text-white focus:outline-none w-24 uppercase placeholder-gray-500"
+                        class="bg-transparent border-none text-sm font-semibold text-white focus:outline-none w-20 uppercase placeholder-gray-500"
                         placeholder="SYMBOL">
-                    <button id="search-btn" class="ml-1 text-gray-400 hover:text-white transition-colors">
+                    <button id="search-btn" class="text-gray-400 hover:text-white transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -221,35 +253,35 @@
                     <!-- Dynamic Items -->
                 </div>
             </div>
-            <div class="flex items-center gap-2 bg-[#1e2329] border border-gray-700 rounded-lg px-3 py-1">
+            <div class="flex items-center gap-1.5 bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1">
                 <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="mtf-toggle" class="sr-only peer" checked>
                     <div
                         class="w-7 h-4 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600">
                     </div>
-                    <span class="ml-2 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">MTF</span>
+                    <span class="ml-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">MTF</span>
                 </label>
             </div>
             <!-- Intraday Intelligence Timeframe Chips -->
             <div id="intraday-tf-toggle"
-                class="hidden md:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
+                class="hidden xl:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
                 <button data-tf="5m"
-                    class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
+                    class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
                     5 MIN
                 </button>
                 <button data-tf="15m"
-                    class="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
+                    class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
                     15 MIN
                 </button>
             </div>
             <select id="strategy-selector"
-                class="bg-blue-900/40 border border-blue-500/50 rounded-lg px-2 py-1 text-xs md:text-sm font-bold focus:ring-1 focus:ring-blue-500 cursor-pointer text-blue-100 uppercase tracking-tighter">
+                class="bg-blue-900/40 border border-blue-500/50 rounded-lg px-2 py-1 text-xs font-bold focus:ring-1 focus:ring-blue-500 cursor-pointer text-blue-100 uppercase tracking-tighter max-w-[160px]">
                 <option value="SR">Support/Resistance (SR)</option>
                 <option value="SWING">Swing Trading</option>
                 <option value="DEMAND_SUPPLY">Demand/Supply Zones</option>
             </select>
-            <select id="tf-selector"
-                class="bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1 text-xs md:text-sm font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer text-white">
+            <!-- tf-selector hidden but retained for JS compatibility -->
+            <select id="tf-selector" class="hidden">
                 <option value="5m">5 min</option>
                 <option value="15m">15 min</option>
                 <option value="75m">75 min</option>
@@ -260,17 +292,10 @@
                 <option value="1W">Weekly</option>
                 <option value="1M">Monthly</option>
             </select>
-            <button class="glass p-2 rounded-full hover:bg-gray-800 transition-colors">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9">
-                    </path>
-                </svg>
-            </button>
         </div>
     </header>
 
-    <main id="dashboard-main" class="p-6 max-w-[1600px] mx-auto space-y-6 transition-all duration-500">
+    <main id="dashboard-main" class="p-6 w-full mx-auto space-y-6 transition-all duration-500">
         <!-- Market Regime Warning Banner -->
         <div id="market-regime-banner"
             class="hidden glass rounded-xl border border-yellow-500/50 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500">
@@ -339,8 +364,8 @@
         <!-- Market Intelligence Section -->
         <section id="intelligence-section" class="hidden animate-in">
             <div class="grid grid-cols-12 gap-6">
-                <!-- Left: Hits & Sectors Table (7 cols) -->
-                <div class="col-span-12 lg:col-span-7 space-y-6">
+                <!-- Content Area (Full Width) -->
+                <div class="col-span-12 space-y-6">
                     <!-- Today's Market Summary Block -->
                     <div id="market-summary-block"
                         class="glass rounded-2xl overflow-hidden border border-indigo-500/30 animate-in slide-in-from-top duration-500 hidden">
@@ -382,6 +407,20 @@
                             <div id="market-summary-text" class="text-xs text-gray-300 leading-relaxed italic">
                                 Calibrating latest market movements for summary generation...
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Picks Section (v2.0) -->
+                    <div id="top-picks-section" class="glass rounded-2xl overflow-hidden border border-green-500/30 mb-6 hidden">
+                        <div class="px-4 py-3 bg-green-900/10 border-b border-gray-800 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">⭐</span>
+                                <h2 class="text-[11px] font-bold uppercase tracking-widest text-green-100">AI Top Picks</h2>
+                            </div>
+                            <span class="text-[8px] text-green-400 font-mono uppercase">Score > 70 | RR > 2.0</span>
+                        </div>
+                        <div id="top-picks-container" class="p-4 flex gap-4 overflow-x-auto custom-scrollbar">
+                            <!-- Top picks will be injected here -->
                         </div>
                     </div>
 
@@ -530,7 +569,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="overflow-x-auto">
+                        <div class="overflow-x-auto min-h-[600px]">
                             <table class="w-full text-left text-[11px]">
                                 <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
                                     <tr>
@@ -695,9 +734,8 @@
             </div>
         </section>
 
-        <!-- Standard Dashboard View -->
-        <div id="standard-dashboard">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="summary-container">
+        <div id="standard-dashboard" class="w-full">
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3" id="summary-container">
                 <!-- Cards same as before... -->
                 <div class="glass p-4 rounded-2xl">
                     <p
@@ -736,27 +774,64 @@
                 </div>
             </div>
 
-            <!-- Strategy Specific Metrics (Dynamic) -->
-            <div id="strategy-sr-metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6 strategy-card">
-                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
-                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">ADX Strength</p>
-                    <div class="flex items-baseline gap-2">
-                        <span id="sr-adx" class="text-2xl font-bold mono text-indigo-400">—</span>
-                        <span id="sr-adx-label" class="text-[10px] font-bold text-gray-500">TREND</span>
+            <!-- Decision Intelligence: Positives vs Risks (v2.0) -->
+            <div id="decision-metrics" class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                <!-- Positives -->
+                <div class="glass border border-green-500/20 rounded-2xl overflow-hidden">
+                    <div class="px-4 py-2 bg-green-900/10 border-b border-gray-800 flex items-center gap-2">
+                        <span class="text-xs">✅</span>
+                        <h3 class="text-[10px] font-bold uppercase tracking-widest text-green-400">Positives</h3>
+                    </div>
+                    <div id="metrics-positives" class="p-4 grid grid-cols-2 gap-4">
+                        <!-- Dynamic -->
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Trend Strength</p>
+                            <p id="metric-adx" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Volume Profile</p>
+                            <p id="metric-volume" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Setup Type</p>
+                            <p id="metric-setup" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">S/R Proximity</p>
+                            <p id="metric-sr" class="text-sm font-bold text-white">--</p>
+                        </div>
                     </div>
                 </div>
-                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
-                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Volume Ratio</p>
-                    <span id="sr-vol" class="text-2xl font-bold mono text-indigo-400">—</span>
+
+                <!-- Risks -->
+                <div class="glass border border-red-500/20 rounded-2xl overflow-hidden">
+                    <div class="px-4 py-2 bg-red-900/10 border-b border-gray-800 flex items-center gap-2">
+                        <span class="text-xs">⚠️</span>
+                        <h3 class="text-[10px] font-bold uppercase tracking-widest text-red-400">Risks / Warnings</h3>
+                    </div>
+                    <div id="metrics-risks" class="p-4 grid grid-cols-2 gap-4">
+                        <!-- Dynamic -->
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Momentum</p>
+                            <p id="metric-momentum" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Volatility</p>
+                            <p id="metric-vola" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Sector Bias</p>
+                            <p id="metric-sector" class="text-sm font-bold text-white">--</p>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Market Regime</p>
+                            <p id="metric-regime" class="text-sm font-bold text-white">--</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
-                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Breakout</p>
-                    <span id="sr-breakout" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
-                </div>
-                <div class="glass p-4 rounded-2xl border-l-4 border-l-indigo-500">
-                    <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Retest</p>
-                    <span id="sr-retest" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
-                </div>
+            </div>
+
+            <div id="strategy-sr-metrics" class="hidden">
             </div>
 
             <div id="strategy-swing-metrics"
@@ -801,13 +876,45 @@
                 </div>
             </div>
 
-            <!-- Middle Section -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-                <!-- Chart Section -->
-                <div class="col-span-2 space-y-6">
-                    <div class="glass rounded-2xl overflow-hidden p-2 relative" style="height: 500px;"
-                        id="chart-parent">
-                        <div id="tv-chart" class="w-full h-full"></div>
+            <!-- Middle Section (Wider Chart + Compact Sidebar) -->
+            <div class="grid grid-cols-12 gap-4 mt-6">
+                <!-- Chart Section (Now 9/12 width on sm+) -->
+                <div class="col-span-12 sm:col-span-9 space-y-4">
+                    <div class="glass rounded-2xl overflow-hidden relative h-[600px] flex flex-col" id="chart-parent">
+                        <!-- Decision Strip -->
+                        <div id="decision-strip" class="decision-strip px-4 py-3 flex items-center justify-between z-20">
+                            <div class="flex items-center gap-4">
+                                <div id="decision-action" class="action-chip watch">WATCH</div>
+                                <div class="flex flex-col">
+                                    <span class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Confidence</span>
+                                    <span id="decision-confidence" class="text-lg font-bold mono text-white">--%</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-6">
+                                <div class="flex flex-col items-center">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Entry</span>
+                                    <span id="strip-entry" class="text-xs font-bold mono text-blue-400">---</span>
+                                </div>
+                                <div class="flex flex-col items-center">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Stop Loss</span>
+                                    <span id="strip-sl" class="text-xs font-bold mono text-down">---</span>
+                                </div>
+                                <div class="flex flex-col items-center">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Target</span>
+                                    <span id="strip-target" class="text-xs font-bold mono text-up">---</span>
+                                </div>
+                            </div>
+                            <div id="decision-reasons" class="flex gap-2">
+                                <!-- Tags here -->
+                            </div>
+                        </div>
+                        <div id="tv-chart" class="flex-grow"></div>
+                        <div id="loading-overlay" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-center justify-center hidden">
+                            <div class="flex flex-col items-center gap-3">
+                                <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                <span class="text-xs font-bold text-white tracking-widest uppercase">Syncing Live Data...</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Price Action Insights -->
@@ -895,7 +1002,7 @@
                         </div>
 
                         <!-- Quick Filters (NEW v1.4) -->
-                        <div class="flex gap-2 mb-4">
+                        <div class="flex gap-2 mb-4 px-4 pb-4">
                             <button id="filter-leaders" onclick="window.toggleQuickFilter('leaders')"
                                 class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-green-500/50 hover:text-green-400 transition-all">Leaders
                                 Only</button>
@@ -909,54 +1016,53 @@
                                 class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-purple-500/50 hover:text-purple-300 transition-all">Early
                                 Setups</button>
                         </div>
-                    </div>
-                    <div class="grid grid-cols-4 divide-x divide-gray-800 text-center p-4">
-                        <div>
-                            <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
-                            <p id="fund-mcap" class="text-sm font-bold">—</p>
+                        <div class="grid grid-cols-4 divide-x divide-gray-800 text-center px-4 pb-4">
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
+                                <p id="fund-mcap" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">P/E</p>
+                                <p id="fund-pe" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">ROE</p>
+                                <p id="fund-roe" class="text-sm font-bold">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 mb-1">DIV</p>
+                                <p id="fund-div" class="text-sm font-bold">—</p>
+                            </div>
                         </div>
-                        <div>
-                            <p class="text-[10px] text-gray-500 mb-1">P/E</p>
-                            <p id="fund-pe" class="text-sm font-bold">—</p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] text-gray-500 mb-1">ROE</p>
-                            <p id="fund-roe" class="text-sm font-bold">—</p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] text-gray-500 mb-1">DIV</p>
-                            <p id="fund-div" class="text-sm font-bold">—</p>
-                        </div>
-                    </div>
-                    <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
-                        <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
-                            <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
-                                    class="text-down font-bold">—</span>
-                                <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
-                                    <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
-                                </div><span id="fund-52h" class="text-up font-bold">—</span>
+                        <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
+                            <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
+                                <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
+                                        class="text-down font-bold">—</span>
+                                    <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
+                                        <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
+                                    </div><span id="fund-52h" class="text-up font-bold">—</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
             </div>
 
-            <!-- Levels Sidebar -->
-            <div class="col-span-1 space-y-6">
-                <div class="glass rounded-2xl overflow-hidden">
-                    <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                        <h3 class="font-bold text-sm">Structural Levels</h3>
+            <!-- Compact Levels Sidebar (Right Side on sm+) -->
+            <div class="col-span-12 sm:col-span-3">
+                <div class="sticky top-20 max-h-[calc(100vh-90px)] overflow-y-auto glass rounded-2xl overflow-hidden border border-gray-800/50">
+                    <div class="px-3 py-2 border-b border-gray-800 flex justify-between items-center bg-gray-900/30">
+                        <h3 class="font-bold text-[10px] uppercase tracking-widest text-gray-400">Levels</h3>
                     </div>
-                    <div class="p-4 space-y-6">
+                    <div class="p-2 space-y-3">
                         <div>
-                            <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
                                 Resistances</p>
-                            <div id="resistance-list" class="space-y-2"></div>
+                            <div id="resistance-list" class="space-y-1"></div>
                         </div>
                         <div>
-                            <p class="text-gray-500 text-[10px] uppercase font-bold tracking-widest px-2 mb-2">
+                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
                                 Supports</p>
-                            <div id="support-list" class="space-y-2"></div>
+                            <div id="support-list" class="space-y-1"></div>
                         </div>
                     </div>
                 </div>
