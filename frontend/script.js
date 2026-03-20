@@ -212,6 +212,21 @@ async function fetchData(isBackground = false) {
 
         if (data && data.meta) {
             window.lastReceivedData = data;
+            
+            // Update live indicator based on source
+            const liveIndicator = document.getElementById('live-indicator');
+            if (liveIndicator) {
+                if (data.source === 'fallback') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> CACHED';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
+                    liveIndicator.title = "Yahoo rate limit reached. Showing last cached data.";
+                } else {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> LIVE';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-blue-400 font-bold';
+                    liveIndicator.title = "Live data from Yahoo Finance";
+                }
+            }
+
             updateUI(data);
         } else {
             throw new Error(data.message || "Malformed API response");
@@ -986,10 +1001,11 @@ async function fetchIntelligence() {
         ]);
 
         // 2. Parse responses carefully
-        let hitsData = { data: [] };
-        let sectorData = { data: {} };
+        let hitsData = { data: [], source: 'live' };
+        let sectorData = { data: {}, source: 'live' };
         let summaryData = null;
-        let earlyData = { data: [] };
+        let summarySource = 'live';
+        let earlyData = { data: [], source: 'live' };
         let perfData = null;
         let tradePerfData = null;
 
@@ -997,18 +1013,21 @@ async function fetchIntelligence() {
             hitsData = await hitsRes.json();
         } else if (hitsRes) {
             console.error(`Hits API error: ${hitsRes.status}`);
+            hitsData.source = 'error';
         }
 
         if (sectorRes && sectorRes.ok) {
             sectorData = await sectorRes.json();
         } else if (sectorRes) {
             console.error(`Sector API error: ${sectorRes.status}`);
+            sectorData.source = 'error';
         }
 
         if (summaryRes && summaryRes.ok) {
             const summaryJson = await summaryRes.json();
             if (summaryJson.status === 'success') {
                 summaryData = summaryJson.data;
+                summarySource = summaryJson.source || 'live';
             }
         } else if (summaryRes) {
             console.error(`Market Summary API error: ${summaryRes.status}`);
@@ -1018,6 +1037,7 @@ async function fetchIntelligence() {
             earlyData = await earlyRes.json();
         } else if (earlyRes) {
             console.error(`Early Setups API error: ${earlyRes.status}`);
+            earlyData.source = 'error';
         }
 
         if (perfRes && perfRes.ok) {
@@ -1037,10 +1057,10 @@ async function fetchIntelligence() {
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
-                intelligenceApp.updateHits(hitsData.data);
+                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
             }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
-                intelligenceApp.updateEarlySetups(earlyData.data);
+                intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
             }
             if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
                 intelligenceApp.updateSignalPerformance(perfData);
@@ -1050,18 +1070,18 @@ async function fetchIntelligence() {
             }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
-                intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || []);
+                intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'live');
 
                 // Also update the Shining Sectors UX card if available
                 if (window.renderActionableSectors) {
                     window.renderActionableSectors(sectorData.data);
                 }
                 if (summaryData) {
-                    intelligenceApp.updateMarketSummary(summaryData);
+                    intelligenceApp.updateMarketSummary(summaryData, summarySource);
                 }
             } else if (sectorData) {
                 // Handle empty but valid responses (e.g., fallback)
-                intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || []);
+                intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
             }
         }
     } catch (e) {
@@ -1069,3 +1089,42 @@ async function fetchIntelligence() {
     }
 }
 window.fetchIntelligence = fetchIntelligence;
+
+// --- Fyers Integration ---
+async function checkFyersStatus() {
+    try {
+        const res = await fetch('/api/v1/fyers/status');
+        const data = await res.json();
+        
+        const dot = document.getElementById('fyers-status-dot');
+        const text = document.getElementById('fyers-status-text');
+        const btn = document.getElementById('fyers-login-btn');
+        
+        if (data.logged_in) {
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]";
+            if (text) text.textContent = "Online";
+            if (text) text.className = "text-[10px] font-bold text-green-400 uppercase tracking-widest hidden lg:inline";
+            if (btn) btn.classList.add('hidden');
+        } else {
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]";
+            if (text) text.textContent = "Offline";
+            if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
+            if (btn) btn.classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error("Failed to check Fyers status", e);
+    }
+}
+
+function loginToFyers() {
+    window.location.href = '/api/v1/fyers/login';
+}
+
+window.loginToFyers = loginToFyers;
+
+// Check on load
+document.addEventListener('DOMContentLoaded', () => {
+    checkFyersStatus();
+    // Poll every 30 seconds for faster updates after login
+    setInterval(checkFyersStatus, 30000);
+});
