@@ -188,18 +188,26 @@
 
 <body class="min-h-screen overflow-x-hidden">
     <!-- Header -->
-    <header class="h-16 border-b border-gray-800 glass sticky top-0 z-50 px-6 flex items-center justify-between">
-        <div class="flex flex-wrap items-center gap-3 justify-between md:justify-end">
-            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white">S</div>
+    <header class="h-16 border-b border-gray-800 glass sticky top-0 z-50 px-4 flex items-center justify-between gap-2 overflow-hidden">
+        <div class="flex items-center gap-2 flex-shrink-0">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white flex-shrink-0">S</div>
             <div class="flex flex-col -space-y-1">
-                <div class="flex items-baseline gap-2 overflow-hidden">
+                <div class="flex items-baseline gap-2">
                     <h1 class="text-xl font-bold tracking-tight whitespace-nowrap">S&R <span class="text-blue-500">PRO</span></h1>
-                    <span id="ver-tag" class="text-[10px] text-gray-500 font-mono hidden sm:inline-block whitespace-nowrap">v1.5.0 Intelligence Layer</span>
                 </div>
-                <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic">Market Data: --:--:--</p>
+                <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic whitespace-nowrap">Market Data: --:--:--</p>
             </div>
         </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
+
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <!-- Fyers Connection -->
+            <div id="fyers-connection" class="flex items-center gap-2 px-2 py-1.5 bg-gray-900 rounded-xl border border-gray-800 flex-shrink-0">
+                <div id="fyers-status-dot" class="w-2 h-2 rounded-full bg-gray-600"></div>
+                <span id="fyers-status-text" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden sm:inline">Offline</span>
+                <button id="fyers-login-btn" onclick="loginToFyers()" class="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-bold transition-all flex-shrink-0">CONNECT</button>
+            </div>
+
+            <div class="flex items-center gap-2 flex-shrink-0">
             <!-- Screener Toggle -->
             <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded-xl border border-gray-800">
                 <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:inline">Screener</span>
@@ -1234,6 +1242,16 @@
             </div>
         </div>
     </div>
+
+    <footer class="py-6 border-t border-gray-800 mt-12 bg-[#0b0e11]">
+        <div class="container mx-auto px-6 flex flex-col items-center gap-2">
+            <div class="flex items-center gap-3">
+                <div class="w-6 h-6 bg-blue-600 rounded flex items-center justify-center font-bold text-[10px] text-white">S</div>
+                <h2 class="text-lg font-bold tracking-tight">S&R <span class="text-blue-500 text-sm">PRO</span></h2>
+            </div>
+            <p class="text-[10px] text-gray-600 font-mono uppercase tracking-widest">v1.5.0 Intelligence Layer &copy; 2026</p>
+        </div>
+    </footer>
 
     <script src="script.js"></script>
     <script src="rotation.js"></script>

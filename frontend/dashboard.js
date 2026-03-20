@@ -10,7 +10,30 @@ class MarketIntelligence {
         this.summaryBlock = document.getElementById('market-summary-block');
         this.summaryMode = 'evening'; // DEFAULTS TO EVENING WRAP
         this.summaryData = null;
+        this.hitsSyncStatus = document.getElementById('hits-sync-status');
         this._initExplanationEvents();
+    }
+
+    updateSyncStatus(source) {
+        if (!this.hitsSyncStatus) return;
+        if (source === 'fallback' || source === 'cached') {
+            this.hitsSyncStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span>
+                <span class="text-yellow-500 font-bold animate-pulse">CACHED DATA</span>
+            `;
+            this.hitsSyncStatus.title = "Displaying last available data due to rate limits.";
+        } else if (source === 'error') {
+            this.hitsSyncStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
+                <span class="text-red-500 font-bold">SYNC ERROR</span>
+            `;
+        } else {
+            this.hitsSyncStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                LIVE SYNC
+            `;
+            this.hitsSyncStatus.title = "Live data from Yahoo Finance";
+        }
     }
 
     _initExplanationEvents() {
@@ -38,7 +61,8 @@ class MarketIntelligence {
         }
     }
 
-    updateHits(hits) {
+    updateHits(hits, source = 'live') {
+        this.updateSyncStatus(source);
         if (!this.hitsBody) return;
 
         // 1. Store previous confidence scores before updating state
@@ -57,7 +81,8 @@ class MarketIntelligence {
         }
     }
 
-    updateSectors(sectorData) {
+    updateSectors(sectorData, alerts, source = 'live') {
+        this.updateSyncStatus(source);
         if (!this.sectorList) return;
         this.lastSectorData = sectorData;
         this.allSectors = sectorData || {};

@@ -2,8 +2,10 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
+from pathlib import Path
 import time
 from functools import lru_cache
+from app.services.fyers_service import FyersService
 
 class MarketDataService:
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
@@ -66,15 +68,40 @@ class MarketDataService:
         return symbol
 
     @staticmethod
+    def _get_cache_path(symbol, tf):
+        safe_symbol = "".join(c for c in symbol if c.isalnum() or c in ('^', '.'))
+        return Path(__file__).parent.parent / "data" / "ohlcv_cache" / f"{safe_symbol}_{tf}.parquet"
+
+    @staticmethod
+    def _save_to_disk(symbol, tf, df):
+        try:
+            if df.empty: return
+            path = MarketDataService._get_cache_path(symbol, tf)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(path)
+        except Exception as e:
+            print(f"DEBUG: Failed to save {symbol} to disk: {e}")
+
+    @staticmethod
+    def _load_from_disk(symbol, tf):
+        try:
+            path = MarketDataService._get_cache_path(symbol, tf)
+            if path.exists():
+                return pd.read_parquet(path)
+        except Exception as e:
+            print(f"DEBUG: Failed to load {symbol} from disk: {e}")
+        return None
+
+    @staticmethod
     def get_ohlcv(symbol="RELIANCE", tf="1D", count=200, use_fast_info=True):
         """
-        Fetches real OHLCV data using yfinance with in-memory caching.
+        Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
         Returns (df, currency, error_message)
         """
         symbol = MarketDataService.normalize_symbol(symbol)
         cache_key = f"{symbol}_{tf}_{count}_{use_fast_info}"
         
-        # 1. Check Cache
+        # 1. Check Memory Cache
         now = time.time()
         if cache_key in MarketDataService._ohlcv_cache:
             entry = MarketDataService._ohlcv_cache[cache_key]
@@ -104,6 +131,20 @@ class MarketDataService:
         elif tf == "1W": period = "2y"
         elif tf == "1M": period = "5y"
         
+        # 1.5 Try Fyers first if logged in
+        try:
+            fyers_df, fyers_err = FyersService.get_ohlcv(symbol, tf, "", "") # range handled by service now or using default
+            if fyers_df is not None and not fyers_df.empty:
+                print(f"DEBUG: Successfully fetched {symbol} from Fyers")
+                fyers_df = fyers_df.tail(count)
+                # Save to disk for fallback
+                MarketDataService._save_to_disk(symbol, tf, fyers_df)
+                return fyers_df, "INR", None
+            else:
+                print(f"DEBUG: Fyers fetch failed or not logged in: {fyers_err}")
+        except Exception as fe:
+            print(f"DEBUG: Fyers integration error: {fe}")
+
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---
             if symbol == "SYNTHETIC_CRUDE_INR":
@@ -134,6 +175,8 @@ class MarketDataService:
                     except Exception:
                         pass
                     
+                    # Disk persistence for synthetic
+                    MarketDataService._save_to_disk(symbol, tf, df)
                     return df, "INR", None
             
             # Standard Fetch
@@ -180,7 +223,13 @@ class MarketDataService:
                     ticker = yf.Ticker(fallback_symbol)
                     df = ticker.history(period=period, interval=interval)
             
+            # Handle rate limit fallback before checking empty
             if df.empty:
+                df_disk = MarketDataService._load_from_disk(symbol, tf)
+                if df_disk is not None and not df_disk.empty:
+                    print(f"DEBUG: Returning persistent cache for {symbol}")
+                    return df_disk.tail(count), "INR", None # Pretend it's success to unblock UI
+                
                 return pd.DataFrame(), "INR", f"No data found for {symbol}. (Possible Yahoo Finance Rate Limit - please wait 2-5 minutes)"
                 
             df.columns = [c.lower() for c in df.columns]
@@ -195,17 +244,28 @@ class MarketDataService:
             is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY")
             currency = "INR" if is_inr else "USD"
             
-            # 2. Update Cache
+            # 2. Update Memory Cache
             MarketDataService._ohlcv_cache[cache_key] = {
                 'df': df.copy(),
                 'currency': currency,
                 'timestamp': time.time()
             }
+            # 3. Save to Disk Persistence
+            MarketDataService._save_to_disk(symbol, tf, df)
             
             return df, currency, None
             
         except Exception as e:
             err_msg = str(e)
             if "Too Many Requests" in err_msg or "Rate limited" in err_msg:
+                df_disk = MarketDataService._load_from_disk(symbol, tf)
+                if df_disk is not None and not df_disk.empty:
+                    return df_disk.tail(count), "INR", None
                 return pd.DataFrame(), "INR", "Yahoo Finance Rate Limit exceeded. Please wait 2-5 minutes."
+            
+            # General fallback for any exception
+            df_disk = MarketDataService._load_from_disk(symbol, tf)
+            if df_disk is not None and not df_disk.empty:
+                return df_disk.tail(count), "INR", None
+                
             return pd.DataFrame(), "INR", f"Data Error: {err_msg}"

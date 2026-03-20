@@ -1,5 +1,60 @@
 [
   {
+    "symbol": "TATASTEEL",
+    "hitAsOf": "2026-03-17 00:00:00",
+    "forward3dReturn": 1.32,
+    "sector": "METAL",
+    "confidence": "C",
+    "qualityScore": 60.7,
+    "filterCategory": "MEDIUM",
+    "filterScore": 80,
+    "archivedAt": "2026-03-20T10:13:56.427507"
+  },
+  {
+    "symbol": "NATIONALUM",
+    "hitAsOf": "2026-03-17 00:00:00",
+    "forward3dReturn": -6.29,
+    "sector": "METAL",
+    "confidence": "B",
+    "qualityScore": 74.18,
+    "filterCategory": "LOW",
+    "filterScore": 55,
+    "archivedAt": "2026-03-20T10:13:56.428127"
+  },
+  {
+    "symbol": "TATAPOWER",
+    "hitAsOf": "2026-03-17 00:00:00",
+    "forward3dReturn": 0.65,
+    "sector": "ENERGY",
+    "confidence": "A",
+    "qualityScore": 94.02,
+    "filterCategory": "MEDIUM",
+    "filterScore": 60,
+    "archivedAt": "2026-03-20T14:44:44.381437"
+  },
+  {
+    "symbol": "TVSMOTOR",
+    "hitAsOf": "2026-03-17 00:00:00",
+    "forward3dReturn": -0.85,
+    "sector": "AUTO",
+    "confidence": "C",
+    "qualityScore": 65.57,
+    "filterCategory": "MEDIUM",
+    "filterScore": 65,
+    "archivedAt": "2026-03-20T18:12:00.880954"
+  },
+  {
+    "symbol": "MARUTI",
+    "hitAsOf": "2026-03-17 00:00:00",
+    "forward3dReturn": -2.86,
+    "sector": "AUTO",
+    "confidence": "D",
+    "qualityScore": 53.09,
+    "filterCategory": "MEDIUM",
+    "filterScore": 70,
+    "archivedAt": "2026-03-20T18:12:00.881531"
+  },
+  {
     "symbol": "JSWSTEEL",
     "hitAsOf": "2026-03-16 00:00:00",
     "forward3dReturn": 0.95,
@@ -20,6 +75,28 @@
     "filterCategory": "LOW",
     "filterScore": 50,
     "archivedAt": "2026-03-19T10:12:49.422357"
+  },
+  {
+    "symbol": "M&M",
+    "hitAsOf": "2026-03-16 00:00:00",
+    "forward3dReturn": 0.31,
+    "sector": "AUTO",
+    "confidence": "C",
+    "qualityScore": 56.69,
+    "filterCategory": "MEDIUM",
+    "filterScore": 60,
+    "archivedAt": "2026-03-20T18:12:00.882488"
+  },
+  {
+    "symbol": "BAJAJ-AUTO",
+    "hitAsOf": "2026-03-16 00:00:00",
+    "forward3dReturn": -2.25,
+    "sector": "AUTO",
+    "confidence": "D",
+    "qualityScore": 53.8,
+    "filterCategory": "MEDIUM",
+    "filterScore": 60,
+    "archivedAt": "2026-03-20T18:12:00.882810"
   },
   {
     "symbol": "LTTS",
