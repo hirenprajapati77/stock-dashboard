@@ -138,17 +138,13 @@ async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: O
 @app.get("/api/v1/search")
 async def search_symbols(q: str = Query(..., min_length=1)):
     """
-    Proxies search requests to Yahoo Finance to avoid CORS on frontend.
+    Searches for symbols using Fyers symbol master.
     """
     try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}&quotesCount=10&newsCount=0"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers)
-        data = r.json()
+        # 1. Search Fyers Symbols
+        results = await asyncio.to_thread(FyersService.search_symbols, q)
         
-        results = []
-        
-        # Inject custom keywords
+        # 2. Inject custom keywords
         custom_keywords = {
             "GOLD_IN": "Gold Beess ETF (NSE Proxy - ₹130 range)",
             "SILVER_IN": "Silver Beess ETF (NSE Proxy)",
@@ -161,31 +157,18 @@ async def search_symbols(q: str = Query(..., min_length=1)):
             "USDINR": "US Dollar / Indian Rupee (Live)",
             "OIL_INDIA": "Oil India Ltd (Stock - ₹500 range)"
         }
+        
+        custom_results = []
         for kw, desc in custom_keywords.items():
-            # Match if query is in keyword or description
             if q.upper() in kw or q.lower() in desc.lower():
-                results.append({
+                custom_results.append({
                     "symbol": kw,
                     "shortname": desc,
                     "exchange": "CUSTOM"
                 })
-
-        if 'quotes' in data:
-            for item in data['quotes']:
-                sym = item.get('symbol', '')
-                name = item.get('shortname', item.get('longname', ''))
-                
-                # Enhance naming for clarity
-                if sym == 'GC=F': name = "Global Gold Futures (COMEX)"
-                elif sym == 'SI=F': name = "Global Silver Futures (COMEX)"
-                elif sym == 'CL=F': name = "Global Crude Oil Futures (NYM)"
-                
-                results.append({
-                    "symbol": sym,
-                    "shortname": name,
-                    "exchange": item.get('exchange', '')
-                })
-        return results
+        
+        # Merge results - Custom first, then Fyers
+        return custom_results + results
     except Exception as e:
         print(f"Search error: {e}")
         return []
@@ -308,7 +291,7 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             strategy_result = await asyncio.to_thread(SREngine.runSRStrategy, df, sector_state, supports, resistances)
             rendered_levels = {"supports": supports, "resistances": resistances}
         elif strategy == "SWING":
-            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df)
+            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df, tf)
             # Use same DF for structure if MTF failed
             strategy_result = await asyncio.to_thread(SwingEngine.runSwingStrategy, df, sector_state, "NEUTRAL", supports, resistances)
             rendered_levels = {"supports": supports, "resistances": resistances}
@@ -452,8 +435,11 @@ async def fyers_callback(auth_code: str, state: Optional[str] = None):
 async def fyers_status():
     """Checks if Fyers is logged in."""
     is_logged_in = FyersService.load_token()
+    from app.services.screener_service import ScreenerService as MomentumScreener
+    session_tag, session_quality = MomentumScreener.get_session_tag()
     return {
         "logged_in": is_logged_in,
+        "market_open": session_tag != "CLOSED",
         "app_id": fyers_config.app_id[:5] + "..." if is_logged_in else None
     }
 
@@ -675,10 +661,13 @@ async def get_market_summary(tf: str = "1D"):
         if not data:
             source = "error"
 
+        session_tag, session_quality = MomentumScreener.get_session_tag()
+
         return {
             "status": "success",
             "data": data,
-            "source": source
+            "source": source,
+            "market_open": session_tag != "CLOSED"
         }
     except Exception as e:
         print(f"Error in get_market_summary: {e}")

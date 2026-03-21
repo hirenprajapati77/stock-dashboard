@@ -206,7 +206,7 @@ function setupIntelTimeframeToggles() {
 
             // Refresh intelligence data
             if (window.fetchIntelligence) {
-                window.fetchIntelligence();
+                window.fetchIntelligence(tf);
             }
         });
     });
@@ -403,6 +403,17 @@ function renderTopPicks(hits) {
 
 window.fetchDataForSymbol = function(symbol) {
     document.getElementById('symbol-input').value = symbol;
+    
+    // Switch view to dashboard so the user sees the chart update
+    const dashboardBtn = document.getElementById('view-dashboard');
+    if (dashboardBtn) {
+        dashboardBtn.click();
+    }
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Fetch dashboard charts and strategy details
     window.fetchData();
 };
 
@@ -416,3 +427,34 @@ window.renderActionableSectors = renderActionableSectors;
 window.selectActionableSector = selectActionableSector;
 window.clearFilter = clearFilter;
 window.getCurrentIntelTimeframe = getCurrentIntelTimeframe;
+
+// SCANNERS FILTERS (v2.1) - WIRE UP UI CONTROLS
+const initScannerFilters = () => {
+    const confSlider = document.getElementById('confidence-filter');
+    const confVal = document.getElementById('confidence-val');
+    const probToggle = document.getElementById('high-probability-only');
+
+    if (confSlider && confVal) {
+        confSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            confVal.textContent = `${val}%`;
+            if (window.marketIntelligence) {
+                window.marketIntelligence._renderHitsTable();
+            }
+        });
+    }
+
+    if (probToggle) {
+        probToggle.addEventListener('change', () => {
+            if (window.marketIntelligence) {
+                window.marketIntelligence._renderHitsTable();
+            }
+        });
+    }
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initScannerFilters);
+} else {
+    initScannerFilters();
+}

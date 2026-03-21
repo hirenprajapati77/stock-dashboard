@@ -1,5 +1,8 @@
 const IS_LOCAL_FILE = window.location.protocol === 'file:';
-const API_BASE = IS_LOCAL_FILE ? "http://localhost:8000" : ""; // Use relative path if hosted, else localhost
+// Use relative paths for API calls to avoid CORS/hostname issues when served from the same origin
+const API_BASE = ""; 
+const hostname = window.location.hostname;
+const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
 const API_URL = `${API_BASE}/api/v1/dashboard`;
 const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
 const SCREENER_URL = `${API_BASE}/api/v1/screener`;
@@ -23,9 +26,6 @@ let fetchController = null; // To abort previous fetches
 
 
 function isIntelligenceModeActive() {
-    const intelToggle = document.getElementById('intelligence-toggle');
-    if (intelToggle) return !!intelToggle.checked;
-
     const intelligenceSection = document.getElementById('intelligence-section');
     return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
 }
@@ -446,34 +446,37 @@ function updateUI(data) {
         }
 
         // 3. AI Insights
-        if (data.ai_analysis && data.ai_analysis.status === "success") {
+        if (data.ai_analysis && data.ai_analysis.status === "success" && data.ai_analysis.priority) {
             const ai = data.ai_analysis;
             const pBadge = document.getElementById('ai-priority-badge');
-            if (pBadge) {
-                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
-                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+            if (pBadge && ai.priority) {
+                const level = ai.priority.level || 'NONE';
+                pBadge.textContent = `PRIORITY: ${level}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
                     }`;
             }
 
             const bBadge = document.getElementById('ai-breakout-badge');
-            if (bBadge) {
-                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
-                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+            if (bBadge && ai.breakout && ai.breakout.breakout_quality) {
+                const qual = ai.breakout.breakout_quality;
+                bBadge.textContent = qual.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${qual === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    qual === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const bR = document.getElementById('ai-breakout-reason');
-            if (bR) bR.textContent = ai.breakout.reason;
+            if (bR && ai.breakout) bR.textContent = ai.breakout.reason || '';
 
             const rBadge = document.getElementById('ai-regime-badge');
-            if (rBadge) {
-                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
-                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
+            if (rBadge && ai.regime && ai.regime.market_regime) {
+                const regime = ai.regime.market_regime;
+                rBadge.textContent = regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const rR = document.getElementById('ai-regime-reason');
-            if (rR) rR.textContent = ai.regime.reason;
+            if (rR && ai.regime) rR.textContent = ai.regime.reason || '';
         }
 
         // 4. Levels
@@ -556,14 +559,34 @@ function updateDecisionStrip(data) {
     const entryEl = document.getElementById('strip-entry');
     const slEl = document.getElementById('strip-sl');
     const tgtEl = document.getElementById('strip-target');
+    const rrEl = document.getElementById('strip-rr');
+    const setupEl = document.getElementById('strip-setup');
     const reasonsEl = document.getElementById('decision-reasons');
+    
+    // New: Positives and Risks lists
+    const posList = document.getElementById('positives-list');
+    const riskList = document.getElementById('risks-list');
 
     if (!strip || !data.action) return;
 
     // 1. Action & Confidence
     actionEl.textContent = data.action;
     actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
-    confEl.textContent = `${data.score}%`;
+    
+    // Pulse for STRONG actions
+    if (data.action.includes('STRONG')) {
+        actionEl.classList.add('animate-pulse', 'border-2');
+        if (data.action.includes('BUY')) actionEl.classList.add('border-green-400');
+        else actionEl.classList.add('border-red-400');
+    }
+
+    const score = data.score || data.confidence || 0;
+    confEl.textContent = `${score}%`;
+    
+    // Dynamic color for confidence
+    if (score >= 80) confEl.className = 'text-2xl font-black text-green-400 tracking-tighter shadow-green-500/20';
+    else if (score >= 60) confEl.className = 'text-2xl font-black text-blue-400 tracking-tighter';
+    else confEl.className = 'text-2xl font-black text-yellow-500 tracking-tighter';
 
     // 2. Execution Levels
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
@@ -572,12 +595,91 @@ function updateDecisionStrip(data) {
     entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
     slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
     tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
+    
+    if (rrEl) rrEl.textContent = `${(data.rr || data.summary.risk_reward || 0).toFixed(2)}x`;
+    if (setupEl) setupEl.textContent = data.setupType || data.summary.setup_type || '---';
 
-    // 3. Reason Tags
-    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
-        `<span class="reason-tag">${tag}</span>`
-    ).join('');
+    // 3. Reason Tags (Main Strip)
+    if (reasonsEl) {
+        reasonsEl.innerHTML = (data.reasonTags || []).slice(0, 4).map(tag => 
+            `<span class="reason-tag">${tag}</span>`
+        ).join('');
+    }
+
+    // 4. Positives & Risks Detailed Lists (Decision Logic v2.0)
+    const factors = data.confidenceFactors || [];
+    if (posList && riskList) {
+        const positives = factors.filter(f => f.positive);
+        const risks = factors.filter(f => !f.positive);
+
+        posList.innerHTML = positives.length > 0 
+            ? positives.map(f => `
+                <li class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-300 font-medium">${f.label}</span>
+                    <span class="text-green-400 font-bold font-mono">${f.value}</span>
+                </li>
+            `).join('')
+            : '<li class="text-[10px] text-gray-500 italic">No major positives identified.</li>';
+
+        riskList.innerHTML = risks.length > 0
+            ? risks.map(f => `
+                <li class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-400 font-medium">${f.label}</span>
+                    <span class="text-red-400 font-bold font-mono">${f.value}</span>
+                </li>
+            `).join('')
+            : '<li class="text-[10px] text-gray-500 italic">No critical risks flagged.</li>';
+    }
 }
+
+window.renderTopPicks = function(hits) {
+    const section = document.getElementById('top-picks-section');
+    const container = document.getElementById('top-picks-container');
+    if (!section || !container) return;
+
+    // Filter: Score > 70 AND RR >= 2 (as per requirements)
+    const topPicks = hits.filter(h => {
+        const score = h.score || h.confidence || 0;
+        const rr = h.rr || h.risk_reward || 0;
+        return score >= 70 && rr >= 2.0;
+    }).sort((a,b) => (b.score || b.confidence || 0) - (a.score || a.confidence || 0))
+      .slice(0, 3);
+
+    if (topPicks.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    container.innerHTML = topPicks.map(p => {
+        const score = p.score || p.confidence || 0;
+        const rr = p.rr || p.risk_reward || 0;
+        return `
+            <div class="glass p-4 rounded-2xl border border-indigo-500/30 hover:border-indigo-500 transition-all cursor-pointer"
+                 onclick="window.fetchDataForSymbol('${p.symbol}', { fromIntelligence: true })">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h4 class="text-sm font-bold text-white">${p.symbol}</h4>
+                        <p class="text-[9px] text-gray-400 font-mono uppercase">${p.sector || 'Sector'}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] font-black text-indigo-400">${score}% CONF</span>
+                    </div>
+                </div>
+                <div class="mt-3 flex justify-between items-end">
+                    <div class="flex flex-col">
+                        <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Risk Reward</span>
+                        <span class="text-lg font-black text-white mono">${rr.toFixed(2)}x</span>
+                    </div>
+                    <div class="flex flex-col text-right">
+                         <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Action</span>
+                         <span class="text-[10px] font-bold text-green-400 uppercase">${p.action || 'BUY'}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+};
 
 function renderLevelList(containerId, levels, color, isMTF) {
     const list = document.getElementById(containerId);
@@ -624,28 +726,32 @@ function drawLevelsOnChart(levels, fullData = null) {
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Dashed,
             axisLabelVisible: true,
-            title: 'ENTRY',
+            title: 'ENTRY (CMP)',
         }));
 
         // Stop Loss (Red)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.stop_loss,
-            color: '#f6465d',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'SL',
-        }));
+        if (s.stop_loss) {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: s.stop_loss,
+                color: '#f6465d',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'STOP LOSS',
+            }));
+        }
 
         // Target (Green)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.target,
-            color: '#00c076',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'TGT',
-        }));
+        if (s.target) {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: s.target,
+                color: '#00c076',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'TARGET (T1)',
+            }));
+        }
     }
 
     if (!levels) return;
@@ -753,6 +859,7 @@ window.onload = function () {
         if (typeof MarketIntelligence !== 'undefined') {
             intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
             window.intelligenceApp = intelligenceApp;
+            window.marketIntelligence = intelligenceApp;
         }
 
         // Toggle Handlers
@@ -760,7 +867,8 @@ window.onload = function () {
         const rot = document.getElementById('rotation-section');
         const intel = document.getElementById('intelligence-section');
         const rotTog = document.getElementById('rotation-toggle');
-        const intelTog = document.getElementById('intelligence-toggle');
+        const intelTog = document.getElementById('view-intelligence');
+        const dashTog = document.getElementById('view-dashboard');
         const scrTog = document.getElementById('screener-toggle');
 
         // Rotation Toggle Logic
@@ -770,33 +878,68 @@ window.onload = function () {
                     rot.classList.remove('hidden');
                     std.classList.add('hidden');
                     intel.classList.add('hidden');
-                    if (intelTog) intelTog.checked = false;
                     scrTog.checked = false;
                     document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
                     fetchRotation();
                     if (rotationApp) rotationApp.resize();
+                    updateViewToggleButtons('rotation');
                 } else {
                     rot.classList.add('hidden');
-                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
+                    // Default back to dashboard
+                    std.classList.remove('hidden');
+                    updateViewToggleButtons('dashboard');
                 }
             });
         }
 
-        // Intelligence Toggle Logic
-        if (intelTog) {
-            intelTog.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    intel.classList.remove('hidden');
-                    std.classList.add('hidden');
-                    rot.classList.add('hidden');
-                    if (rotTog) rotTog.checked = false;
-                    scrTog.checked = false;
-                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                    fetchIntelligence();
+        // View Mode Toggle Helper
+        function updateViewToggleButtons(mode) {
+            if (dashTog && intelTog) {
+                if (mode === 'intelligence') {
+                    dashTog.classList.replace('bg-blue-600', 'text-gray-400');
+                    dashTog.classList.replace('text-white', 'hover:bg-gray-800');
+                    intelTog.classList.replace('text-gray-400', 'bg-blue-600');
+                    intelTog.classList.replace('hover:bg-gray-800', 'text-white');
+                } else if (mode === 'dashboard') {
+                    intelTog.classList.replace('bg-blue-600', 'text-gray-400');
+                    intelTog.classList.replace('text-white', 'hover:bg-gray-800');
+                    dashTog.classList.replace('text-gray-400', 'bg-blue-600');
+                    dashTog.classList.replace('hover:bg-gray-800', 'text-white');
                 } else {
-                    intel.classList.add('hidden');
-                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
+                    // Both off for rotation if needed, but keeping them as is visually
+                    intelTog.classList.replace('bg-blue-600', 'text-gray-400');
+                    intelTog.classList.replace('text-white', 'hover:bg-gray-800');
+                    dashTog.classList.replace('bg-blue-600', 'text-gray-400');
+                    dashTog.classList.replace('text-white', 'hover:bg-gray-800');
                 }
+            }
+        }
+
+        // Dashboard Button Logic
+        if (dashTog) {
+            dashTog.addEventListener('click', () => {
+                std.classList.remove('hidden');
+                intel.classList.add('hidden');
+                rot.classList.add('hidden');
+                if (rotTog) rotTog.checked = false;
+                scrTog.checked = false;
+                updateViewToggleButtons('dashboard');
+                // document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                fetchData(true);
+            });
+        }
+
+        // Intelligence Button Logic
+        if (intelTog) {
+            intelTog.addEventListener('click', () => {
+                intel.classList.remove('hidden');
+                std.classList.add('hidden');
+                rot.classList.add('hidden');
+                if (rotTog) rotTog.checked = false;
+                scrTog.checked = false;
+                // document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                updateViewToggleButtons('intelligence');
+                fetchIntelligence();
             });
         }
 
@@ -806,6 +949,10 @@ window.onload = function () {
         let searchTimeout;
         let selectedIndex = -1;
 
+        searchInput.addEventListener('focus', () => {
+            searchInput.select();
+        });
+
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
             clearTimeout(searchTimeout);
@@ -813,29 +960,32 @@ window.onload = function () {
 
             if (query.length < 1) {
                 resultsDiv.classList.add('hidden');
+                resultsDiv.innerHTML = '';
                 return;
             }
 
             searchTimeout = setTimeout(async () => {
                 try {
-                    const res = await fetch(`${SEARCH_URL}?q=${query}`);
+                    const res = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(query)}`);
+                    if (!res.ok) throw new Error(`Search failed: ${res.status}`);
                     const results = await res.json();
 
                     resultsDiv.innerHTML = '';
-                    if (results.length > 0) {
+                    if (results && results.length > 0) {
                         resultsDiv.classList.remove('hidden');
                         results.forEach((item, index) => {
                             const div = document.createElement('div');
-                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0 search-item";
+                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0 search-item transition-colors";
                             div.dataset.index = index;
                             div.innerHTML = `
                                 <div>
                                     <span class="font-bold text-sm text-white">${item.symbol}</span>
-                                    <p class="text-[10px] text-gray-500 truncate w-32">${item.shortname}</p>
+                                    <p class="text-[10px] text-gray-500 truncate w-40">${item.shortname}</p>
                                 </div>
-                                <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${item.exchange}</span>
+                                <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">${item.exchange}</span>
                             `;
-                            div.onclick = () => {
+                            div.onclick = (event) => {
+                                event.stopPropagation();
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
                                 fetchData();
@@ -846,9 +996,17 @@ window.onload = function () {
                         resultsDiv.classList.add('hidden');
                     }
                 } catch (err) {
-                    console.error("Search error:", err);
+                    console.error("[Search] error:", err);
+                    resultsDiv.classList.add('hidden');
                 }
             }, 300);
+        });
+
+        // Hide search results when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+                resultsDiv.classList.add('hidden');
+            }
         });
 
         searchInput.addEventListener('keydown', function (e) {
@@ -884,12 +1042,7 @@ window.onload = function () {
             }
         }
 
-        // Close dropdown when clicking outside
-        document.addEventListener('click', function (e) {
-            if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
-                resultsDiv.classList.add('hidden');
-            }
-        });
+        // No-op for redundant listener cleanup
 
         document.getElementById('tf-selector').addEventListener('change', () => {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
@@ -901,45 +1054,63 @@ window.onload = function () {
                 fetchData();
             }
         });
-        // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
-        const intradayGroup = document.getElementById('intraday-tf-toggle');
-        if (intradayGroup) {
-            const tfSelector = document.getElementById('tf-selector');
-            const buttons = intradayGroup.querySelectorAll('button[data-tf]');
-            const setActive = (activeTf) => {
-                buttons.forEach(btn => {
-                    if (btn.dataset.tf === activeTf) {
-                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
-                        btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
+        // Timeframe Dropdown (TradingView-style)
+        const tfDropBtn = document.getElementById('tf-dropdown-btn');
+        const tfDropMenu = document.getElementById('tf-dropdown-menu');
+        const tfDropLabel = document.getElementById('tf-dropdown-label');
+        const tfSelectorHidden = document.getElementById('tf-selector');
+
+        if (tfDropBtn && tfDropMenu) {
+            // Toggle open/close
+            tfDropBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                tfDropMenu.classList.toggle('open');
+            });
+
+            // Close when clicking outside
+            document.addEventListener('click', () => tfDropMenu.classList.remove('open'));
+            tfDropMenu.addEventListener('click', (e) => e.stopPropagation());
+
+            // Handle option click
+            const tfOptions = tfDropMenu.querySelectorAll('.tf-option');
+            const setActiveTfOption = (tf) => {
+                tfOptions.forEach(opt => {
+                    if (opt.dataset.tf === tf) {
+                        opt.classList.add('active');
                     } else {
-                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
-                        btn.classList.add('text-gray-300', 'hover:bg-gray-800');
+                        opt.classList.remove('active');
                     }
                 });
+                if (tfDropLabel) tfDropLabel.textContent = tf;
             };
-            buttons.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const tf = btn.dataset.tf;
-                    if (tfSelector) {
-                        tfSelector.value = tf;
-                        tfSelector.dispatchEvent(new Event('change'));
+
+            tfOptions.forEach(opt => {
+                opt.addEventListener('click', () => {
+                    const tf = opt.dataset.tf;
+                    // Sync hidden selector and fire change
+                    if (tfSelectorHidden) {
+                        tfSelectorHidden.value = tf;
+                        tfSelectorHidden.dispatchEvent(new Event('change'));
                     }
-                    setActive(tf);
-                    // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
+                    setActiveTfOption(tf);
+                    tfDropMenu.classList.remove('open');
+                    // Refresh intelligence if active
                     if (isIntelligenceModeActive()) {
                         fetchIntelligence();
                     }
                 });
             });
-            // Initialise chip state from selector's default
-            if (tfSelector) {
-                setActive(tfSelector.value);
+
+            // Initialise from selector's default value
+            if (tfSelectorHidden) {
+                setActiveTfOption(tfSelectorHidden.value || '15m');
             }
         }
+        // Legacy intraday-tf-toggle kept as empty div for backwards compat, no-op
         document.getElementById('mtf-toggle').addEventListener('change', () => {
             // Re-render chart levels without re-fetching
             if (window.lastReceivedData) {
-                drawLevelsOnChart(window.lastReceivedData.levels);
+                drawLevelsOnChart(window.lastReceivedData.levels, window.lastReceivedData);
             }
         });
         document.getElementById('search-btn').addEventListener('click', () => {
@@ -984,11 +1155,32 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence() {
+let marketStatus = { open: true, lastCheck: 0 };
+
+async function fetchIntelligence(overrideTf = null) {
     try {
         const tfSelector = document.getElementById('tf-selector');
-        const tf = tfSelector ? tfSelector.value : '1D';
+        const defaultTf = tfSelector ? tfSelector.value : '1D';
+        const tf = overrideTf || defaultTf;
         const now = Date.now();
+
+        // 0. Cache Check
+        const cacheKey = `intel_cache_${tf}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            const cacheObj = JSON.parse(cached);
+            const age = now - cacheObj.timestamp;
+            // Market closed: cache lasts 1 hour. Market open: cache lasts 20 seconds.
+            const ttl = marketStatus.open ? 20000 : 3600000;
+            
+            if (age < ttl) {
+                console.log(`%c[Intelligence] Serving ${tf} from cache (age: ${Math.round(age/1000)}s)`, "color: #10b981; font-weight: bold;");
+                applyIntelligenceData(cacheObj.data);
+                return;
+            }
+        }
+
+        console.log(`%c[Intelligence] Fetching live data for ${tf}...`, "color: #3b82f6; font-weight: bold;");
 
         // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
@@ -1050,11 +1242,36 @@ async function fetchIntelligence() {
         if (tradePerfRes && tradePerfRes.ok) {
             const tradePerfJson = await tradePerfRes.json();
             if (tradePerfJson.status === 'success') tradePerfData = tradePerfJson.data;
-        } else if (tradePerfRes) {
-            console.error(`Trade Performance API error: ${tradePerfRes.status}`);
         }
 
-        // 3. Update Intelligence Dashboard instance
+        const allData = {
+            hitsData,
+            sectorData,
+            summaryData,
+            summarySource,
+            earlyData,
+            perfData,
+            tradePerfData
+        };
+
+        // 3. Save to Cache
+        localStorage.setItem(`intel_cache_${tf}`, JSON.stringify({
+            timestamp: now,
+            data: allData
+        }));
+
+        // 4. Update Intelligence Dashboard
+        applyIntelligenceData(allData);
+
+    } catch (e) {
+        console.error("Critical failure in fetchIntelligence", e);
+    }
+}
+
+function applyIntelligenceData(allData) {
+    try {
+        const { hitsData, sectorData, summaryData, summarySource, earlyData, perfData, tradePerfData } = allData;
+        
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
                 intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
@@ -1085,7 +1302,7 @@ async function fetchIntelligence() {
             }
         }
     } catch (e) {
-        console.error("Critical failure in fetchIntelligence", e);
+        console.error("Critical failure in applyIntelligenceData", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
@@ -1096,6 +1313,9 @@ async function checkFyersStatus() {
         const res = await fetch('/api/v1/fyers/status');
         const data = await res.json();
         
+        marketStatus.open = !!data.market_open;
+        marketStatus.lastCheck = Date.now();
+
         const dot = document.getElementById('fyers-status-dot');
         const text = document.getElementById('fyers-status-text');
         const btn = document.getElementById('fyers-login-btn');
