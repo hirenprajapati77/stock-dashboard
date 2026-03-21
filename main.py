@@ -122,6 +122,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def warmup_screener_cache():
+    """Pre-warms screener cache on boot so first Intelligence load is instant."""
+    async def _run():
+        try:
+            import time
+            print("[Warmup] Pre-warming screener cache in background...")
+            t0 = time.time()
+            symbols = ConstituentService.get_nifty100_symbols()
+            ScreenerService.screen_symbols(symbols)
+            print(f"[Warmup] Done in {time.time()-t0:.1f}s")
+        except Exception as e:
+            print(f"[Warmup] Error: {e}")
+    asyncio.create_task(_run())  # fire-and-forget, server starts instantly
+
 @app.get("/api/v2/ai-insights")
 async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: Optional[int] = None):
     """
