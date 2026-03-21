@@ -3,7 +3,7 @@ import time
 
 BASE_URL = "http://localhost:8000/api/v1"
 
-def test_endpoint(path, params=None):
+def run_endpoint(path, params=None):
     url = f"{BASE_URL}{path}"
     print(f"Testing {url}...")
     try:
@@ -25,10 +25,10 @@ def test_endpoint(path, params=None):
 
 if __name__ == "__main__":
     print("--- Intelligence Endpoints ---")
-    test_endpoint("/momentum-hits")
-    test_endpoint("/sector-rotation")
-    test_endpoint("/market-summary")
-    test_endpoint("/early-setups")
+    run_endpoint("/momentum-hits")
+    run_endpoint("/sector-rotation")
+    run_endpoint("/market-summary")
+    run_endpoint("/early-setups")
     
     print("\n--- Dashboard Endpoint ---")
-    test_endpoint("/dashboard", params={"symbol": "RELIANCE", "tf": "1D"})
+    run_endpoint("/dashboard", params={"symbol": "RELIANCE", "tf": "1D"})

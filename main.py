@@ -94,7 +94,38 @@ def _to_price_list(levels):
     return prices
 
 
-def _resolve_summary_levels(cmp, supports, resistances, mtf_levels):
+def _fallback_summary_levels(df, cmp):
+    if df is None or df.empty or len(df) < 2:
+        return None, None
+
+    recent = df.tail(30)
+    support_candidates = [float(v) for v in recent["low"].iloc[:-1].tolist() if float(v) < cmp]
+    resistance_candidates = [float(v) for v in recent["high"].iloc[:-1].tolist() if float(v) > cmp]
+
+    prev = recent.iloc[-2]
+    prev_high = float(prev["high"])
+    prev_low = float(prev["low"])
+    prev_close = float(prev["close"])
+    pivot = (prev_high + prev_low + prev_close) / 3.0
+
+    s1 = (2 * pivot) - prev_high
+    s2 = pivot - (prev_high - prev_low)
+    r1 = (2 * pivot) - prev_low
+    r2 = pivot + (prev_high - prev_low)
+
+    for candidate in (prev_low, s1, s2):
+        if candidate < cmp:
+            support_candidates.append(float(candidate))
+    for candidate in (prev_high, r1, r2):
+        if candidate > cmp:
+            resistance_candidates.append(float(candidate))
+
+    nearest_support = max(support_candidates) if support_candidates else None
+    nearest_resistance = min(resistance_candidates) if resistance_candidates else None
+    return nearest_support, nearest_resistance
+
+
+def _resolve_summary_levels(cmp, supports, resistances, mtf_levels, df=None):
     primary_supports = [p for p in _to_price_list(supports) if p < cmp]
     primary_resistances = [p for p in _to_price_list(resistances) if p > cmp]
 
@@ -103,6 +134,14 @@ def _resolve_summary_levels(cmp, supports, resistances, mtf_levels):
 
     nearest_support = max(primary_supports) if primary_supports else (max(mtf_supports) if mtf_supports else None)
     nearest_resistance = min(primary_resistances) if primary_resistances else (min(mtf_resistances) if mtf_resistances else None)
+
+    if nearest_support is None or nearest_resistance is None:
+        fb_support, fb_resistance = _fallback_summary_levels(df, cmp)
+        if nearest_support is None:
+            nearest_support = fb_support
+        if nearest_resistance is None:
+            nearest_resistance = fb_resistance
+
     return nearest_support, nearest_resistance
 
 
@@ -175,10 +214,11 @@ async def search_symbols(q: str = Query(..., min_length=1)):
 
 
 @app.get("/api/v1/dashboard")
-async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR"):
+async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR", account_balance: float = 100000.0, risk_pct: float = 0.01, mode: str = "safe"):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     print(f"DEBUG: Dashboard Request - {symbol} @ {tf} | Strategy: {strategy}")
     try:
+        from app.services.observability_service import ObservabilityService
         # 0. Normalize Symbol
         norm_symbol = await asyncio.to_thread(MarketDataService.normalize_symbol, symbol)
 
@@ -247,9 +287,11 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             if error and not df.empty:
                 source = "fallback"
             elif df.empty:
+                ObservabilityService.record_missing_data("dashboard_primary_data", {"symbol": symbol, "tf": tf, "strategy": strategy})
                 return {"status": "error", "message": error or f"No data found for {symbol}.", "source": "error"}
         except asyncio.TimeoutError:
             print("CRITICAL: Primary data fetch timed out!")
+            ObservabilityService.record_api_failure("/api/v1/dashboard", "Primary market data fetch timed out", {"symbol": symbol, "tf": tf})
             return {"status": "error", "message": "Market data fetch timed out. Please retry."}
             
         cmp = float(df['close'].iloc[-1])
@@ -341,7 +383,7 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             except: continue
             
         # Initialize response_data with meta and structured levels
-        ns, nr = _resolve_summary_levels(cmp, supports, resistances, mtf_levels)
+        ns, nr = _resolve_summary_levels(cmp, supports, resistances, mtf_levels, df)
         
         response_data: Dict[str, Any] = {
             "status": "success",
@@ -370,15 +412,16 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                 "state": sector_state
             },
             "summary": {
-                "trade_signal": str(strategy_result.get("entryStatus", strategy_result.get("signal", "HOLD"))),
-                "trade_signal_reason": strategy_result.get("bias", "Neutral bias"),
+                "trade_signal": str(strategy_result.get("entryStatus", strategy_result.get("signal", "NO TRADE"))),
+                "trade_signal_reason": strategy_result.get("bias", "Trade structure needs confirmation."),
                 "confidence": int(strategy_result.get("confidence", 50)),
                 "nearest_support": ns,
                 "nearest_resistance": nr,
                 "stop_loss": strategy_result.get("stopLoss"),
                 "target": strategy_result.get("target"),
                 "risk_reward": strategy_result.get("riskReward"),
-                "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", "STABLE")
+                "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", "STABLE"),
+                "setup_type": "NONE"
             }
         }
 
@@ -387,6 +430,23 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         try:
             decision_data = TradeDecisionService.compute_trade_score(response_data)
             response_data.update(decision_data)
+            execution_plan = TradeDecisionService.build_plan(response_data, account_balance=account_balance, risk_pct=risk_pct)
+            response_data["executionPlan"] = execution_plan
+            response_data["summary"].update({
+                "trade_signal": decision_data.get("action", "NO TRADE"),
+                "trade_signal_reason": decision_data.get("explanation", "No valid trade setup available"),
+                "confidence": int(decision_data.get("confidence", 0)),
+                "score": decision_data.get("score", 0),
+                "nearest_support": decision_data.get("nearestSupport") or response_data["summary"].get("nearest_support"),
+                "nearest_resistance": decision_data.get("nearestResistance") or response_data["summary"].get("nearest_resistance"),
+                "risk_reward": execution_plan.get("riskRewardToT1", decision_data.get("rr", response_data["summary"].get("risk_reward"))),
+                "setup_type": decision_data.get("setupType", "NONE"),
+                "entry": execution_plan.get("entry"),
+                "stop_loss": execution_plan.get("stopLoss") if decision_data.get("action") == "BUY" else None,
+                "target": execution_plan.get("target1") if decision_data.get("action") == "BUY" else None,
+                "market_context_message": execution_plan.get("executeNotice"),
+            })
+            response_data["summary"]["cmp"] = response_data["meta"].get("cmp")
         except Exception as e:
             print(f"TradeDecisionService error: {e}")
 
@@ -397,9 +457,11 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 
         return _json_serializable(response_data)
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
         import traceback
         print(f"CRITICAL API ERROR in get_dashboard: {e}")
         traceback.print_exc()
+        ObservabilityService.record_api_failure("/api/v1/dashboard", str(e), {"symbol": symbol, "tf": tf, "strategy": strategy})
         return _json_serializable({
             "status": "error",
             "message": f"Server Error: {str(e)}",
@@ -525,6 +587,8 @@ async def get_sector_rotation(tf: str = "1D"):
             "source": source
         }
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/sector-rotation", str(e), {"tf": tf})
         print(f"Error in get_sector_rotation: {e}")
         try:
             from app.services.sector_service import SectorService
@@ -541,11 +605,12 @@ async def get_sector_rotation(tf: str = "1D"):
         return {"status": "error", "message": str(e), "source": "error"}
 
 @app.get("/api/v1/momentum-hits")
-async def get_momentum_hits(tf: str = "1D"):
+async def get_momentum_hits(tf: str = "1D", mode: str = "safe", account_balance: float = 100000.0, risk_pct: float = 0.01):
     """
     Returns stocks with momentum hits (price and volume acceleration).
     """
     try:
+        from app.services.observability_service import ObservabilityService
         from app.services.screener_service import ScreenerService as MomentumScreener
         from app.services.signal_filter_service import SignalFilterService
         from app.services.trade_decision_service import TradeDecisionService
@@ -559,22 +624,31 @@ async def get_momentum_hits(tf: str = "1D"):
              pass
              
         filtered = SignalFilterService.annotate_many(data)
-        enriched = TradeDecisionService.annotate_many(filtered)
-        TradeTrackingService.log_trades(enriched)
+        enriched = TradeDecisionService.annotate_many(filtered, account_balance=account_balance, risk_pct=risk_pct, mode=mode)
+        market_context = TradeDecisionService.derive_market_context(enriched)
+        top_trades = TradeDecisionService.select_top_trades(enriched, mode=mode, market_context=market_context)
+        TradeTrackingService.log_trades(enriched, market_context=market_context, mode=mode)
+        if not enriched:
+            ObservabilityService.record_missing_data("momentum_hits", {"tf": tf, "mode": mode})
         
-        # Detect if this is fallback data (if all items are old)
         source = "live"
-        if enriched and not any(h.get("isLatestSession", False) for h in enriched):
+        if top_trades and not any(h.get("isLatestSession", False) for h in top_trades):
             source = "fallback"
 
         return {
             "status": "success",
-            "count": len(enriched),
-            "data": enriched,
+            "count": len(top_trades),
+            "data": top_trades,
+            "topTrades": top_trades,
+            "totalCandidates": len(enriched),
+            "marketContext": market_context,
+            "mode": mode,
             "source": source
         }
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
         print(f"ERROR in get_momentum_hits: {e}")
+        ObservabilityService.record_api_failure("/api/v1/momentum-hits", str(e), {"tf": tf, "mode": mode})
         # Try emergency fallback load in the outer catch too
         try:
              from app.services.screener_service import ScreenerService as MomentumScreener
@@ -633,6 +707,8 @@ async def get_trade_performance():
         from app.services.trade_tracking_service import TradeTrackingService
         return {"status": "success", "data": TradeTrackingService.get_performance()}
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/trade-performance", str(e))
         return {"status": "error", "data": {}, "message": str(e)}
 
 @app.get("/api/v1/signal-performance")
@@ -646,6 +722,8 @@ async def get_signal_performance(tf: str = "1D"):
         perf = SignalPerformanceService.compute(timeframe=tf)
         return {"status": "success", "data": perf.to_dict()}
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/signal-performance", str(e), {"tf": tf})
         return {"status": "error", "data": {}, "message": str(e)}
 
 @app.get("/api/v1/market-summary")
@@ -670,6 +748,8 @@ async def get_market_summary(tf: str = "1D"):
             "market_open": session_tag != "CLOSED"
         }
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/market-summary", str(e), {"tf": tf})
         print(f"Error in get_market_summary: {e}")
         return {
             "status": "error",

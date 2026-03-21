@@ -1,0 +1,38 @@
+[
+  {
+    "kind": "FAIL_SAFE",
+    "endpoint": "TradeDecisionService",
+    "message": "Fail-safe triggered",
+    "details": {
+      "explanation": "System unable to validate setup"
+    },
+    "timestamp": "2026-03-21T18:48:33.359173+00:00"
+  },
+  {
+    "kind": "FAIL_SAFE",
+    "endpoint": "TradeDecisionService",
+    "message": "Fail-safe triggered",
+    "details": {
+      "explanation": "System unable to validate setup"
+    },
+    "timestamp": "2026-03-21T18:48:05.548488+00:00"
+  },
+  {
+    "kind": "FAIL_SAFE",
+    "endpoint": "TradeDecisionService",
+    "message": "Fail-safe triggered",
+    "details": {
+      "explanation": "System unable to validate setup"
+    },
+    "timestamp": "2026-03-21T18:47:33.708356+00:00"
+  },
+  {
+    "kind": "FAIL_SAFE",
+    "endpoint": "TradeDecisionService",
+    "message": "Fail-safe triggered",
+    "details": {
+      "explanation": "System unable to validate setup"
+    },
+    "timestamp": "2026-03-21T18:47:05.333527+00:00"
+  }
+]

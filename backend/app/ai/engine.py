@@ -14,7 +14,7 @@ class AIEngine:
         if df.empty or len(df) < 50:
             return {
                 "status": "error",
-                "message": "Insufficient data for AI analysis (min 50 candles required)."
+                "message": "Trend and breakout quality cannot be assessed yet because fewer than 50 candles are available. Wait for more price history before acting on this signal."
             }
 
         # 1. Feature Engineering

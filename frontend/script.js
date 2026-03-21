@@ -25,6 +25,34 @@ let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 
 
+function getExecutionSettings() {
+    const modeEl = document.getElementById('execution-mode');
+    const riskEl = document.getElementById('risk-pct-selector');
+    const balanceEl = document.getElementById('account-balance');
+    return {
+        mode: modeEl ? modeEl.value : 'safe',
+        riskPct: riskEl ? parseFloat(riskEl.value || '0.01') : 0.01,
+        accountBalance: balanceEl ? parseFloat(balanceEl.value || '100000') : 100000,
+    };
+}
+
+function executionQueryParams() {
+    const settings = getExecutionSettings();
+    return `mode=${encodeURIComponent(settings.mode)}&risk_pct=${encodeURIComponent(settings.riskPct)}&account_balance=${encodeURIComponent(settings.accountBalance)}`;
+}
+
+function renderTopTradesContextBanner(marketContext) {
+    const banner = document.getElementById('top-trades-context');
+    if (!banner || !marketContext) return;
+    banner.textContent = marketContext.message || '';
+    banner.classList.remove('hidden');
+    if (marketContext.lowConviction) {
+        banner.className = 'mb-3 text-[10px] text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2';
+    } else {
+        banner.className = 'mb-3 text-[10px] text-green-300 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2';
+    }
+}
+
 function isIntelligenceModeActive() {
     const intelligenceSection = document.getElementById('intelligence-section');
     return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
@@ -205,7 +233,7 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&${executionQueryParams()}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -296,9 +324,10 @@ function updateStrategyUI(data) {
         document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volRatio > 1.2 ? 'Spike' : 'Normal'}`;
         document.getElementById('metric-volume').className = `text-sm font-bold ${volRatio > 1.2 ? 'text-up' : 'text-white'}`;
 
-        const setupText = (insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : '');
-        document.getElementById('metric-setup').textContent = setupText || 'No Setup';
-        document.getElementById('metric-setup').className = `text-sm font-bold ${setupText ? 'text-up' : 'text-gray-500'}`;
+        const setupText = data.setupType || summary.setup_type || ((insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : ''));
+        const normalizedSetup = setupText && setupText !== 'NONE' ? setupText.replaceAll('_', ' ') : 'No Setup';
+        document.getElementById('metric-setup').textContent = normalizedSetup;
+        document.getElementById('metric-setup').className = `text-sm font-bold ${normalizedSetup !== 'No Setup' ? 'text-up' : 'text-gray-500'}`;
 
         const s0 = summary.nearest_support;
         const cmp = data.meta.cmp;
@@ -333,6 +362,7 @@ function formatVal(v) {
     if (typeof v === 'number') return v.toFixed(2);
     return v;
 }
+window.formatVal = formatVal;
 
 function updateUI(data) {
     try {
@@ -395,28 +425,31 @@ function updateUI(data) {
             const el = document.getElementById(id);
             if (el) el.textContent = formatWithCurrency(val);
         };
+        const isNoTrade = (data.action || data.summary?.trade_signal || '').toUpperCase() === 'NO TRADE';
         setVal('nearest-support', data.summary.nearest_support);
         setVal('nearest-resistance', data.summary.nearest_resistance);
-        setVal('stop-loss', data.summary.stop_loss);
+        setVal('stop-loss', isNoTrade ? '—' : data.summary.stop_loss);
         const rrEl = document.getElementById('risk-reward');
-        if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
+        if (rrEl) rrEl.textContent = isNoTrade || !data.summary.risk_reward ? '—' : data.summary.risk_reward;
 
         const signalEl = document.getElementById('trade-signal');
         const signalReasonEl = document.getElementById('trade-signal-reason');
-        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
+        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'NO TRADE';
         if (signalEl) {
             signalEl.textContent = signal;
             signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
                 ? 'bg-green-600/20 text-green-300 border border-green-500/40'
-                : signal === 'SELL'
-                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
-                    : 'bg-gray-800 text-gray-400 border border-gray-700'
+                : signal === 'WATCH'
+                    ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40'
+                    : 'bg-red-600/20 text-red-300 border border-red-500/40'
                 }`;
         }
         if (signalReasonEl) {
-            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
-                ? data.summary.trade_signal_reason
-                : 'Signal updates with EMA bias + structure.';
+            signalReasonEl.textContent = isNoTrade
+                ? 'No valid trade setup available'
+                : ((data.summary && data.summary.trade_signal_reason)
+                    ? data.summary.trade_signal_reason
+                    : 'Setup is valid but still needs confirmation.');
         }
 
         // 2. Insights
@@ -562,88 +595,86 @@ function updateDecisionStrip(data) {
     const rrEl = document.getElementById('strip-rr');
     const setupEl = document.getElementById('strip-setup');
     const reasonsEl = document.getElementById('decision-reasons');
-    
-    // New: Positives and Risks lists
     const posList = document.getElementById('positives-list');
     const riskList = document.getElementById('risks-list');
 
     if (!strip || !data.action) return;
 
-    // 1. Action & Confidence
+    const isNoTrade = data.action === 'NO TRADE';
     actionEl.textContent = data.action;
-    actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
-    
-    // Pulse for STRONG actions
-    if (data.action.includes('STRONG')) {
-        actionEl.classList.add('animate-pulse', 'border-2');
-        if (data.action.includes('BUY')) actionEl.classList.add('border-green-400');
-        else actionEl.classList.add('border-red-400');
-    }
+    actionEl.className = `action-chip ${data.action.toLowerCase().replace(/\s+/g, '-')}`;
 
     const score = data.score || data.confidence || 0;
+    const plan = data.executionPlan || {};
     confEl.textContent = `${score}%`;
-    
-    // Dynamic color for confidence
     if (score >= 80) confEl.className = 'text-2xl font-black text-green-400 tracking-tighter shadow-green-500/20';
     else if (score >= 60) confEl.className = 'text-2xl font-black text-blue-400 tracking-tighter';
-    else confEl.className = 'text-2xl font-black text-yellow-500 tracking-tighter';
+    else confEl.className = 'text-2xl font-black text-red-400 tracking-tighter';
 
-    // 2. Execution Levels
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
     const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
-    
-    entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
-    slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
-    tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
-    
-    if (rrEl) rrEl.textContent = `${(data.rr || data.summary.risk_reward || 0).toFixed(2)}x`;
-    if (setupEl) setupEl.textContent = data.setupType || data.summary.setup_type || '---';
 
-    // 3. Reason Tags (Main Strip)
+    const entryVal = data.action === 'BUY' ? plan.entry : data.meta.cmp;
+    const stopVal = data.action === 'BUY' ? plan.stopLoss : data.summary.stop_loss;
+    const targetVal = data.action === 'BUY' ? plan.target1 : data.summary.target;
+    const rrVal = data.action === 'BUY' ? plan.riskRewardToT1 : (data.rr || data.summary.risk_reward || 0);
+
+    entryEl.textContent = isNoTrade ? '—' : `${currencySym}${formatVal(entryVal)}`;
+    slEl.textContent = isNoTrade ? '—' : `${currencySym}${formatVal(stopVal)}`;
+    tgtEl.textContent = isNoTrade ? '—' : `${currencySym}${formatVal(targetVal)}`;
+    if (rrEl) rrEl.textContent = isNoTrade ? '—' : `${Number(rrVal || 0).toFixed(2)}x`;
+    if (setupEl) setupEl.textContent = (data.setupType || data.summary.setup_type || 'NO TRADE').replaceAll('_', ' ');
+
     if (reasonsEl) {
-        reasonsEl.innerHTML = (data.reasonTags || []).slice(0, 4).map(tag => 
-            `<span class="reason-tag">${tag}</span>`
-        ).join('');
+        const tags = isNoTrade
+            ? ['No valid trade setup available']
+            : data.action === 'BUY'
+                ? ['Execute Plan', ...(data.reasonTags || []).slice(0, 3)]
+                : (data.reasonTags || []).slice(0, 4);
+        reasonsEl.innerHTML = tags.map(tag => `<span class="reason-tag">${tag}</span>`).join('');
     }
 
-    // 4. Positives & Risks Detailed Lists (Decision Logic v2.0)
     const factors = data.confidenceFactors || [];
     if (posList && riskList) {
-        const positives = factors.filter(f => f.positive);
-        const risks = factors.filter(f => !f.positive);
+        const positives = isNoTrade ? [] : factors.filter(f => f.positive);
+        const risks = isNoTrade
+            ? [{ label: 'Decision', value: 'No valid trade setup available' }, ...(data.validationReasons || []).map(r => ({ label: 'Validation', value: r }))]
+            : factors.filter(f => !f.positive);
 
-        posList.innerHTML = positives.length > 0 
+        posList.innerHTML = positives.length > 0
             ? positives.map(f => `
                 <li class="flex items-center justify-between text-[11px]">
                     <span class="text-gray-300 font-medium">${f.label}</span>
                     <span class="text-green-400 font-bold font-mono">${f.value}</span>
                 </li>
             `).join('')
-            : '<li class="text-[10px] text-gray-500 italic">No major positives identified.</li>';
+            : '<li class="text-[10px] text-gray-500 italic">No valid trade setup available.</li>';
 
         riskList.innerHTML = risks.length > 0
             ? risks.map(f => `
-                <li class="flex items-center justify-between text-[11px]">
+                <li class="flex items-center justify-between gap-3 text-[11px]">
                     <span class="text-gray-400 font-medium">${f.label}</span>
-                    <span class="text-red-400 font-bold font-mono">${f.value}</span>
+                    <span class="text-red-400 font-bold text-right">${f.value}</span>
                 </li>
             `).join('')
             : '<li class="text-[10px] text-gray-500 italic">No critical risks flagged.</li>';
     }
 }
 
-window.renderTopPicks = function(hits) {
+window.renderTopPicks = function(hits, options = {}) {
     const section = document.getElementById('top-picks-section');
     const container = document.getElementById('top-picks-container');
     if (!section || !container) return;
 
-    // Filter: Score > 70 AND RR >= 2 (as per requirements)
-    const topPicks = hits.filter(h => {
-        const score = h.score || h.confidence || 0;
-        const rr = h.rr || h.risk_reward || 0;
-        return score >= 70 && rr >= 2.0;
-    }).sort((a,b) => (b.score || b.confidence || 0) - (a.score || a.confidence || 0))
-      .slice(0, 3);
+    const topPicks = (hits || []).filter(h => {
+        const confidence = h.confidence || 0;
+        const rr = h.executionPlan?.riskRewardToT1 || h.rr || h.risk_reward || 0;
+        return (h.action || '').toUpperCase() === 'BUY' && confidence > 70 && rr >= 2;
+    }).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 3);
+
+    if (options.marketContext) {
+        renderTopTradesContextBanner(options.marketContext);
+    }
 
     if (topPicks.length === 0) {
         section.classList.add('hidden');
@@ -652,30 +683,47 @@ window.renderTopPicks = function(hits) {
 
     section.classList.remove('hidden');
     container.innerHTML = topPicks.map(p => {
-        const score = p.score || p.confidence || 0;
-        const rr = p.rr || p.risk_reward || 0;
+        const plan = p.executionPlan || {};
+        const trust = p.trustSignals || {};
+        const tags = (p.reasonTags || []).slice(0, 3).map(tag => `<span class="reason-tag">${tag}</span>`).join('');
+        const confirmations = (plan.entryConfirmation || []).map(item => `<li>${item}</li>`).join('');
+        const invalidates = (p.whatInvalidates || []).slice(0, 2).join(' • ');
         return `
-            <div class="glass p-4 rounded-2xl border border-indigo-500/30 hover:border-indigo-500 transition-all cursor-pointer"
+            <div class="glass p-4 rounded-2xl border border-green-500/30 hover:border-green-400 transition-all cursor-pointer"
                  onclick="window.fetchDataForSymbol('${p.symbol}', { fromIntelligence: true })">
-                <div class="flex justify-between items-start">
+                <div class="flex justify-between items-start gap-3">
                     <div>
                         <h4 class="text-sm font-bold text-white">${p.symbol}</h4>
-                        <p class="text-[9px] text-gray-400 font-mono uppercase">${p.sector || 'Sector'}</p>
+                        <p class="text-[9px] text-green-400 font-black uppercase tracking-widest">🔥 TOP TRADE #${p.topTradeRank || ''}</p>
                     </div>
                     <div class="text-right">
-                        <span class="text-[10px] font-black text-indigo-400">${score}% CONF</span>
+                        <div class="text-lg font-black text-white mono">${Math.round(p.score || 0)}</div>
+                        <div class="text-[8px] text-gray-500 uppercase tracking-widest">Score</div>
                     </div>
                 </div>
-                <div class="mt-3 flex justify-between items-end">
-                    <div class="flex flex-col">
-                        <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Risk Reward</span>
-                        <span class="text-lg font-black text-white mono">${rr.toFixed(2)}x</span>
-                    </div>
-                    <div class="flex flex-col text-right">
-                         <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Action</span>
-                         <span class="text-[10px] font-bold text-green-400 uppercase">${p.action || 'BUY'}</span>
-                    </div>
+                <div class="mt-3 flex items-center justify-between">
+                    <span class="text-[10px] font-black uppercase text-green-400">${p.action}</span>
+                    <span class="text-[10px] font-bold text-blue-300">${plan.executeNotice || 'Execute only if conditions are met'}</span>
                 </div>
+                <div class="grid grid-cols-2 gap-2 mt-3 text-[10px]">
+                    <div class="rounded-xl bg-gray-900/70 border border-gray-800 p-2"><span class="block text-gray-500 uppercase">Entry</span><span class="mono font-bold text-white">₹${formatVal(plan.entry)}</span></div>
+                    <div class="rounded-xl bg-gray-900/70 border border-gray-800 p-2"><span class="block text-gray-500 uppercase">Stop</span><span class="mono font-bold text-down">₹${formatVal(plan.stopLoss)}</span></div>
+                    <div class="rounded-xl bg-gray-900/70 border border-gray-800 p-2"><span class="block text-gray-500 uppercase">Target</span><span class="mono font-bold text-up">₹${formatVal(plan.target1)}</span></div>
+                    <div class="rounded-xl bg-gray-900/70 border border-gray-800 p-2"><span class="block text-gray-500 uppercase">RR</span><span class="mono font-bold text-white">${Number(plan.riskRewardToT1 || p.rr || 0).toFixed(2)}x</span></div>
+                </div>
+                <div class="mt-3 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Entry Type:</span> ${plan.entryType || '—'}</div>
+                <div class="mt-1 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Position:</span> ${plan.positionSizingSuggestion || '—'}</div>
+                <div class="mt-1 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Exit:</span> ${plan.partialProfitPlan || ''} ${plan.trailingStopPlan || ''}</div>
+                <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                    <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/20 p-2"><span class="block text-cyan-300 uppercase tracking-widest text-[8px]">Setup Win Rate</span><span class="font-black text-white">${Number(trust.setupWinRate || 0).toFixed(0)}%</span></div>
+                    <div class="rounded-xl bg-indigo-500/5 border border-indigo-500/20 p-2"><span class="block text-indigo-300 uppercase tracking-widest text-[8px]">Sector Performance</span><span class="font-black text-white">${Number(trust.sectorPerformancePct || 0).toFixed(1)}%</span></div>
+                </div>
+                <div class="mt-2 text-[10px] text-cyan-100">${trust.trustMessage || ''}</div>
+                <div class="mt-2 text-[10px] text-gray-400">${p.whyRankedTop || p.explanation || ''}</div>
+                <ul class="mt-2 text-[10px] text-blue-300 list-disc list-inside space-y-1">${confirmations}</ul>
+                <div class="mt-2 flex flex-wrap gap-2">${tags}</div>
+                <div class="mt-2 text-[10px] text-red-300"><span class="font-bold uppercase">What can go wrong:</span> ${(p.whatCanGoWrong || []).join(' • ')}</div>
+                <div class="mt-1 text-[10px] text-yellow-300"><span class="font-bold uppercase">Invalidates:</span> ${invalidates || '—'}</div>
             </div>
         `;
     }).join('');
@@ -715,7 +763,7 @@ function drawLevelsOnChart(levels, fullData = null) {
     levelsLayer = [];
 
     // 1. Draw Execution Overlays (Entry, SL, Target)
-    if (fullData && fullData.summary) {
+    if (fullData && fullData.summary && (fullData.action || fullData.summary.trade_signal) !== 'NO TRADE') {
         const s = fullData.summary;
         const cmp = fullData.meta.cmp;
 
@@ -1184,7 +1232,7 @@ async function fetchIntelligence(overrideTf = null) {
 
         // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&${executionQueryParams()}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
@@ -1274,7 +1322,10 @@ function applyIntelligenceData(allData) {
         
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
-                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
+                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live', {
+                    marketContext: hitsData.marketContext,
+                    mode: hitsData.mode,
+                });
             }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
                 intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');

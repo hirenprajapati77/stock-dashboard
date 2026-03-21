@@ -284,6 +284,7 @@ class ZoneEngine:
 
         from app.engine.zones import ZoneEngine
         from app.engine.insights import InsightEngine
+        from app.engine.regime import MarketRegimeEngine
         import numpy as np
 
         if zones is None:
@@ -297,6 +298,7 @@ class ZoneEngine:
         # --- SAFE ATR ---
         atr_series = ZoneEngine.calculate_atr(df)
         atr = atr_series.iloc[-1] if not np.isnan(atr_series.iloc[-1]) else 0
+        regime = MarketRegimeEngine.detect_regime(df)
 
         # --- SAFE ADX ---
         try:
@@ -317,6 +319,7 @@ class ZoneEngine:
         demand_zones = sorted(demand_zones, key=lambda x: x.get('price', 0), reverse=True)
 
         if not demand_zones:
+            grade = MarketRegimeEngine.get_grade(0)
             return {
                 "bias": "NEUTRAL",
                 "entryStatus": "AVOID",
@@ -324,7 +327,9 @@ class ZoneEngine:
                 "target": round(cmp * 1.05, 2),
                 "riskReward": 0,
                 "confidence": 0,
+                "grade": grade,
                 "additionalMetrics": {
+                    "regime": regime,
                     "freshness": "N/A",
                     "departureStrength": 0,
                     "zoneRange": "NONE",
@@ -371,6 +376,7 @@ class ZoneEngine:
             score += 15
 
         confidence = min(score, 100)
+        grade = MarketRegimeEngine.get_grade(int(confidence))
 
         # --- STATUS ---
         if confidence >= 75:
@@ -410,9 +416,11 @@ class ZoneEngine:
             "target": round(target, 2),
             "riskReward": round(rr, 2),
             "confidence": confidence,
+            "grade": grade,
             "nearest_support": nearest_support,
             "nearest_resistance": nearest_resistance,
             "additionalMetrics": {
+                "regime": regime,
                 "zoneWidth": round(zone_width, 2),
                 "adx": round(adx, 2),
                 "volRatio": round(vol_ratio, 2),

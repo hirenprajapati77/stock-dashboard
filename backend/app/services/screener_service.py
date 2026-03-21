@@ -207,9 +207,33 @@ class ScreenerService:
         return float(final_score)
 
     @classmethod
-    def get_entry_tag(cls, quality_score: float, sector_state: str, stock_active: bool) -> str:
-        """Phase 4: Updated Entry Tagging Logic based on Quality Score"""
+    def get_entry_tag(
+        cls,
+        quality_score: float | None = None,
+        sector_state: str = "NEUTRAL",
+        stock_active: bool = False,
+        price_above_vwap: bool | None = None,
+        breakout_confirmed: bool | None = None,
+        vol_ratio: float | None = None,
+    ) -> str:
+        """
+        Phase 4 tagging with backward-compatible support for the legacy
+        price/volume confirmation inputs used by older tests.
+        """
         if sector_state == "LAGGING" or not stock_active:
+            return "AVOID"
+
+        if quality_score is None:
+            vol_ratio_val = float(vol_ratio or 0.0)
+            above_vwap = bool(price_above_vwap)
+            breakout_ready = bool(breakout_confirmed)
+
+            if above_vwap and breakout_ready and vol_ratio_val >= 1.5:
+                return "ENTRY_READY"
+            if above_vwap and vol_ratio_val >= 1.5:
+                return "WAIT"
+            if above_vwap or vol_ratio_val >= 1.2:
+                return "WATCHLIST"
             return "AVOID"
         
         if quality_score >= 80:
@@ -380,7 +404,10 @@ class ScreenerService:
         }
 
         # Fetch sector rotation data to get current states for the hard gate
-        sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf, include_constituents=False)
+        try:
+            sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf, include_constituents=False)
+        except Exception:
+            sector_data = {}
         all_sector_states = {info.get("metrics", {}).get("state", "NEUTRAL") 
                              for info in sector_data.values()}
         # Relax sector gate to NEUTRAL if most sectors are NEUTRAL 
@@ -400,6 +427,10 @@ class ScreenerService:
                 
                 symbol_df = raw_df.copy()
                 symbol_df.columns = [c.lower() for c in symbol_df.columns]
+                if "close" in symbol_df.columns:
+                    for missing_col in ("open", "high", "low"):
+                        if missing_col not in symbol_df.columns:
+                            symbol_df[missing_col] = symbol_df["close"]
                 
                 close = symbol_df['close'].dropna()
                 volume = symbol_df['volume'].dropna()
@@ -439,6 +470,21 @@ class ScreenerService:
                 # --- HARD SECTOR GATE (LOCKED v1.0) ---
                 sector_info = sector_data.get(sector_key, {})
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
+                if str(sector_key) in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                    sector_symbol = str(cls.SECTOR_INDEX_BY_KEY.get(str(sector_key), ""))
+                    sector_batch_any: Any = sector_batch_df
+                    sector_live_df = sector_batch_any[sector_symbol] if isinstance(sector_batch_any.columns, pd.MultiIndex) else sector_batch_any
+                    if sector_live_df is not None and not sector_live_df.empty:
+                        sec_close_col = "Close" if "Close" in sector_live_df.columns else "close"
+                        sector_close_live = sector_live_df[sec_close_col].dropna()
+                        if len(sector_close_live) >= 2:
+                            latest_sector_change = float((sector_close_live.pct_change() * 100).iloc[-1])
+                            if sector_state == "LAGGING" and latest_sector_change >= 0:
+                                sector_state = "IMPROVING"
+                            elif sector_state == "NEUTRAL" and latest_sector_change >= rule.change_threshold:
+                                sector_state = "IMPROVING"
+                if not sector_info and "NEUTRAL" not in gate_states:
+                    gate_states = [*gate_states, "NEUTRAL"]
                 
                 if sector_state not in gate_states:
                     # print(f"DEBUG SCREENER: {symbol} FAILED Sector Gate. State: {sector_state}")

@@ -61,7 +61,7 @@ class MarketIntelligence {
         }
     }
 
-    updateHits(hits, source = 'live') {
+    updateHits(hits, source = 'live', options = {}) {
         this.updateSyncStatus(source);
         if (!this.hitsBody) return;
 
@@ -79,7 +79,7 @@ class MarketIntelligence {
         
         this._renderHitsTable();
         if (window.renderTopPicks) {
-            window.renderTopPicks(this.allHits);
+            window.renderTopPicks(this.allHits, options);
         }
     }
 
@@ -274,12 +274,33 @@ class MarketIntelligence {
             const el = document.getElementById(id);
             if (el) el.textContent = val;
         };
+        const renderList = (id, rows, renderRow) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (!Array.isArray(rows) || rows.length === 0) {
+                el.innerHTML = '<div class="text-gray-500 italic">No data yet.</div>';
+                return;
+            }
+            el.innerHTML = rows.map(renderRow).join('');
+        };
 
         setTxt('trade-total', data.totalTrades ?? 0);
+        setTxt('analytics-actionable', data.actionableTrades ?? 0);
         setTxt('trade-win-rate', `${data.winRate ?? 0}%`);
         setTxt('trade-avg-r', `${(data.avgR ?? 0).toFixed ? (data.avgR ?? 0).toFixed(2) : data.avgR}R`);
         setTxt('trade-max-dd', `${(data.maxDrawdownR ?? 0).toFixed ? (data.maxDrawdownR ?? 0).toFixed(2) : data.maxDrawdownR}R`);
         setTxt('trade-profit-factor', (data.profitFactor ?? 0).toFixed ? (data.profitFactor ?? 0).toFixed(2) : data.profitFactor);
+        setTxt('analytics-no-trade-rate', `${data.noTradeRate ?? 0}%`);
+        setTxt('analytics-api-failures', data.observability?.apiFailures ?? 0);
+        setTxt('analytics-missing-data', data.observability?.missingDataCases ?? 0);
+        setTxt('analytics-failsafes', data.observability?.failSafeTriggers ?? 0);
+        setTxt('analytics-data-inconsistencies', data.observability?.dataInconsistencies ?? 0);
+
+        const bestSetup = data.bestPerformingSetup || {};
+        const worstSetup = data.worstPerformingSetup || {};
+        setTxt('analytics-best-setup', bestSetup.label ? `${bestSetup.label} · ${bestSetup.winRate ?? 0}% WR` : '—');
+        setTxt('analytics-worst-setup', worstSetup.label ? `${worstSetup.label} · ${worstSetup.winRate ?? 0}% WR` : '—');
+        setTxt('analytics-confidence-threshold', `Conf ≥ ${Math.round(data.strategyInsights?.confidenceThreshold ?? data.adaptiveIntelligence?.thresholds?.buyConfidence ?? 70)}`);
 
         const best = document.getElementById('trade-best-setups');
         const worst = document.getElementById('trade-worst-setups');
@@ -291,6 +312,74 @@ class MarketIntelligence {
         if (worst) {
             const rows = Array.isArray(data.worstSetups) ? data.worstSetups.slice(0, 3) : [];
             worst.textContent = rows.length ? rows.map(r => `${r.symbol} (${Number(r.pnlR).toFixed(2)}R)`).join(' • ') : '—';
+        }
+
+        renderList('analytics-outcomes', data.outcomes, row => `
+            <div class="flex items-center justify-between rounded-xl bg-gray-950/60 border border-gray-800 px-3 py-2">
+                <span class="font-bold uppercase tracking-widest text-gray-400">${row.label.replaceAll('_', ' ')}</span>
+                <span class="font-black text-white">${row.count}</span>
+            </div>
+        `);
+
+        renderList('analytics-setup-effectiveness', (data.setupPerformance || []).slice(0, 5), row => `
+            <div class="rounded-xl bg-gray-950/60 border border-gray-800 px-3 py-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold uppercase tracking-widest text-gray-300">${row.label}</span>
+                    <span class="font-black text-green-300">${row.winRate}%</span>
+                </div>
+                <div class="mt-1 text-gray-500">Avg RR ${Number(row.avgRR || 0).toFixed(2)} · ${row.count} trades</div>
+            </div>
+        `);
+
+        renderList('analytics-sector-performance', (data.performanceBySector || []).slice(0, 5), row => `
+            <div class="rounded-xl bg-gray-950/60 border border-gray-800 px-3 py-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold uppercase tracking-widest text-gray-300">${row.label}</span>
+                    <span class="font-black text-blue-300">${row.winRate}%</span>
+                </div>
+                <div class="mt-1 text-gray-500">Avg RR ${Number(row.avgRR || 0).toFixed(2)} · ${row.count} trades</div>
+            </div>
+        `);
+
+        renderList('analytics-trend', data.recentTrend, row => `
+            <div class="rounded-xl bg-gray-950/60 border border-gray-800 px-3 py-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-gray-300">${row.date}</span>
+                    <span class="font-black text-white">${row.winRate}% WR</span>
+                </div>
+                <div class="mt-1 text-gray-500">${row.count} trades · Avg RR ${Number(row.avgRR || 0).toFixed(2)}</div>
+            </div>
+        `);
+
+        renderList('analytics-focus-areas', data.strategyInsights?.suggestedFocusAreas || data.adaptiveIntelligence?.focusAreas, row => `
+            <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/10 px-3 py-2 text-cyan-50">
+                ${typeof row === 'string' ? row : (row?.message || 'No focus areas yet.')}
+            </div>
+        `);
+
+        const combinedAlerts = [
+            ...(Array.isArray(data.alerts) ? data.alerts : []),
+            ...(Array.isArray(data.observability?.alerts) ? data.observability.alerts : []),
+        ];
+        renderList('analytics-alerts', combinedAlerts, row => `
+            <div class="rounded-xl px-3 py-2 border ${row.severity === 'critical' ? 'border-red-500/30 bg-red-500/10 text-red-200' : row.severity === 'warning' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200' : 'border-blue-500/30 bg-blue-500/10 text-blue-200'}">
+                <div class="font-bold uppercase tracking-widest text-[9px]">${row.type.replaceAll('_', ' ')}</div>
+                <div class="mt-1">${row.message}</div>
+            </div>
+        `);
+
+        const chip = document.getElementById('analytics-alert-chip');
+        if (chip) {
+            if (combinedAlerts.some(a => a.severity === 'critical')) {
+                chip.className = 'px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-200';
+                chip.textContent = 'Critical Alert';
+            } else if (combinedAlerts.some(a => a.severity === 'warning')) {
+                chip.className = 'px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-yellow-200';
+                chip.textContent = 'Warnings';
+            } else {
+                chip.className = 'px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-green-500/10 border border-green-500/30 text-green-200';
+                chip.textContent = 'Healthy';
+            }
         }
     }
 
@@ -841,83 +930,59 @@ class MarketIntelligence {
     }
 
     // AUTO-EXPLANATION ENGINE v1.1 (LOCKED)
+
     _generateExplanation(hit, options = { short: false }) {
         if (!hit) return "";
+        if (hit.explanation) {
+            return hit.explanation;
+        }
+
         const technical = hit.technical || {};
         const session = hit.session || {};
+        const setupType = String(hit.setupType || hit.entryTag || 'NONE').replaceAll('_', ' ');
+        const breakoutConfirmed = !!technical.isBreakout;
+        const retestConfirmed = !!(technical.retest || hit.retest);
+        const support = Number(hit.nearestSupport || hit.nearest_support || hit.summary?.nearest_support || 0);
+        const price = Number(hit.price || hit.meta?.cmp || 0);
+        const adx = Number(hit.adx || technical.adx || hit.insights?.adx || 0);
 
-        const data = {
-            sectorState: hit.sectorState || "NEUTRAL",
-            stockState: hit.stockActive ? "ACTIVE" : "WEAK",
-            entryTag: hit.entryTag || "AVOID",
-            priceAboveVWAP: !!technical.aboveVWAP,
-            breakoutConfirmed: !!technical.isBreakout,
-            volumeRatio: hit.volRatio || hit.volumeShocker || 0,
-            sessionTag: session.quality || "AVOID",
-            riskLevel: hit.riskLevel || "HIGH"
-        };
-
-        const lines = [];
-
-        // Signal headline
-        if (data.entryTag === "ENTRY_READY") {
-            lines.push("Conditions are aligned for an actionable setup.");
-        } else if (data.entryTag === "WAIT") {
-            lines.push("The setup is forming, but confirmation is still pending.");
-        } else {
-            lines.push("Conditions are not aligned for a reliable setup.");
+        const parts = [];
+        if ((hit.action || '').toUpperCase() === 'NO TRADE') {
+            const reasons = [];
+            if (adx && adx < 20) reasons.push('trend is weak');
+            if (!breakoutConfirmed && !retestConfirmed) reasons.push('no breakout or retest is confirmed');
+            if (!support) reasons.push('support is not reliable');
+            else if (price && ((price - support) / price) > 0.025) reasons.push('price is not near a strong support zone');
+            const headline = reasons.length ? `${reasons.join(' and ')}.` : 'The setup fails basic trade validation.';
+            return `${headline.charAt(0).toUpperCase() + headline.slice(1)} Avoid entering this trade.`;
         }
 
-        if (options.short) {
-            // Tooltip short version: First sentence + sector logic
-            const sectorLine = this._getSectorExplanationPart(data.sectorState);
-            return `${lines[0]} ${sectorLine}`;
-        }
+        parts.push((hit.action || '').toUpperCase() === 'BUY'
+            ? 'Trend, structure, and risk/reward are aligned for a valid trade candidate.'
+            : 'The setup is developing and should stay on watch until full confirmation appears.');
+        parts.push(this._getSectorExplanationPart(hit.sectorState || 'NEUTRAL'));
+        parts.push(hit.stockActive
+            ? 'The stock is showing active participation versus its sector.'
+            : 'The stock is not yet showing strong relative participation.');
+        parts.push(`Setup quality is based on ${setupType.toLowerCase()}.`);
+        parts.push(breakoutConfirmed
+            ? 'Breakout confirmation is present.'
+            : 'Breakout confirmation is still pending.');
+        parts.push(retestConfirmed
+            ? 'A retest is helping validate the move.'
+            : 'A retest has not been confirmed yet.');
+        parts.push((hit.volRatio || hit.volumeShocker || 0) >= 1.5
+            ? 'Volume expansion supports the setup.'
+            : 'Volume expansion is still modest, so conviction is limited.');
+        parts.push(session.quality === 'BEST'
+            ? 'The signal appears during an optimal session window.'
+            : session.quality === 'CAUTION'
+                ? 'The signal appears during a higher-noise session period.'
+                : 'Session conditions add caution to this setup.');
 
-        // Sector logic
-        lines.push(this._getSectorExplanationPart(data.sectorState));
-
-        // Stock logic
-        if (data.stockState === "ACTIVE") {
-            lines.push("The stock is outperforming its sector with elevated trading activity.");
-        } else {
-            lines.push("The stock is not showing strong relative participation.");
-        }
-
-        // Price & volume
-        if (data.priceAboveVWAP) {
-            lines.push("Price is trading above VWAP, indicating buyer control.");
-        } else {
-            lines.push("Price is below VWAP, indicating weaker demand.");
-        }
-
-        if (data.breakoutConfirmed) {
-            lines.push("A breakout has been confirmed with participation.");
-        } else {
-            lines.push("No confirmed breakout has occurred yet.");
-        }
-
-        if (data.volumeRatio >= 2) {
-            lines.push("Trading volume is significantly above normal levels.");
-        } else if (data.volumeRatio >= 1.5) {
-            lines.push("Trading volume is moderately above normal levels.");
-        } else {
-            lines.push("Trading volume is near or below normal levels.");
-        }
-
-        // Session timing
-        if (data.sessionTag === "BEST") {
-            lines.push("The signal appears during an optimal trading session window.");
-        } else if (data.sessionTag === "CAUTION") {
-            lines.push("The signal appears during a higher-noise session period.");
-        } else {
-            lines.push("Signals during this session are typically unreliable.");
-        }
-
-        // Risk
-        lines.push(`Overall risk level is classified as ${data.riskLevel.toLowerCase()}.`);
-
-        return lines.join(" ");
+        const full = parts.join(' ');
+        if (options.short) return parts.slice(0, 2).join(' ');
+        return full;
     }
 
     _getSectorExplanationPart(state) {
@@ -936,7 +1001,7 @@ class MarketIntelligence {
 
         // Current threshold from UI
         const filterEl = document.getElementById('confidence-filter');
-        const threshold = filterEl ? parseInt(filterEl.value) : 40;
+        const threshold = filterEl ? parseInt(filterEl.value) : 60;
         const highProbabilityOnlyEl = document.getElementById('high-probability-only');
         const highProbabilityOnly = !!(highProbabilityOnlyEl && highProbabilityOnlyEl.checked);
 
@@ -948,8 +1013,12 @@ class MarketIntelligence {
             const avoidSession = session.quality === "AVOID";
             const laggingSector = hit.sectorState === "LAGGING";
             const belowThreshold = conf.score < threshold;
+            const action = String(hit.action || hit.tradeDecisionTag || "").toUpperCase();
+            const rr = Number(hit.rr || hit.risk_reward || 0);
+            const invalidTrade = action === "NO TRADE" || hit.isValidTrade === false;
+            const weakRR = rr <= 1.5;
 
-            if (avoidSession || laggingSector || belowThreshold) {
+            if (avoidSession || laggingSector || belowThreshold || invalidTrade || weakRR) {
                 return false;
             }
 
@@ -977,7 +1046,7 @@ class MarketIntelligence {
         if (!working.length) {
             const hasHiddenHits = this.allHits.length > 0;
             const msg = hasHiddenHits
-                ? `No setups match the ${threshold}% confidence threshold. Try lowering the threshold.`
+                ? `No valid setups match the default filter (${threshold}% confidence and RR > 1.5). Try lowering the threshold only if you want to inspect developing trades.`
                 : 'No momentum hits found in the current market scan.';
             this.hitsBody.innerHTML = `<tr><td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">${msg}</td></tr>`;
             return;

@@ -169,10 +169,9 @@
             font-size: 14px;
         }
 
-        .action-chip.strong-buy { background: #00c076; color: #0b0e11; box-shadow: 0 0 15px rgba(0, 192, 118, 0.4); }
         .action-chip.buy { background: rgba(0, 192, 118, 0.2); color: #00c076; border: 1px solid #00c076; }
         .action-chip.watch { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid #3b82f6; }
-        .action-chip.avoid { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
+        .action-chip.no-trade { background: rgba(246, 70, 93, 0.16); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.5); }
 
         .reason-tag {
             padding: 2px 8px;
@@ -478,6 +477,85 @@
                 </div>
             </div>
 
+            <!-- Internal Analytics Board -->
+            <div id="analytics-board" class="glass rounded-2xl overflow-hidden border border-cyan-500/20 mb-6">
+                <div class="p-4 border-b border-gray-800 bg-cyan-900/10">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <h3 class="text-xs font-bold uppercase tracking-widest text-cyan-400">📈 Internal Analytics</h3>
+                            <p class="text-[10px] text-gray-400 mt-1">Trade outcomes, win-rate feedback loops, and system observability</p>
+                        </div>
+                        <div id="analytics-alert-chip" class="px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-gray-900 border border-gray-800 text-gray-400">Monitoring</div>
+                    </div>
+                </div>
+                <div class="p-4 space-y-4">
+                    <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Generated</div><div id="trade-total" class="mt-1 text-lg font-black text-white">0</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Actionable</div><div id="analytics-actionable" class="mt-1 text-lg font-black text-green-400">0</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Win Rate</div><div id="trade-win-rate" class="mt-1 text-lg font-black text-white">0%</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Avg RR</div><div id="trade-avg-r" class="mt-1 text-lg font-black text-white">0.00R</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Profit Factor</div><div id="trade-profit-factor" class="mt-1 text-lg font-black text-white">0.00</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Max DD</div><div id="trade-max-dd" class="mt-1 text-lg font-black text-red-300">0.00R</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">No Trade %</div><div id="analytics-no-trade-rate" class="mt-1 text-lg font-black text-yellow-300">0%</div></div>
+                        <div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Fail-safe</div><div id="analytics-failsafes" class="mt-1 text-lg font-black text-orange-300">0</div></div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Outcome Tracking</div>
+                            <div id="analytics-outcomes" class="space-y-2 text-[10px] text-gray-300"></div>
+                        </div>
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Setup Effectiveness</div>
+                            <div id="analytics-setup-effectiveness" class="space-y-2 text-[10px] text-gray-300"></div>
+                        </div>
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Performance by Sector</div>
+                            <div id="analytics-sector-performance" class="space-y-2 text-[10px] text-gray-300"></div>
+                        </div>
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Error Monitoring</div>
+                            <div class="grid grid-cols-2 gap-2 text-[10px]">
+                                <div class="rounded-xl bg-gray-950/60 border border-gray-800 p-2"><div class="text-gray-500 uppercase">API Failures</div><div id="analytics-api-failures" class="mt-1 font-black text-red-300">0</div></div>
+                                <div class="rounded-xl bg-gray-950/60 border border-gray-800 p-2"><div class="text-gray-500 uppercase">Missing Data</div><div id="analytics-missing-data" class="mt-1 font-black text-yellow-300">0</div></div>
+                                <div class="rounded-xl bg-gray-950/60 border border-gray-800 p-2"><div class="text-gray-500 uppercase">Inconsistencies</div><div id="analytics-data-inconsistencies" class="mt-1 font-black text-orange-300">0</div></div>
+                                <div class="rounded-xl bg-gray-950/60 border border-gray-800 p-2"><div class="text-gray-500 uppercase">Best Setup</div><div id="analytics-best-setup" class="mt-1 font-black text-green-300">—</div></div>
+                            </div>
+                            <div class="mt-2 rounded-xl bg-gray-950/60 border border-gray-800 p-2">
+                                <div class="text-gray-500 uppercase text-[9px] mb-1">Worst Setup</div>
+                                <div id="analytics-worst-setup" class="text-[10px] font-black text-red-300">—</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Win Rate Trend</div>
+                            <div id="analytics-trend" class="space-y-2 text-[10px] text-gray-300"></div>
+                        </div>
+                        <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">System Alerts</div>
+                            <div id="analytics-alerts" class="space-y-2 text-[10px] text-gray-300"></div>
+                            <div class="mt-3 pt-3 border-t border-gray-800 text-[10px] text-gray-500">
+                                <span class="font-bold uppercase tracking-widest">Best trades:</span>
+                                <span id="trade-best-setups" class="text-gray-300 ml-1">—</span>
+                            </div>
+                            <div class="mt-2 text-[10px] text-gray-500">
+                                <span class="font-bold uppercase tracking-widest">Worst trades:</span>
+                                <span id="trade-worst-setups" class="text-gray-300 ml-1">—</span>
+                            </div>
+                            <div class="mt-3 rounded-xl bg-gray-950/60 border border-gray-800 p-3">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="text-[9px] font-bold uppercase tracking-widest text-cyan-300">Strategy Insights</div>
+                                    <div id="analytics-confidence-threshold" class="text-[9px] font-mono text-gray-500">Conf ≥ 70</div>
+                                </div>
+                                <div id="analytics-focus-areas" class="mt-2 space-y-2 text-[10px] text-gray-300"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="grid grid-cols-12 gap-6">
                 <!-- Left: Active Stocks Scanner (7 cols) -->
                 <div class="col-span-12 lg:col-span-7 space-y-6">
@@ -519,9 +597,9 @@
                                 <div class="flex items-center gap-3 bg-gray-800/40 px-3 py-1.5 rounded-xl border border-gray-700">
                                     <div class="flex flex-col items-end">
                                         <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest leading-none mb-0.5">Threshold</span>
-                                        <span id="confidence-val" class="text-xs font-mono font-bold text-indigo-400 leading-none">40%</span>
+                                        <span id="confidence-val" class="text-xs font-mono font-bold text-indigo-400 leading-none">70%</span>
                                     </div>
-                                    <input type="range" id="confidence-filter" min="20" max="90" step="5" value="40" 
+                                    <input type="range" id="confidence-filter" min="20" max="90" step="5" value="70" 
                                            class="w-20 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
                                 </div>
                                 <div id="hits-sync-status" class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
@@ -943,9 +1021,10 @@
                         <!-- Top Picks (NEW v2.0) -->
                         <div id="top-picks-section" class="mb-6 px-4 hidden">
                             <div class="flex items-center justify-between mb-3">
-                                <h3 class="text-[10px] font-bold uppercase tracking-widest text-indigo-400">🔥 High Probability Top Picks</h3>
-                                <span class="text-[9px] text-gray-500 font-mono uppercase">Score > 70 & RR >= 2</span>
+                                <h3 class="text-[10px] font-bold uppercase tracking-widest text-indigo-400">🔥 TOP TRADES TODAY</h3>
+                                <span class="text-[9px] text-gray-500 font-mono uppercase">BUY • Conf > 70 • RR ≥ 2</span>
                             </div>
+                            <div id="top-trades-context" class="mb-3 text-[10px] text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2 hidden"></div>
                             <div id="top-picks-container" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <!-- Dynamic Top Picks -->
                             </div>
@@ -1174,7 +1253,7 @@
                                 sharply</span></li>
                     </ul>
                     <p class="text-[10px] text-gray-600 mt-4 italic font-bold uppercase tracking-tighter">If any
-                        happens, signal automatically downgrades to WAIT or AVOID.</p>
+                        happens, signal automatically downgrades to WATCH or NO TRADE.</p>
                 </div>
             </div>
 

@@ -1,4 +1,4 @@
-from app.main import _build_trade_signal, _resolve_summary_levels
+from backend.app.main import _build_trade_signal, _resolve_summary_levels
 
 
 def test_resolve_summary_levels_falls_back_to_mtf_when_primary_support_missing():

@@ -360,20 +360,32 @@ document.addEventListener('DOMContentLoaded', function () {
 // 9. AI TOP PICKS (v2.0)
 // ========================================
 
-function renderTopPicks(hits) {
+function renderTopTradesContextBanner(marketContext) {
+    const banner = document.getElementById('top-trades-context');
+    if (!banner) return;
+
+    if (!marketContext || !marketContext.message) {
+        banner.textContent = '';
+        banner.className = 'mb-3 text-[10px] text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2 hidden';
+        return;
+    }
+
+    banner.textContent = marketContext.message;
+    if (marketContext.lowConviction) {
+        banner.className = 'mb-3 text-[10px] text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2';
+    } else {
+        banner.className = 'mb-3 text-[10px] text-green-300 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2';
+    }
+}
+
+function renderTopPicks(hits, options = {}) {
     const section = document.getElementById('top-picks-section');
     const container = document.getElementById('top-picks-container');
     if (!section || !container) return;
 
-    // Filter: Score > 70 and RR >= 2.0
-    const topPicks = (hits || [])
-        .filter(h => {
-            const score = h.score || h.confidence || (h.technical?.qualityScore) || 0;
-            const rr = h.executionPlan?.riskRewardToT1 || parseFloat(h.summary?.risk_reward?.split(':')[1] || 0);
-            return score > 70 && rr >= 2.0;
-        })
-        .sort((a, b) => (b.score || b.confidence || 0) - (a.score || a.confidence || 0))
-        .slice(0, 5);
+    const topPicks = (hits || []).filter(h => (h.action || '').toUpperCase() === 'BUY');
+
+    renderTopTradesContextBanner(options.marketContext);
 
     if (topPicks.length === 0) {
         section.classList.add('hidden');
@@ -382,20 +394,53 @@ function renderTopPicks(hits) {
 
     section.classList.remove('hidden');
     container.innerHTML = topPicks.map(h => {
-        const scoreVal = h.score || h.confidence || (h.technical?.qualityScore) || 0;
-        const action = h.action || h.tradeDecisionTag || 'BUY';
-        const actionClass = action === 'STRONG BUY' ? 'text-up' : 'text-blue-400';
-        const reason = h.reasonTags?.[0] || 'High Conviction Setup';
-        
+        const plan = h.executionPlan || {};
+        const trust = h.trustSignals || {};
+        const tags = (h.reasonTags || []).slice(0, 3).map(tag => `<span class="reason-tag">${tag}</span>`).join('');
+        const confirmations = (plan.entryConfirmation || []).map(item => `<li>${item}</li>`).join('');
+        const invalidates = (h.whatInvalidates || []).slice(0, 2).join(' • ');
         return `
             <div onclick="window.fetchDataForSymbol('${h.symbol}')" 
-                 class="min-w-[200px] bg-gray-900 border border-green-500/20 p-4 rounded-2xl cursor-pointer hover:border-green-500/50 transition-all group">
+                 class="bg-gray-900 border border-green-500/20 p-4 rounded-2xl cursor-pointer hover:border-green-500/50 transition-all group">
                 <div class="flex justify-between items-start mb-2">
-                    <span class="text-lg font-bold text-white">${h.symbol}</span>
-                    <span class="text-xs font-black mono text-green-400">${Math.round(scoreVal)}%</span>
+                    <div>
+                        <span class="text-lg font-bold text-white">${h.symbol}</span>
+                        <div class="text-[9px] text-green-400 font-black uppercase tracking-widest mt-1">🔥 TOP TRADE #${h.topTradeRank || ''}</div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs font-black mono text-green-400">${Math.round(h.score || 0)}</span>
+                        <div class="text-[8px] text-gray-500 uppercase">Score</div>
+                    </div>
                 </div>
-                <div class="${actionClass} text-[10px] font-black uppercase tracking-widest mb-1">${action}</div>
-                <div class="text-[9px] text-gray-400 italic">${reason}</div>
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-green-400">${h.action}</div>
+                    <div class="text-[10px] font-bold text-blue-300">${plan.executeNotice || 'Execute only if conditions are met'}</div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-[10px]">
+                    <div class="rounded-xl bg-gray-800/60 p-2"><div class="text-gray-500 uppercase">Entry</div><div class="mono font-bold text-white">₹${window.formatVal ? window.formatVal(plan.entry) : plan.entry}</div></div>
+                    <div class="rounded-xl bg-gray-800/60 p-2"><div class="text-gray-500 uppercase">SL</div><div class="mono font-bold text-red-400">₹${window.formatVal ? window.formatVal(plan.stopLoss) : plan.stopLoss}</div></div>
+                    <div class="rounded-xl bg-gray-800/60 p-2"><div class="text-gray-500 uppercase">Target</div><div class="mono font-bold text-green-400">₹${window.formatVal ? window.formatVal(plan.target1) : plan.target1}</div></div>
+                    <div class="rounded-xl bg-gray-800/60 p-2"><div class="text-gray-500 uppercase">RR</div><div class="mono font-bold text-white">${Number(plan.riskRewardToT1 || h.rr || 0).toFixed(2)}x</div></div>
+                </div>
+                <div class="mt-3 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Entry Type:</span> ${plan.entryType || '—'}</div>
+                <div class="mt-1 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Position:</span> ${plan.positionSizingSuggestion || '—'}</div>
+                <div class="mt-1 text-[10px] text-gray-300"><span class="text-gray-500 uppercase">Exit:</span> ${plan.partialProfitPlan || ''} ${plan.trailingStopPlan || ''}</div>
+                <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                    <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/20 p-2">
+                        <div class="text-cyan-300 uppercase tracking-widest text-[8px]">Setup Win Rate</div>
+                        <div class="mt-1 font-black text-white">${Number(trust.setupWinRate || 0).toFixed(0)}%</div>
+                    </div>
+                    <div class="rounded-xl bg-indigo-500/5 border border-indigo-500/20 p-2">
+                        <div class="text-indigo-300 uppercase tracking-widest text-[8px]">Sector Performance</div>
+                        <div class="mt-1 font-black text-white">${Number(trust.sectorPerformancePct || 0).toFixed(1)}%</div>
+                    </div>
+                </div>
+                <div class="mt-2 text-[10px] text-cyan-100">${trust.trustMessage || ''}</div>
+                <div class="mt-2 text-[10px] text-gray-400">${h.whyRankedTop || h.explanation || ''}</div>
+                <ul class="mt-2 text-[10px] text-blue-300 list-disc list-inside space-y-1">${confirmations}</ul>
+                <div class="mt-2 flex flex-wrap gap-2">${tags}</div>
+                <div class="mt-2 text-[10px] text-red-300"><span class="font-bold uppercase">What can go wrong:</span> ${(h.whatCanGoWrong || []).join(' • ')}</div>
+                <div class="mt-1 text-[10px] text-yellow-300"><span class="font-bold uppercase">Invalidates:</span> ${invalidates || '—'}</div>
             </div>
         `;
     }).join('');
