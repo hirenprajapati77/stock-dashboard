@@ -4,6 +4,11 @@ const API_URL = `${API_BASE}/api/v1/dashboard`;
 const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
 const SCREENER_URL = `${API_BASE}/api/v1/screener`;
 const SEARCH_URL = `${API_BASE}/api/v1/search`;
+const ROTATION_URL = `${API_BASE}/api/v1/sector-rotation`;
+const HITS_URL = `${API_BASE}/api/v1/momentum-hits`;
+const EARLY_SETUPS_URL = `${API_BASE}/api/v1/early-setups`;
+const SIGNAL_PERF_URL = `${API_BASE}/api/v1/signal-performance`;
+const TRADE_PERF_URL = `${API_BASE}/api/v1/trade-performance`;
 
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
@@ -12,9 +17,59 @@ if (IS_LOCAL_FILE) {
 
 let chart, candlestickSeries;
 let levelsLayer = [];
+let rotationApp; // Added for sector rotation
+let intelligenceApp; // Added for market intelligence
+let fetchController = null; // To abort previous fetches
+
+
+function isIntelligenceModeActive() {
+    const intelToggle = document.getElementById('intelligence-toggle');
+    if (intelToggle) return !!intelToggle.checked;
+
+    const intelligenceSection = document.getElementById('intelligence-section');
+    return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
+}
+
+// Quick Filter State
+window.activeQuickFilters = {
+    leaders: false,
+    smart: false,
+    momentum: false,
+    early: false
+};
+
+window.toggleQuickFilter = function (filterName) {
+    if (window.activeQuickFilters[filterName] !== undefined) {
+        window.activeQuickFilters[filterName] = !window.activeQuickFilters[filterName];
+
+        // Update UI Button states
+        const btn = document.getElementById(`filter-${filterName}`);
+        if (btn) {
+            if (window.activeQuickFilters[filterName]) {
+                btn.classList.add('bg-gray-800', 'border-gray-600', 'text-white');
+                if (filterName === 'leaders') btn.classList.add('border-green-500/50', 'text-green-400');
+                if (filterName === 'smart') btn.classList.add('border-blue-500/50', 'text-blue-400');
+                if (filterName === 'momentum') btn.classList.add('border-indigo-500/50', 'text-indigo-400');
+            } else {
+                btn.className = `flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase transition-all`;
+                if (filterName === 'leaders') btn.classList.add('hover:border-green-500/50', 'hover:text-green-400');
+                if (filterName === 'smart') btn.classList.add('hover:border-blue-500/50', 'hover:text-blue-400');
+                if (filterName === 'momentum') btn.classList.add('hover:border-indigo-500/50', 'hover:text-indigo-400');
+            }
+        }
+
+        // Trigger table re-render
+        if (window.intelligenceApp) {
+            window.intelligenceApp._renderHitsTable();
+        }
+    }
+}
 
 function initChart() {
     const chartContainer = document.getElementById('tv-chart');
+    console.log('Initializing chart, container:', chartContainer);
+    console.log('Container dimensions:', chartContainer.clientWidth, 'x', chartContainer.clientHeight);
+
     chart = LightweightCharts.createChart(chartContainer, {
         layout: {
             background: { color: '#0b0e11' },
@@ -32,6 +87,8 @@ function initChart() {
         },
         timeScale: {
             borderColor: '#374151',
+            timeVisible: true,
+            secondsVisible: false,
         },
     });
 
@@ -42,6 +99,8 @@ function initChart() {
         wickUpColor: '#00c076',
         wickDownColor: '#f6465d',
     });
+
+    console.log('Chart initialized successfully');
 
     window.addEventListener('resize', () => {
         chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
@@ -68,7 +127,7 @@ async function runScreener() {
     count.textContent = 'SCANNING...';
 
     try {
-        const response = await fetch(SCREENER_URL);
+        const response = await fetch(`${SCREENER_URL}?_=${Date.now()}`);
         const data = await response.json();
 
         if (data.status === 'success') {
@@ -117,249 +176,554 @@ async function runScreener() {
         list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-async function fetchData() {
+async function fetchData(isBackground = false) {
     const loader = document.getElementById('loading-overlay');
+    const showLoader = isBackground !== true;
 
     try {
-        if (loader) loader.classList.remove('hidden');
+        if (loader && showLoader) {
+            loader.classList.remove('hidden');
+            loader.style.display = 'flex';
+
+            // Centralized Safeguard: Hide loader after 15s if it hangs
+            if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
+            window._loaderTimeout = setTimeout(() => {
+                if (loader && !loader.classList.contains('hidden')) {
+                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
+                    loader.classList.add('hidden');
+                    loader.style.display = 'none';
+                }
+            }, 15000);
+        }
 
         const symbolInput = document.getElementById('symbol-input');
-        const symbol = symbolInput.value.toUpperCase() || "RELIANCE";
-        const tf = document.getElementById('tf-selector').value;
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}`);
+        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "RELIANCE";
+        const tfSelector = document.getElementById('tf-selector');
+        const tf = tfSelector ? tfSelector.value : '1D';
+        const stratSelector = document.getElementById('strategy-selector');
+        const strategy = stratSelector ? stratSelector.value : 'SR';
+
+        console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
+
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
         const data = await response.json();
 
-        if (data.meta) {
+        if (data && data.meta) {
+            window.lastReceivedData = data;
+            
+            // Update live indicator based on source
+            const liveIndicator = document.getElementById('live-indicator');
+            if (liveIndicator) {
+                if (data.source === 'fallback') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> CACHED';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
+                    liveIndicator.title = "Yahoo rate limit reached. Showing last cached data.";
+                } else {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> LIVE';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-blue-400 font-bold';
+                    liveIndicator.title = "Live data from Yahoo Finance";
+                }
+            }
+
             updateUI(data);
         } else {
-            throw new Error(data.message || "Invalid response from server");
+            throw new Error(data.message || "Malformed API response");
         }
     } catch (error) {
-        console.error("Fetch error:", error);
-        // Show non-destructive error toast or badge if we already have a chart
-        const chartParent = document.getElementById('chart-parent');
-        if (!chart || chartParent.innerHTML.includes('Failed to load data')) {
-            chartParent.innerHTML = `
-                <div class="h-full w-full flex flex-col items-center justify-center p-6 text-center">
-                    <p class="text-red-500 font-bold mb-2">Failed to load data</p>
-                    <code class="text-xs bg-gray-800 p-2 rounded text-left w-full overflow-auto max-h-40">
-                        ${error.message}<br>
-                        Is the backend running on port 8000?
-                    </code>
-                    <button onclick="fetchData()" class="mt-4 px-4 py-2 bg-blue-600 rounded text-sm font-bold hover:bg-blue-500">Retry</button>
-                </div>
-            `;
-        } else {
-            console.warn("Background update failed, keeping current data.");
+        console.error("Fetch failed:", error);
+
+        const isRateLimit = error.message.includes("Rate Limit") || error.message.includes("Too Many Requests") || error.message.includes("No data found");
+        
+        // Show error UI if NOT background, OR if it's a critical rate limit error
+        if (!isBackground || isRateLimit) {
+            const chartParent = document.getElementById('chart-parent');
+            if (chartParent) {
+                // If we don't have a chart yet, or it's a rate limit error, show/update error area
+                if (!chart || chartParent.innerHTML.includes('Failed to load data') || isRateLimit) {
+                    const tvChart = document.getElementById('tv-chart');
+                    if (tvChart && isRateLimit) tvChart.classList.add('hidden'); // Hide chart area for rate limit message
+
+                    let errDiv = document.getElementById('chart-error-msg');
+                    if (!errDiv) {
+                        errDiv = document.createElement('div');
+                        errDiv.id = 'chart-error-msg';
+                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
+                        chartParent.appendChild(errDiv);
+                    }
+                    errDiv.classList.remove('hidden');
+                    
+                    errDiv.innerHTML = `
+                        <div class="flex flex-col items-center gap-3">
+                            <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
+                            <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error'}</p>
+                            <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
+                            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+                        </div>
+                    `;
+                }
+            }
         }
     } finally {
-        if (loader) loader.classList.add('hidden');
+        // ALWAYS try to hide loader in finally if it was showing
+        if (loader) {
+            loader.classList.add('hidden');
+            loader.style.display = 'none';
+        }
     }
+}
+window.fetchData = fetchData;
+
+function updateStrategyUI(data) {
+    try {
+        const strategy = data.meta.strategy || 'SR';
+        const strat = data.strategy || {};
+        const metrics = strat.additionalMetrics || {};
+        const tech = data.technical || {};
+        const insights = data.insights || {};
+        const summary = data.summary || {};
+
+        console.log(`[UI] Updating decision metrics panel`);
+
+        // Update Positives
+        const adxVal = parseFloat(insights.adx || metrics.adx || 0);
+        const adxText = adxVal > 25 ? 'Strong Trend' : adxVal > 15 ? 'Moderate' : 'Weak';
+        document.getElementById('metric-adx').textContent = `${adxVal.toFixed(1)} (${adxText})`;
+        document.getElementById('metric-adx').className = `text-sm font-bold ${adxVal > 25 ? 'text-up' : 'text-white'}`;
+
+        const volRatio = parseFloat(insights.volRatio || metrics.volRatio || 1);
+        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volRatio > 1.2 ? 'Spike' : 'Normal'}`;
+        document.getElementById('metric-volume').className = `text-sm font-bold ${volRatio > 1.2 ? 'text-up' : 'text-white'}`;
+
+        const setupText = (insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : '');
+        document.getElementById('metric-setup').textContent = setupText || 'No Setup';
+        document.getElementById('metric-setup').className = `text-sm font-bold ${setupText ? 'text-up' : 'text-gray-500'}`;
+
+        const s0 = summary.nearest_support;
+        const cmp = data.meta.cmp;
+        const distS = s0 ? ((cmp - s0) / cmp * 100).toFixed(1) : '--';
+        document.getElementById('metric-sr').textContent = s0 ? `${distS}% from S` : 'No Level';
+        document.getElementById('metric-sr').className = `text-sm font-bold ${parseFloat(distS) < 2 ? 'text-up' : 'text-white'}`;
+
+        // Update Risks
+        const mo = (tech.momentumStrength || 'WEAK').toUpperCase();
+        document.getElementById('metric-momentum').textContent = mo;
+        document.getElementById('metric-momentum').className = `text-sm font-bold ${mo === 'STRONG' ? 'text-white' : 'text-down'}`;
+
+        const vola = tech.volHigh ? 'High Volatility' : 'Stable';
+        document.getElementById('metric-vola').textContent = vola;
+        document.getElementById('metric-vola').className = `text-sm font-bold ${tech.volHigh ? 'text-down' : 'text-white'}`;
+
+        const sector = (data.sector_info?.state || 'NEUTRAL').toUpperCase();
+        document.getElementById('metric-sector').textContent = sector;
+        document.getElementById('metric-sector').className = `text-sm font-bold ${['LEADING', 'IMPROVING'].includes(sector) ? 'text-white' : 'text-down'}`;
+
+        const regime = summary.market_regime || 'UNKNOWN';
+        document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
+        document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
+
+    } catch (err) {
+        console.error("Strategy UI update error:", err);
+    }
+}
+
+function formatVal(v) {
+    if (v === undefined || v === null) return '—';
+    if (typeof v === 'number') return v.toFixed(2);
+    return v;
 }
 
 function updateUI(data) {
-    // 1. Meta & Summary
-    document.getElementById('cmp').textContent = `₹${data.meta.cmp}`;
-    document.getElementById('nearest-support').textContent = data.summary.nearest_support ? `₹${data.summary.nearest_support}` : '—';
-    document.getElementById('nearest-resistance').textContent = data.summary.nearest_resistance ? `₹${data.summary.nearest_resistance}` : '—';
-    document.getElementById('stop-loss').textContent = data.summary.stop_loss ? `₹${data.summary.stop_loss}` : '—';
-    document.getElementById('risk-reward').textContent = data.summary.risk_reward || '—';
+    try {
+        // Hide error message if it exists
+        const errDiv = document.getElementById('chart-error-msg');
+        if (errDiv) errDiv.classList.add('hidden');
+        const tvChart = document.getElementById('tv-chart');
+        if (tvChart) tvChart.classList.remove('hidden');
 
-    // 2. Insights
-    document.getElementById('inside-candle').textContent = data.insights.inside_candle ? "YES" : "NO";
-    document.getElementById('retest').textContent = data.insights.retest ? "CONFIRMED" : "NONE";
-    document.getElementById('upside-pct').textContent = `+${data.insights.upside_pct}%`;
+        const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+        const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
-    const biasBadge = document.getElementById('bias-badge');
-    biasBadge.textContent = data.insights.ema_bias;
-    biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
-        data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-        }`;
+        const formatWithCurrency = (val) => {
+            if (val === undefined || val === null || val === '—') return '—';
+            if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
+            // If it's a string that looks like a number, try to parse it
+            const num = parseFloat(val);
+            if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
+            return `${currencySym}${val}`;
+        };
 
-    // 3. AI Insights (Unified from dashboard response)
-    if (data.ai_analysis && data.ai_analysis.status === "success") {
-        const ai = data.ai_analysis;
-        // Priority
-        const pBadge = document.getElementById('ai-priority-badge');
-        pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
-        pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-            ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
-            }`;
+        // 1. Meta & Summary
+        const cmpEl = document.getElementById('cmp');
+        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp);
 
-        // Breakout
-        const bBadge = document.getElementById('ai-breakout-badge');
-        bBadge.textContent = ai.breakout.breakout_quality;
-        bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-            ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-            }`;
-        document.getElementById('ai-breakout-reason').textContent = ai.breakout.reason;
+        const verTag = document.getElementById('ver-tag');
+        if (verTag) verTag.textContent = "v1.5.0 Intelligence Layer";
 
-        // Regime
-        const rBadge = document.getElementById('ai-regime-badge');
-        rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
-        rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
-            }`;
-        document.getElementById('ai-regime-reason').textContent = ai.regime.reason;
+        const syncTime = document.getElementById('sync-time');
+        if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;
 
-        // Reliability
-        const adj = ai.reliability ? ai.reliability.ai_adjustment : 0;
-        const relText = document.getElementById('ai-reliability-adjustment');
-        relText.textContent = `Score Mod: ${adj > 0 ? '+' : ''}${adj}`;
-        relText.className = `text-[10px] font-bold mono ${adj > 0 ? 'text-up' : adj < 0 ? 'text-down' : 'text-gray-400'}`;
-        relText.title = ai.reliability ? ai.reliability.reason : "No adjustments";
-    }
+        // Pulse indicators only if price changed
+        const liveInd = document.getElementById('live-indicator');
+        const lastCmp = window.lastCmpValue || 0;
+        const currentCmp = data.meta.cmp;
 
-    // 4. Clear and Render Level Lists (Primary + MTF)
-    const supportList = document.getElementById('support-list');
-    const resistanceList = document.getElementById('resistance-list');
-    supportList.innerHTML = '';
-    resistanceList.innerHTML = '';
-
-    renderLevelList('support-list', data.levels.primary.supports, 'blue', false);
-    renderLevelList('support-list', data.levels.mtf.supports, 'blue', true);
-
-    renderLevelList('resistance-list', data.levels.primary.resistances, 'green', false);
-    renderLevelList('resistance-list', data.levels.mtf.resistances, 'green', true);
-
-    // 5. Render Chart Data
-    if (data.ohlcv && data.ohlcv.length > 0) {
-        candlestickSeries.setData(data.ohlcv);
-    }
-
-    // 6. Fundamental Health UI
-    const fundCard = document.getElementById('fundamentals-card');
-    if (data.fundamentals) {
-        fundCard.classList.remove('hidden');
-        const f = data.fundamentals;
-
-        document.getElementById('fund-sector').textContent = f.sector || '—';
-        document.getElementById('fund-mcap').textContent = f.market_cap || '—';
-        document.getElementById('fund-pe').textContent = f.pe_ratio || '—';
-
-        // Color code PE
-        const peEl = document.getElementById('fund-pe');
-        if (f.pe_ratio) {
-            peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
-        } else {
-            peEl.className = 'text-sm font-bold text-white';
+        if (liveInd && cmpEl && currentCmp !== lastCmp) {
+            liveInd.classList.add('text-blue-300');
+            cmpEl.classList.add('text-blue-400');
+            setTimeout(() => {
+                liveInd.classList.remove('text-blue-300');
+                cmpEl.classList.remove('text-blue-400');
+            }, 500);
+            window.lastCmpValue = currentCmp; // Update tracker
         }
 
-        document.getElementById('fund-roe').textContent = f.roe ? `${f.roe}%` : '—';
-        document.getElementById('fund-div').textContent = f.dividend_yield ? `${f.dividend_yield}%` : '—';
-
-        const high = f['52w_high'] || 0;
-        const low = f['52w_low'] || 0;
-        const cmp = data.meta.cmp;
-
-        document.getElementById('fund-52h').textContent = high || '—';
-        document.getElementById('fund-52l').textContent = low || '—';
-
-        if (high && low && high > low) {
-            let pct = ((cmp - low) / (high - low)) * 100;
-            pct = Math.max(0, Math.min(100, pct));
-
-            const bar = document.getElementById('fund-range-bar');
-            bar.style.width = `${pct}%`;
-            bar.className = 'h-full rounded-full transition-all duration-500 ' +
-                (pct > 80 ? 'bg-down' : pct < 20 ? 'bg-up' : 'bg-blue-600');
+        // Update Price Change %
+        if (data.ohlcv && data.ohlcv.length > 1) {
+            const prevClose = data.ohlcv[data.ohlcv.length - 2].close;
+            const change = ((data.meta.cmp - prevClose) / prevClose) * 100;
+            const changeEl = document.getElementById('price-change');
+            if (changeEl) {
+                changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+                changeEl.className = `text-xs font-medium ${change >= 0 ? 'text-up' : 'text-down'}`;
+            }
         }
-    } else {
-        if (fundCard) fundCard.classList.add('hidden');
-    }
 
-    // Draw Levels on Chart
-    window.lastReceivedData = data; // Cache for toggle
-    drawLevelsOnChart(data.levels);
+        // Summary details
+        const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = formatWithCurrency(val);
+        };
+        setVal('nearest-support', data.summary.nearest_support);
+        setVal('nearest-resistance', data.summary.nearest_resistance);
+        setVal('stop-loss', data.summary.stop_loss);
+        const rrEl = document.getElementById('risk-reward');
+        if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
+
+        const signalEl = document.getElementById('trade-signal');
+        const signalReasonEl = document.getElementById('trade-signal-reason');
+        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
+        if (signalEl) {
+            signalEl.textContent = signal;
+            signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
+                ? 'bg-green-600/20 text-green-300 border border-green-500/40'
+                : signal === 'SELL'
+                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
+                    : 'bg-gray-800 text-gray-400 border border-gray-700'
+                }`;
+        }
+        if (signalReasonEl) {
+            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
+                ? data.summary.trade_signal_reason
+                : 'Signal updates with EMA bias + structure.';
+        }
+
+        // 2. Insights
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        if (data.insights) {
+            setTxt('inside-candle', data.insights.inside_candle ? "YES" : "NO");
+            setTxt('retest', data.insights.retest ? "CONFIRMED" : "NONE");
+            
+            const upside = data.insights.upside_pct;
+            if (upside !== undefined && upside !== null) {
+                setTxt('upside-pct', `+${upside}%`);
+            } else {
+                setTxt('upside-pct', '0.00%');
+            }
+
+            const biasBadge = document.getElementById('bias-badge');
+            if (biasBadge) {
+                biasBadge.textContent = data.insights.ema_bias || 'NEUTRAL';
+                biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
+                    data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
+        }
+
+        // 3. AI Insights
+        if (data.ai_analysis && data.ai_analysis.status === "success") {
+            const ai = data.ai_analysis;
+            const pBadge = document.getElementById('ai-priority-badge');
+            if (pBadge) {
+                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+                    }`;
+            }
+
+            const bBadge = document.getElementById('ai-breakout-badge');
+            if (bBadge) {
+                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
+            const bR = document.getElementById('ai-breakout-reason');
+            if (bR) bR.textContent = ai.breakout.reason;
+
+            const rBadge = document.getElementById('ai-regime-badge');
+            if (rBadge) {
+                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
+                    }`;
+            }
+            const rR = document.getElementById('ai-regime-reason');
+            if (rR) rR.textContent = ai.regime.reason;
+        }
+
+        // 4. Levels
+        const sL = document.getElementById('support-list');
+        const rL = document.getElementById('resistance-list');
+        if (sL && rL) {
+            sL.innerHTML = '';
+            rL.innerHTML = '';
+            renderLevelList('support-list', data.levels.primary.supports, 'blue', false);
+            renderLevelList('support-list', data.levels.mtf.supports, 'blue', true);
+            renderLevelList('resistance-list', data.levels.primary.resistances, 'green', false);
+            renderLevelList('resistance-list', data.levels.mtf.resistances, 'green', true);
+        }
+
+        // 5. Chart
+        if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
+            candlestickSeries.setData(data.ohlcv);
+            // Auto-fit viewport to the new data range
+            chart.timeScale().fitContent();
+            // Enable time labels for intraday timeframes, hide for daily+
+            const tf = document.getElementById('tf-selector').value;
+            const isIntraday = ['5m', '15m', '75m', '1H', '2H', '4H'].includes(tf);
+            chart.applyOptions({
+                timeScale: { timeVisible: isIntraday, secondsVisible: false }
+            });
+        }
+
+        // 6. Fundamentals
+        const fundCard = document.getElementById('fundamentals-card');
+        if (data.fundamentals && fundCard) {
+            fundCard.classList.remove('hidden');
+            const f = data.fundamentals;
+            const sectorEl = document.getElementById('fund-sector');
+            if (sectorEl) sectorEl.textContent = f.sector || '—';
+
+            const mcapEl = document.getElementById('fund-mcap');
+            if (mcapEl) mcapEl.textContent = f.market_cap || '—';
+
+            const peEl = document.getElementById('fund-pe');
+            if (peEl) {
+                peEl.textContent = f.pe_ratio || '—';
+                if (f.pe_ratio) {
+                    peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
+                }
+            }
+
+            setTxt('fund-roe', f.roe ? `${f.roe}%` : '—');
+            setTxt('fund-div', f.dividend_yield ? `${f.dividend_yield}%` : '—');
+            setTxt('fund-52h', f['52w_high'] || '—');
+            setTxt('fund-52l', f['52w_low'] || '—');
+
+            const rB = document.getElementById('fund-range-bar');
+            if (rB && f['52w_high'] && f['52w_low']) {
+                let p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
+                rB.style.width = `${Math.max(0, Math.min(100, p))}%`;
+            }
+        } else if (fundCard) {
+            fundCard.classList.add('hidden');
+        }
+
+        // 7. Finally draw levels on chart
+        window.lastReceivedData = data;
+        drawLevelsOnChart(data.levels, data);
+
+        // 8. Decision Strip (v2.0)
+        updateDecisionStrip(data);
+
+        // 9. Strategy Specific UI Toggles
+        updateStrategyUI(data);
+
+    } catch (e) {
+        console.error("UI Update Error:", e);
+    }
+}
+
+function updateDecisionStrip(data) {
+    const strip = document.getElementById('decision-strip');
+    const actionEl = document.getElementById('decision-action');
+    const confEl = document.getElementById('decision-confidence');
+    const entryEl = document.getElementById('strip-entry');
+    const slEl = document.getElementById('strip-sl');
+    const tgtEl = document.getElementById('strip-target');
+    const reasonsEl = document.getElementById('decision-reasons');
+
+    if (!strip || !data.action) return;
+
+    // 1. Action & Confidence
+    actionEl.textContent = data.action;
+    actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
+    confEl.textContent = `${data.score}%`;
+
+    // 2. Execution Levels
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
+    
+    entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
+    slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
+    tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
+
+    // 3. Reason Tags
+    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
+        `<span class="reason-tag">${tag}</span>`
+    ).join('');
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
-    const container = document.getElementById(containerId);
+    const list = document.getElementById(containerId);
+    if (!list || !levels || !Array.isArray(levels)) return;
+
+    const data = window.lastReceivedData;
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = (data && data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
     levels.forEach((level, index) => {
         const div = document.createElement('div');
-        div.className = `flex items-center justify-between p-3 rounded-xl bg-gray-900 border ${isMTF ? 'border-gray-800/50 opacity-70' : 'border-gray-800'} hover:border-gray-700 transition-all cursor-default scale-95 origin-left`;
-        div.title = `Price: ${level.price}\nTimeframe: ${level.timeframe}\nTouches: ${level.touches}\nScore: ${level.confidence || 0}`;
+        div.className = `flex items-center justify-between px-2 py-1 rounded-lg bg-gray-900/60 border ${isMTF ? 'border-gray-800/30 opacity-60' : 'border-gray-800/50'} hover:border-gray-700 transition-all cursor-default`;
+
+        const labelText = level.timeframe === 'ZONE' ? 'Z' : (isMTF ? level.timeframe || 'MTF' : level.timeframe || ('L' + (index + 1)));
+        const timeframeLabel = level.timeframe || '—';
+
+        div.title = `Price: ${level.price}\nTimeframe: ${timeframeLabel}\nTouches: ${level.touches || 0}`;
         div.innerHTML = `
-            <div>
-                <p class="text-[9px] text-gray-500 font-medium">${isMTF ? 'MTF' : 'L' + (index + 1)}</p>
-                <p class="font-bold mono text-sm ${isMTF ? 'text-gray-400' : 'text-white'}">₹${level.price.toFixed(2)}</p>
-            </div>
-            <div class="text-right">
-                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 uppercase">${level.timeframe}</span>
-                <p class="text-[9px] text-gray-600 mt-1">${level.touches}T</p>
-            </div>
+            <span class="text-[9px] font-bold px-1 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400 uppercase">${labelText}</span>
+            <span class="font-bold mono text-[11px] ${isMTF ? 'text-gray-500' : 'text-white'}">${currencySym}${formatVal(level.price)}</span>
         `;
-        container.appendChild(div);
+        list.appendChild(div);
     });
 }
 
-function drawLevelsOnChart(levels) {
-    // Clear old lines
-    if (levelsLayer && levelsLayer.length > 0) {
-        levelsLayer.forEach(line => {
-            candlestickSeries.removePriceLine(line);
-        });
-        levelsLayer = [];
+function drawLevelsOnChart(levels, fullData = null) {
+    if (!candlestickSeries) return;
+
+    // Clear existing primitives
+    levelsLayer.forEach(line => {
+        candlestickSeries.removePriceLine(line);
+    });
+    levelsLayer = [];
+
+    // 1. Draw Execution Overlays (Entry, SL, Target)
+    if (fullData && fullData.summary) {
+        const s = fullData.summary;
+        const cmp = fullData.meta.cmp;
+
+        // Entry (Blue)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: cmp,
+            color: '#3b82f6',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'ENTRY',
+        }));
+
+        // Stop Loss (Red)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.stop_loss,
+            color: '#f6465d',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'SL',
+        }));
+
+        // Target (Green)
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.target,
+            color: '#00c076',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'TGT',
+        }));
     }
 
     if (!levels) return;
 
-    const showMTF = document.getElementById('mtf-toggle').checked;
+    // Helper to draw
+    const addLine = (lv, color, isResistance) => {
+        // 1. ZONE Logic
+        if (lv.timeframe === 'ZONE') {
+            // Draw simple boundary lines
+            // Top
+            const l1 = candlestickSeries.createPriceLine({
+                price: lv.price_high || lv.price,
+                color: color, // Green/Red
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: isResistance ? 'SUPPLY' : 'DEMAND',
+            });
+            levelsLayer.push(l1);
 
-    // Add Primary Resistance (Solid)
-    levels.primary.resistances.forEach(lv => {
+            // Bottom
+            if (lv.price_low && lv.price_low !== lv.price_high) {
+                const l2 = candlestickSeries.createPriceLine({
+                    price: lv.price_low,
+                    color: color,
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: false, // Only label one side to reduce clutter
+                    title: '',
+                });
+                levelsLayer.push(l2);
+            }
+            return;
+        }
+
+        // 2. SWING Logic (Thicker lines)
+        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
+        const lineWidth = isSwing ? 2 : 1;
+        const lineStyle = isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed;
+
+        // 3. Simple Level
         const line = candlestickSeries.createPriceLine({
             price: lv.price,
-            color: '#00c076',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
+            color: color, // Blue/Green etc
+            lineWidth: lineWidth,
+            lineStyle: lineStyle,
             axisLabelVisible: true,
-            title: lv.timeframe,
+            title: lv.timeframe || '',
         });
         levelsLayer.push(line);
-    });
+    };
+
+    const showMTF = document.getElementById('mtf-toggle').checked;
 
     // Add MTF Resistance (Dashed)
-    if (showMTF) {
-        levels.mtf.resistances.forEach(lv => {
-            const line = candlestickSeries.createPriceLine({
-                price: lv.price,
-                color: '#00c076',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: '', // Removed title from axis to declutter
-            });
-            levelsLayer.push(line);
-        });
+    if (showMTF && levels.mtf) {
+        levels.mtf.resistances.forEach(lv => addLine(lv, '#00c076', true));
+        levels.mtf.supports.forEach(lv => addLine(lv, '#3b82f6', false));
     }
 
     // Add Primary Support (Solid)
-    levels.primary.supports.forEach(lv => {
-        const line = candlestickSeries.createPriceLine({
-            price: lv.price,
-            color: '#3b82f6',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: lv.timeframe,
-        });
-        levelsLayer.push(line);
-    });
+    if (levels.primary) {
+        levels.primary.supports.forEach(lv => addLine(lv, '#3b82f6', false));
+        levels.primary.resistances.forEach(lv => addLine(lv, '#dc2626', true)); // Red for resistance
+    }
+}
 
-    // Add MTF Support (Dashed)
-    if (showMTF) {
-        levels.mtf.supports.forEach(lv => {
-            const line = candlestickSeries.createPriceLine({
-                price: lv.price,
-                color: '#3b82f6',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: '', // Removed title from axis to declutter
-            });
-            levelsLayer.push(line);
-        });
+// Rotation Data Fetching
+async function fetchRotation() {
+    try {
+        const tf = document.getElementById('tf-selector').value;
+        const res = await fetch(`${ROTATION_URL}?tf=${tf}&t=${Date.now()}`);
+        const result = await res.json();
+        if (result.status === 'success' && rotationApp) {
+            rotationApp.setData(result.data, result.alerts);
+        }
+    } catch (e) {
+        console.error("Failed to fetch rotation data", e);
     }
 }
 
@@ -372,14 +736,80 @@ window.onload = function () {
         initChart();
         fetchData();
 
+        // Force chart resize after a short delay to ensure container has proper dimensions
+        setTimeout(() => {
+            if (chart) {
+                const chartContainer = document.getElementById('tv-chart');
+                chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+            }
+        }, 100);
+
+        // Initialize Rotation App
+        if (typeof RotationDashboard !== 'undefined') {
+            rotationApp = new RotationDashboard('rotation-canvas');
+        }
+
+        // Initialize Intelligence App
+        if (typeof MarketIntelligence !== 'undefined') {
+            intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
+            window.intelligenceApp = intelligenceApp;
+        }
+
+        // Toggle Handlers
+        const std = document.getElementById('standard-dashboard');
+        const rot = document.getElementById('rotation-section');
+        const intel = document.getElementById('intelligence-section');
+        const rotTog = document.getElementById('rotation-toggle');
+        const intelTog = document.getElementById('intelligence-toggle');
+        const scrTog = document.getElementById('screener-toggle');
+
+        // Rotation Toggle Logic
+        if (rotTog) {
+            rotTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    rot.classList.remove('hidden');
+                    std.classList.add('hidden');
+                    intel.classList.add('hidden');
+                    if (intelTog) intelTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    fetchRotation();
+                    if (rotationApp) rotationApp.resize();
+                } else {
+                    rot.classList.add('hidden');
+                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
+                }
+            });
+        }
+
+        // Intelligence Toggle Logic
+        if (intelTog) {
+            intelTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    intel.classList.remove('hidden');
+                    std.classList.add('hidden');
+                    rot.classList.add('hidden');
+                    if (rotTog) rotTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    fetchIntelligence();
+                } else {
+                    intel.classList.add('hidden');
+                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
+                }
+            });
+        }
+
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
         const resultsDiv = document.getElementById('search-results');
         let searchTimeout;
+        let selectedIndex = -1;
 
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
             clearTimeout(searchTimeout);
+            selectedIndex = -1;
 
             if (query.length < 1) {
                 resultsDiv.classList.add('hidden');
@@ -394,9 +824,10 @@ window.onload = function () {
                     resultsDiv.innerHTML = '';
                     if (results.length > 0) {
                         resultsDiv.classList.remove('hidden');
-                        results.forEach(item => {
+                        results.forEach((item, index) => {
                             const div = document.createElement('div');
-                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0";
+                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0 search-item";
+                            div.dataset.index = index;
                             div.innerHTML = `
                                 <div>
                                     <span class="font-bold text-sm text-white">${item.symbol}</span>
@@ -420,6 +851,39 @@ window.onload = function () {
             }, 300);
         });
 
+        searchInput.addEventListener('keydown', function (e) {
+            const items = resultsDiv.getElementsByClassName('search-item');
+            if (resultsDiv.classList.contains('hidden') || items.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedIndex = (selectedIndex + 1) % items.length;
+                updateSelection(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+                updateSelection(items);
+            } else if (e.key === 'Enter') {
+                if (selectedIndex >= 0) {
+                    e.preventDefault();
+                    items[selectedIndex].click();
+                }
+            }
+        });
+
+        function updateSelection(items) {
+            for (let i = 0; i < items.length; i++) {
+                if (i === selectedIndex) {
+                    items[i].classList.add('bg-blue-900/40');
+                    items[i].classList.add('border-blue-500/50');
+                    items[i].scrollIntoView({ block: 'nearest' });
+                } else {
+                    items[i].classList.remove('bg-blue-900/40');
+                    items[i].classList.remove('border-blue-500/50');
+                }
+            }
+        }
+
         // Close dropdown when clicking outside
         document.addEventListener('click', function (e) {
             if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
@@ -427,7 +891,51 @@ window.onload = function () {
             }
         });
 
-        document.getElementById('tf-selector').addEventListener('change', fetchData);
+        document.getElementById('tf-selector').addEventListener('change', () => {
+            const isRotationActive = document.getElementById('rotation-toggle').checked;
+            if (isRotationActive) {
+                fetchRotation();
+            } else if (isIntelligenceModeActive()) {
+                fetchIntelligence();
+            } else {
+                fetchData();
+            }
+        });
+        // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
+        const intradayGroup = document.getElementById('intraday-tf-toggle');
+        if (intradayGroup) {
+            const tfSelector = document.getElementById('tf-selector');
+            const buttons = intradayGroup.querySelectorAll('button[data-tf]');
+            const setActive = (activeTf) => {
+                buttons.forEach(btn => {
+                    if (btn.dataset.tf === activeTf) {
+                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
+                    } else {
+                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.add('text-gray-300', 'hover:bg-gray-800');
+                    }
+                });
+            };
+            buttons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tf = btn.dataset.tf;
+                    if (tfSelector) {
+                        tfSelector.value = tf;
+                        tfSelector.dispatchEvent(new Event('change'));
+                    }
+                    setActive(tf);
+                    // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
+                    if (isIntelligenceModeActive()) {
+                        fetchIntelligence();
+                    }
+                });
+            });
+            // Initialise chip state from selector's default
+            if (tfSelector) {
+                setActive(tfSelector.value);
+            }
+        }
         document.getElementById('mtf-toggle').addEventListener('change', () => {
             // Re-render chart levels without re-fetching
             if (window.lastReceivedData) {
@@ -445,7 +953,23 @@ window.onload = function () {
             }
         });
 
-        setInterval(fetchData, 10000); // Auto-sync every 10s
+        setInterval(() => {
+            const rotToggle = document.getElementById('rotation-toggle');
+            const isRotationActive = rotToggle && rotToggle.checked;
+            const isIntelligenceActive = isIntelligenceModeActive();
+
+            if (isRotationActive) {
+                fetchRotation();
+            } else if (isIntelligenceActive) {
+                fetchIntelligence();
+            } else {
+                fetchData(true);
+            }
+        }, 10000); // reduced frequency for expensive intelligence calls (10s)
+
+        document.getElementById('strategy-selector').addEventListener('change', () => {
+            fetchData();
+        });
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -459,3 +983,148 @@ window.onload = function () {
         }
     }
 };
+
+async function fetchIntelligence() {
+    try {
+        const tfSelector = document.getElementById('tf-selector');
+        const tf = tfSelector ? tfSelector.value : '1D';
+        const now = Date.now();
+
+        // 1. Fetch data in parallel
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
+            fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
+            fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
+            fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; }),
+            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; })
+        ]);
+
+        // 2. Parse responses carefully
+        let hitsData = { data: [], source: 'live' };
+        let sectorData = { data: {}, source: 'live' };
+        let summaryData = null;
+        let summarySource = 'live';
+        let earlyData = { data: [], source: 'live' };
+        let perfData = null;
+        let tradePerfData = null;
+
+        if (hitsRes && hitsRes.ok) {
+            hitsData = await hitsRes.json();
+        } else if (hitsRes) {
+            console.error(`Hits API error: ${hitsRes.status}`);
+            hitsData.source = 'error';
+        }
+
+        if (sectorRes && sectorRes.ok) {
+            sectorData = await sectorRes.json();
+        } else if (sectorRes) {
+            console.error(`Sector API error: ${sectorRes.status}`);
+            sectorData.source = 'error';
+        }
+
+        if (summaryRes && summaryRes.ok) {
+            const summaryJson = await summaryRes.json();
+            if (summaryJson.status === 'success') {
+                summaryData = summaryJson.data;
+                summarySource = summaryJson.source || 'live';
+            }
+        } else if (summaryRes) {
+            console.error(`Market Summary API error: ${summaryRes.status}`);
+        }
+
+        if (earlyRes && earlyRes.ok) {
+            earlyData = await earlyRes.json();
+        } else if (earlyRes) {
+            console.error(`Early Setups API error: ${earlyRes.status}`);
+            earlyData.source = 'error';
+        }
+
+        if (perfRes && perfRes.ok) {
+            const perfJson = await perfRes.json();
+            if (perfJson.status === 'success') perfData = perfJson.data;
+        } else if (perfRes) {
+            console.error(`Signal Performance API error: ${perfRes.status}`);
+        }
+
+        if (tradePerfRes && tradePerfRes.ok) {
+            const tradePerfJson = await tradePerfRes.json();
+            if (tradePerfJson.status === 'success') tradePerfData = tradePerfJson.data;
+        } else if (tradePerfRes) {
+            console.error(`Trade Performance API error: ${tradePerfRes.status}`);
+        }
+
+        // 3. Update Intelligence Dashboard instance
+        if (intelligenceApp) {
+            if (hitsData && hitsData.data) {
+                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
+            }
+            if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
+                intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
+            }
+            if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
+                intelligenceApp.updateSignalPerformance(perfData);
+            }
+            if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
+                intelligenceApp.updateTradePerformance(tradePerfData);
+            }
+            if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
+                window.lastSectorData = sectorData.data;
+                intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'live');
+
+                // Also update the Shining Sectors UX card if available
+                if (window.renderActionableSectors) {
+                    window.renderActionableSectors(sectorData.data);
+                }
+                if (summaryData) {
+                    intelligenceApp.updateMarketSummary(summaryData, summarySource);
+                }
+            } else if (sectorData) {
+                // Handle empty but valid responses (e.g., fallback)
+                intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
+            }
+        }
+    } catch (e) {
+        console.error("Critical failure in fetchIntelligence", e);
+    }
+}
+window.fetchIntelligence = fetchIntelligence;
+
+// --- Fyers Integration ---
+async function checkFyersStatus() {
+    try {
+        const res = await fetch('/api/v1/fyers/status');
+        const data = await res.json();
+        
+        const dot = document.getElementById('fyers-status-dot');
+        const text = document.getElementById('fyers-status-text');
+        const btn = document.getElementById('fyers-login-btn');
+        
+        if (data.logged_in) {
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]";
+            if (text) text.textContent = "Online";
+            if (text) text.className = "text-[10px] font-bold text-green-400 uppercase tracking-widest hidden lg:inline";
+            if (btn) btn.classList.add('hidden');
+        } else {
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]";
+            if (text) text.textContent = "Offline";
+            if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
+            if (btn) btn.classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error("Failed to check Fyers status", e);
+    }
+}
+
+function loginToFyers() {
+    window.location.href = '/api/v1/fyers/login';
+}
+
+window.loginToFyers = loginToFyers;
+
+// Check on load
+document.addEventListener('DOMContentLoaded', () => {
+    checkFyersStatus();
+    // Poll every 30 seconds for faster updates after login
+    setInterval(checkFyersStatus, 30000);
+});

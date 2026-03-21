@@ -206,7 +206,7 @@ function setupIntelTimeframeToggles() {
 
             // Refresh intelligence data
             if (window.fetchIntelligence) {
-                window.fetchIntelligence();
+                window.fetchIntelligence(tf);
             }
         });
     });
@@ -357,10 +357,104 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // ========================================
-// 8. EXPORT FUNCTIONS
+// 9. AI TOP PICKS (v2.0)
+// ========================================
+
+function renderTopPicks(hits) {
+    const section = document.getElementById('top-picks-section');
+    const container = document.getElementById('top-picks-container');
+    if (!section || !container) return;
+
+    // Filter: Score > 70 and RR >= 2.0
+    const topPicks = (hits || [])
+        .filter(h => {
+            const score = h.score || h.confidence || (h.technical?.qualityScore) || 0;
+            const rr = h.executionPlan?.riskRewardToT1 || parseFloat(h.summary?.risk_reward?.split(':')[1] || 0);
+            return score > 70 && rr >= 2.0;
+        })
+        .sort((a, b) => (b.score || b.confidence || 0) - (a.score || a.confidence || 0))
+        .slice(0, 5);
+
+    if (topPicks.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    container.innerHTML = topPicks.map(h => {
+        const scoreVal = h.score || h.confidence || (h.technical?.qualityScore) || 0;
+        const action = h.action || h.tradeDecisionTag || 'BUY';
+        const actionClass = action === 'STRONG BUY' ? 'text-up' : 'text-blue-400';
+        const reason = h.reasonTags?.[0] || 'High Conviction Setup';
+        
+        return `
+            <div onclick="window.fetchDataForSymbol('${h.symbol}')" 
+                 class="min-w-[200px] bg-gray-900 border border-green-500/20 p-4 rounded-2xl cursor-pointer hover:border-green-500/50 transition-all group">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-lg font-bold text-white">${h.symbol}</span>
+                    <span class="text-xs font-black mono text-green-400">${Math.round(scoreVal)}%</span>
+                </div>
+                <div class="${actionClass} text-[10px] font-black uppercase tracking-widest mb-1">${action}</div>
+                <div class="text-[9px] text-gray-400 italic">${reason}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+window.fetchDataForSymbol = function(symbol) {
+    document.getElementById('symbol-input').value = symbol;
+    
+    // Switch view to dashboard so the user sees the chart update
+    const dashboardBtn = document.getElementById('view-dashboard');
+    if (dashboardBtn) {
+        dashboardBtn.click();
+    }
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Fetch dashboard charts and strategy details
+    window.fetchData();
+};
+
+window.renderTopPicks = renderTopPicks;
+
+// ========================================
+// 10. EXPORT FUNCTIONS
 // ========================================
 
 window.renderActionableSectors = renderActionableSectors;
 window.selectActionableSector = selectActionableSector;
 window.clearFilter = clearFilter;
 window.getCurrentIntelTimeframe = getCurrentIntelTimeframe;
+
+// SCANNERS FILTERS (v2.1) - WIRE UP UI CONTROLS
+const initScannerFilters = () => {
+    const confSlider = document.getElementById('confidence-filter');
+    const confVal = document.getElementById('confidence-val');
+    const probToggle = document.getElementById('high-probability-only');
+
+    if (confSlider && confVal) {
+        confSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            confVal.textContent = `${val}%`;
+            if (window.marketIntelligence) {
+                window.marketIntelligence._renderHitsTable();
+            }
+        });
+    }
+
+    if (probToggle) {
+        probToggle.addEventListener('change', () => {
+            if (window.marketIntelligence) {
+                window.marketIntelligence._renderHitsTable();
+            }
+        });
+    }
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initScannerFilters);
+} else {
+    initScannerFilters();
+}

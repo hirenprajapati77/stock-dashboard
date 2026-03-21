@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import pandas as pd
 import numpy as np
@@ -71,9 +71,9 @@ class ScreenerService:
     }
 
     # Class-level cache
-    _cache = {
+    _cache: Dict[str, Any] = {
         "data": None,
-        "timestamp": 0,
+        "timestamp": 0.0,
         "timeframe": None
     }
     CACHE_TTL = 900 # 15 minutes to reduce yfinance load
@@ -170,14 +170,21 @@ class ScreenerService:
                                structure_bias: str, rr: float, atr_expansion: float) -> float:
         """Phase 4: Stock Quality Score Calculation (0-100)"""
         # 1. Stock RS inside sector (30%) - Clamped -5% to +5% -> 0-100
-        rs_clamped = max(-5, min(5, rs_sector))
-        rs_score = (rs_clamped + 5) * 10
+        rs_clamped = float(max(-5.0, float(min(5.0, float(rs_sector)))))
+        rs_score = (rs_clamped + 5.0) * 10.0
         
         # 2. Stock Acceleration (20%) - Normalized -0.1 to +0.1 -> 0-100
-        acc_score = max(0, min(100, stock_acc * 500 + 50))
+        acc_score = float(max(0.0, float(min(100.0, float(stock_acc) * 500.0 + 50.0))))
         
-        # 3. Volume Ratio (15%) - 1.0 to 2.0 -> 0-100
-        vol_score = max(0, min(100, (vol_ratio - 1.0) * 100))
+        # 3. Volume Ratio (15%) - 0.8 to 1.2+ -> 0-100
+        # Normalization: < 0.8 (Weak), 0.8-1.2 (Neutral), > 1.2 (Strong)
+        vol_ratio_f = float(vol_ratio)
+        if vol_ratio_f > 1.2:
+            vol_score = 100
+        elif vol_ratio_f >= 0.8:
+            vol_score = 50
+        else:
+            vol_score = 10
         
         # 4. Structure Bias (15%)
         bias_score = 100 if structure_bias == "BULLISH" else 50 if structure_bias == "NEUTRAL" else 0
@@ -186,7 +193,7 @@ class ScreenerService:
         rr_bonus = 100 if rr >= 1.8 else 0
         
         # 6. ATR Expansion (10%) - 1.0 to 1.5 -> 0-100
-        atr_score = max(0, min(100, (atr_expansion - 1.0) * 200))
+        atr_score = float(max(0.0, float(min(100.0, (float(atr_expansion) - 1.0) * 200.0))))
         
         final_score = (
             0.3 * rs_score +
@@ -274,6 +281,10 @@ class ScreenerService:
         from datetime import timezone, timedelta
         now_utc = datetime.now(timezone.utc)
         now_ist = now_utc + timedelta(hours=5, minutes=30)
+        
+        # Handle weekends: NSE/BSE closed on Sat (5) and Sun (6)
+        if now_ist.weekday() >= 5: return "CLOSED", "BEST"
+        
         cur_time = now_ist.hour * 100 + now_ist.minute
         
         if 915 <= cur_time < 930: return "OPEN", "AVOID"
@@ -310,13 +321,13 @@ class ScreenerService:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
         
         # 0. Check Cache — only serve non-empty results to avoid stale empty lists
-        current_time = time.time()
-        if (cls._cache["data"] is not None and 
-            cls._cache["data"] and   # Must have results
-            cls._cache["timeframe"] == normalized_tf and 
-            (current_time - cls._cache["timestamp"]) < cls.CACHE_TTL):
+        current_time = float(time.time())
+        if (cls._cache.get("data") is not None and 
+            cls._cache.get("data") and   # Must have results
+            cls._cache.get("timeframe") == normalized_tf and 
+            (current_time - float(cls._cache.get("timestamp") or 0.0)) < cls.CACHE_TTL):
             print(f"DEBUG: Serving screener data from cache for {normalized_tf}")
-            return cls._cache["data"]
+            return cls._cache["data"] # type: ignore
 
         config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
         rule = cls.RULES_BY_TF.get(normalized_tf, cls.RULES_BY_TF["1D"])
@@ -331,9 +342,9 @@ class ScreenerService:
             return []
 
         sector_indices = [
-            cls.SECTOR_INDEX_BY_KEY[sector]
+            str(cls.SECTOR_INDEX_BY_KEY.get(str(sector), ""))
             for sector in sector_map.keys()
-            if sector in cls.SECTOR_INDEX_BY_KEY
+            if str(sector) in cls.SECTOR_INDEX_BY_KEY
         ]
 
         try:
@@ -434,9 +445,11 @@ class ScreenerService:
                     continue
 
                 sector_return = 0.0
-                if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
-                    sector_symbol = cls.SECTOR_INDEX_BY_KEY[sector_key]
-                    sector_df = sector_batch_df[sector_symbol] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
+                if str(sector_key) in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                    sector_symbol = str(cls.SECTOR_INDEX_BY_KEY.get(str(sector_key), ""))
+                    # Cast to Any to satisfy broken stubs
+                    sector_batch_any: Any = sector_batch_df
+                    sector_df = sector_batch_any[sector_symbol] if isinstance(sector_batch_any.columns, pd.MultiIndex) else sector_batch_any
                     if sector_df is not None and not sector_df.empty:
                         sec_close_col = "Close" if "Close" in sector_df.columns else "close"
                         sector_close = sector_df[sec_close_col].dropna()
@@ -455,7 +468,7 @@ class ScreenerService:
                 # Phase 4: Stock Acceleration (fixed: use pre-fetched sector data)
                 sector_pct = pd.Series(0.0, index=pct.index)
                 if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
-                    _sec_sym = cls.SECTOR_INDEX_BY_KEY[sector_key]
+                    _sec_sym = cls.SECTOR_INDEX_BY_KEY[sector_key]  # type: ignore
                     _sec_df = sector_batch_df[_sec_sym] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
                     if _sec_df is not None and not _sec_df.empty:
                         _sec_close_col = "Close" if "Close" in _sec_df.columns else "close"
@@ -601,22 +614,22 @@ class ScreenerService:
                 hits.append(
                     {
                         "symbol": str(display_symbol),
-                        "price": float(round(latest_price, 2)),
-                        "change": float(round(latest_change, 2)),
-                        "hitChange": float(round(stock_return, 2)),
-                        "forward3dReturn": float(round(forward_return, 2)) if forward_return is not None else None,
+                        "price": float(round(float(latest_price) * 100.0) / 100.0),
+                        "change": float(round(float(latest_change) * 100.0) / 100.0),
+                        "hitChange": float(round(float(stock_return) * 100.0) / 100.0),
+                        "forward3dReturn": float(round(float(forward_return) * 100.0) / 100.0) if forward_return is not None else None,
                         "hits1d": bool(hits1d),
                         "hits2d": bool(hits2d),
                         "hits3d": bool(hits3d),
-                        "volRatio": float(round(vol_ratio_val, 2)),
-                        "volumeShocker": float(round(vol_ratio_val, 2)),
+                        "volRatio": float(round(float(vol_ratio_val) * 100.0) / 100.0),
+                        "volumeShocker": float(round(float(vol_ratio_val) * 100.0) / 100.0),
                         "stockActive": bool(volume_expansion.iloc[hit_idx]),
                         "volumeExpansion": bool(volume_expansion.iloc[hit_idx]),
-                        "sector": str(sector_key.replace("NIFTY_", "").replace("_", " ")),
+                        "sector": str(str(sector_key).replace("NIFTY_", "").replace("_", " ")),
                         "sectorKey": str(sector_key),
                         "sectorState": str(sector_state),
-                        "sectorReturn": float(round(sector_return, 4)),
-                        "rsSector": float(round(rs_sector, 4)),
+                        "sectorReturn": float(int(float(sector_return) * 10000.0 + 0.5) / 10000.0),
+                        "rsSector": float(int(float(rs_sector) * 10000.0 + 0.5) / 10000.0),
                         "tradeReady": bool(hits2d or hits3d),
                         "confidence": cls.get_confidence_grade(quality_score),
                         "grade": cls.get_confidence_grade(quality_score),
@@ -629,15 +642,15 @@ class ScreenerService:
                             "quality": str(session_quality)
                         },
                         "technical": {
-                            "vwap": float(round(vwap, 2)),
+                            "vwap": float(int(float(vwap) * 100.0 + 0.5) / 100.0),
                             "isBreakout": bool(is_breakout),
                             "isFalseBreakout": bool(false_breakout),
                             "aboveVWAP": bool(price_above_vwap),
                             "volHigh": bool(vol_high),
-                            "stopDistance": float(stop_distance_pct),
-                            "qualityScore": float(round(quality_score, 2)),
+                            "stopDistance": float(int(float(stop_distance_pct) * 100.0 + 0.5) / 100.0),
+                            "qualityScore": float(int(float(quality_score) * 100.0 + 0.5) / 100.0),
                             "structureBias": str(structure_bias),
-                            "atrExpansion": float(round(atr_expansion, 2)),
+                            "atrExpansion": float(int(float(atr_expansion) * 100.0 + 0.5) / 100.0),
                             "institutionalActivity": cls.get_smart_money_tier(vol_ratio_val),
                             "momentumStrength": str(momentum_strength),
                             "earlyBreakoutSignal": bool(early_tag == "EARLY_SETUP"),
@@ -666,19 +679,25 @@ class ScreenerService:
 
         hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
         
-        # Update Cache
-        cls._cache = {
-            "data": hits,
-            "timestamp": time.time(),
-            "timeframe": normalized_tf
-        }
-
-        # Archive Signals (V6: Persistent historical signals)
-        if normalized_tf == "1D":
-            SignalArchiveService.archive_signals(hits)
-        
-        # Save to Fallback
-        cls._save_fallback(hits, normalized_tf)
+        # Update Cache only if hits exist, otherwise keep previous valid data
+        if hits:
+            cls._cache = {
+                "data": hits,
+                "timestamp": time.time(),
+                "timeframe": normalized_tf
+            }
+            # Archive Signals (V6: Persistent historical signals)
+            if normalized_tf == "1D":
+                SignalArchiveService.archive_signals(hits)
+            
+            # Save to Fallback
+            cls._save_fallback(hits, normalized_tf)
+        else:
+            # If hits is empty (e.g., market closed/no volume), try serving the last valid scan
+            fallback_data = cls._load_fallback(normalized_tf)
+            if fallback_data:
+                print(f"DEBUG: 0 hits found live, returning fallback EOD data for {normalized_tf}")
+                return fallback_data
         
         return hits
 
@@ -754,25 +773,30 @@ class ScreenerService:
                 vol_ratio = float(eb.details.get("volRatio20", 0.0))
                 range_pct = float(eb.details.get("rangePct", 0.0))
 
-                display_symbol = symbol.replace(".NS", "").replace(".BO", "")
+                display_symbol = str(symbol).replace(".NS", "").replace(".BO", "")
+                
+                # Rounding workaround for restrictive round() overload
+                price_val = float(int(float(close) * 100.0 + 0.5) / 100.0)
+                
                 setups.append({
-                    "symbol": display_symbol,
-                    "price": round(close, 2),
-                    "sector": sector_key.replace("NIFTY_", "").replace("_", " "),
-                    "sectorKey": sector_key,
-                    "sectorState": sector_state,
+                    "symbol": str(display_symbol),
+                    "price": price_val,
+                    "sector": str(str(sector_key).replace("NIFTY_", "").replace("_", " ")),
+                    "sectorKey": str(sector_key),
+                    "sectorState": str(sector_state),
                     "tag": "EARLY_SETUP",
-                    "tooltip": eb.tooltip,
+                    "tooltip": str(eb.tooltip),
                     "details": eb.details,
-                    "volRatio": vol_ratio,
-                    "rangePct": range_pct,
+                    "volRatio": float(vol_ratio),
+                    "rangePct": float(range_pct),
                 })
             except Exception:
                 continue
 
         # Rank: tighter range first, then higher vol ratio, then nearer resistance (implicitly in signal)
-        setups.sort(key=lambda x: (x.get("rangePct", 99), -x.get("volRatio", 0)), reverse=False)
-        return setups[: max(1, int(limit))]
+        setups.sort(key=lambda x: (float(x.get("rangePct", 99.0)), -float(x.get("volRatio", 0.0))), reverse=False)
+        num_setups = int(max(1, int(limit)))
+        return [setups[i] for i in range(min(len(setups), num_setups))]
 
     @classmethod
     def _save_fallback(cls, data: List[Dict], timeframe: str):
@@ -853,8 +877,8 @@ class ScreenerService:
             improving = [s for s in sectors if s.get('metrics', {}).get('state') == 'IMPROVING']
             lagging = [s for s in sectors if s.get('metrics', {}).get('state') == 'LAGGING']
             
-            total_sectors = len(sector_data) if sector_data else 9 # Fallback to 9
-            leading_count = len(leading)
+            total_sectors = len(sector_data) if sector_data else 9 # type: ignore
+            leading_count = len(list(leading))  # type: ignore
             breadth_score = (leading_count / total_sectors) # Return 0-1 for frontend consistency, though frontend handles 0-100 too
 
             # Improvement 1: Enhanced Market Regime Filter
@@ -894,7 +918,7 @@ class ScreenerService:
             if sector_data:
                 # Sort sectors by rotationScore descending
                 sorted_sectors = sorted(
-                    sector_data.items(),
+                    sector_data.items(),  # type: ignore
                     key=lambda x: x[1].get('metrics', {}).get('rotationScore', 0),
                     reverse=True
                 )
@@ -933,27 +957,31 @@ class ScreenerService:
                     "volRatio": sorted_hits_vol[0]['volRatio']
                 }
 
+            # --- Simplified Market Summary (Decision-Driven) ---
+            bias = "NEUTRAL"
+            if market_regime == "RISK-ON": bias = "BULLISH"
+            elif market_regime == "RISK-OFF": bias = "BEARISH"
+            
+            strategy_suggestion = "Wait for setups"
+            if bias == "BULLISH": strategy_suggestion = "Focus on LEADING sector breakouts"
+            elif bias == "BEARISH": strategy_suggestion = "Avoid fresh longs, trail stops"
+            else: strategy_suggestion = "Range-bound play, focus on mean reversion"
+
             summary = {
-                "marketReturn": float(round(market_return, 2)),
-                "prevMarketReturn": float(round(market_return, 2)), # Placeholder logic
-                "globalCuesPositive": bool(global_positive),
-                "giftNiftyPositive": bool(gift_nifty_positive),
-                "leadingSectors": leading,
-                "weakeningSectors": weakening,
-                "improvingSectors": improving,
-                "laggingSectors": lagging,
-                "marketRegime": market_regime,
-                "breadthScore": float(round(breadth_score, 2)),
-                "topStocks": top_stocks[:10],
-                "systemPerformance": performance
-            }
-
-
-            # Append momentum leaders (Do NOT overwrite)
-            summary["momentumLeaders"] = {
-                "topSector": top_sector,
-                "topQualityStock": top_quality_stock,
-                "topVolumeStock": top_volume_stock
+                "marketBias": bias,
+                "marketReturn": float(int(float(market_return) * 100.0 + 0.5) / 100.0),
+                "marketRegime": str(market_regime),
+                "suggestedStrategy": strategy_suggestion,
+                "strongSectors": [s.get("name") for s in leading] + [s.get("name") for s in improving],
+                "weakSectors": [s.get("name") for s in lagging] + [s.get("name") for s in weakening],
+                "breadthScore": float(int(float(breadth_score) * 100.0 + 0.5) / 100.0),
+                "topStocks": [top_stocks[i] for i in range(min(len(top_stocks), 5))],
+                "systemPerformance": dict(performance),
+                "momentumLeaders": {
+                    "topSector": top_sector,
+                    "topQualityStock": top_quality_stock,
+                    "topVolumeStock": top_volume_stock
+                }
             }
 
             return summary

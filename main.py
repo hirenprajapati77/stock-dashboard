@@ -12,10 +12,11 @@ import requests
 import uvicorn
 import os
 from datetime import datetime
-from fastapi import FastAPI, Query, Response
+from typing import Optional, List, Dict, Any
+from fastapi import FastAPI, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 # Add global asyncio just in case of scope issues
 try:
@@ -34,6 +35,9 @@ from app.engine.sr import SREngine
 from app.engine.insights import InsightEngine
 from app.engine.confidence import ConfidenceEngine
 from app.ai.engine import AIEngine
+
+from app.services.fyers_service import FyersService
+from app.config import fyers_config
 
 app = FastAPI(title="Support & Resistance Dashboard")
 ai_engine = AIEngine()
@@ -119,7 +123,7 @@ app.add_middleware(
 )
 
 @app.get("/api/v2/ai-insights")
-async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: int = None):
+async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: Optional[int] = None):
     """
     Returns assistive AI insights for the given symbol.
     """
@@ -134,17 +138,13 @@ async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: i
 @app.get("/api/v1/search")
 async def search_symbols(q: str = Query(..., min_length=1)):
     """
-    Proxies search requests to Yahoo Finance to avoid CORS on frontend.
+    Searches for symbols using Fyers symbol master.
     """
     try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}&quotesCount=10&newsCount=0"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers)
-        data = r.json()
+        # 1. Search Fyers Symbols
+        results = await asyncio.to_thread(FyersService.search_symbols, q)
         
-        results = []
-        
-        # Inject custom keywords
+        # 2. Inject custom keywords
         custom_keywords = {
             "GOLD_IN": "Gold Beess ETF (NSE Proxy - ₹130 range)",
             "SILVER_IN": "Silver Beess ETF (NSE Proxy)",
@@ -157,31 +157,18 @@ async def search_symbols(q: str = Query(..., min_length=1)):
             "USDINR": "US Dollar / Indian Rupee (Live)",
             "OIL_INDIA": "Oil India Ltd (Stock - ₹500 range)"
         }
+        
+        custom_results = []
         for kw, desc in custom_keywords.items():
-            # Match if query is in keyword or description
             if q.upper() in kw or q.lower() in desc.lower():
-                results.append({
+                custom_results.append({
                     "symbol": kw,
                     "shortname": desc,
                     "exchange": "CUSTOM"
                 })
-
-        if 'quotes' in data:
-            for item in data['quotes']:
-                sym = item.get('symbol', '')
-                name = item.get('shortname', item.get('longname', ''))
-                
-                # Enhance naming for clarity
-                if sym == 'GC=F': name = "Global Gold Futures (COMEX)"
-                elif sym == 'SI=F': name = "Global Silver Futures (COMEX)"
-                elif sym == 'CL=F': name = "Global Crude Oil Futures (NYM)"
-                
-                results.append({
-                    "symbol": sym,
-                    "shortname": name,
-                    "exchange": item.get('exchange', '')
-                })
-        return results
+        
+        # Merge results - Custom first, then Fyers
+        return custom_results + results
     except Exception as e:
         print(f"Search error: {e}")
         return []
@@ -205,7 +192,7 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 
         async def fetch_mtf_wrapper(htf_name):
             try:
-                h_df, _ = await asyncio.to_thread(
+                h_df, _, h_err = await asyncio.to_thread(
                     MarketDataService.get_ohlcv, 
                     norm_symbol, 
                     htf_name, 
@@ -254,9 +241,13 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 
         # 2. Await Primary Data first (Essential)
         try:
-            df, currency = await asyncio.wait_for(primary_task, timeout=8.0)
-            if df.empty:
-                return {"status": "error", "message": f"No data found for {symbol}."}
+            df, currency, error = await asyncio.wait_for(primary_task, timeout=8.0)
+            
+            source = "live"
+            if error and not df.empty:
+                source = "fallback"
+            elif df.empty:
+                return {"status": "error", "message": error or f"No data found for {symbol}.", "source": "error"}
         except asyncio.TimeoutError:
             print("CRITICAL: Primary data fetch timed out!")
             return {"status": "error", "message": "Market data fetch timed out. Please retry."}
@@ -281,12 +272,14 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         else:
             sector_name, sector_state = None, "NEUTRAL"
 
-        mtf_levels = {"supports": [], "resistances": []}
-        for res in secondary_results[1:]:
-            if isinstance(res, tuple) and len(res) == 3:
-                _, hs, hr = res
-                mtf_levels["supports"].extend(hs)
-                mtf_levels["resistances"].extend(hr)
+        mtf_levels: Dict[str, List[Any]] = {"supports": [], "resistances": []}
+        if isinstance(secondary_results, list) and len(secondary_results) > 1:
+            mtf_results = secondary_results[1:]
+            for res in mtf_results:
+                if isinstance(res, tuple) and len(res) == 3:
+                    _, hs, hr = res
+                    if isinstance(hs, list): mtf_levels["supports"].extend(hs)
+                    if isinstance(hr, list): mtf_levels["resistances"].extend(hr)
 
         # 4. Strategy Execution (Fast)
         supports, resistances = [], []
@@ -298,7 +291,7 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             strategy_result = await asyncio.to_thread(SREngine.runSRStrategy, df, sector_state, supports, resistances)
             rendered_levels = {"supports": supports, "resistances": resistances}
         elif strategy == "SWING":
-            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df)
+            supports, resistances = await asyncio.to_thread(SwingEngine.calculate_swing_levels, df, tf)
             # Use same DF for structure if MTF failed
             strategy_result = await asyncio.to_thread(SwingEngine.runSwingStrategy, df, sector_state, "NEUTRAL", supports, resistances)
             rendered_levels = {"supports": supports, "resistances": resistances}
@@ -307,14 +300,20 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             strategy_result = await asyncio.to_thread(ZoneEngine.runDemandSupplyStrategy, df, sector_state, zones)
             
             # Map zones to levels for primary display and summary calculation
-            supports = [z for z in zones if z['type'] == 'DEMAND']
-            resistances = [z for z in zones if z['type'] == 'SUPPLY']
+            supp_zones = [z for z in zones if isinstance(z, dict) and z.get('type') == 'DEMAND']
+            res_zones = [z for z in zones if isinstance(z, dict) and z.get('type') == 'SUPPLY']
             
             # Sort by proximity to CMP
-            supports = sorted(supports, key=lambda x: x['price'], reverse=True)
-            resistances = sorted(resistances, key=lambda x: x['price'])
+            supp_sorted = sorted(supp_zones, key=lambda x: float(str(x.get('price', 0.0))), reverse=True)
+            res_sorted = sorted(res_zones, key=lambda x: float(str(x.get('price', 0.0))))
             
-            rendered_levels = {"supports": supports[:4], "resistances": resistances[:4]}
+            supports = supp_sorted
+            resistances = res_sorted
+            
+            # Use explicit list slicing to avoid type-checker confusion
+            s_top = supp_sorted[0:4] if len(supp_sorted) >= 4 else supp_sorted
+            r_top = res_sorted[0:4] if len(res_sorted) >= 4 else res_sorted
+            rendered_levels = {"supports": s_top, "resistances": r_top}
 
         # 5. AI Insights (Non-blocking or Short Timeout)
         try:
@@ -340,66 +339,62 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
                     "close": c
                 })
             except: continue
-
-        # 6. Additional Data
-        fundamentals = await asyncio.to_thread(FundamentalService.get_fundamentals, norm_symbol)
+            
+        # Initialize response_data with meta and structured levels
+        ns, nr = _resolve_summary_levels(cmp, supports, resistances, mtf_levels)
         
-        # Calculate support/resistance with safe defaults
-        s0_price = supports[0]['price'] if supports else (strategy_result.get('nearest_support') if strategy == "DEMAND_SUPPLY" else None)
-        r0_price = resistances[0]['price'] if resistances else (strategy_result.get('nearest_resistance') if strategy == "DEMAND_SUPPLY" else None)
-
-        insights = {
-            "inside_candle": bool(InsightEngine.is_inside_candle(df)),
-            "retest": bool(InsightEngine.detect_retest(df, supports + resistances)),
-            "ema_bias": InsightEngine.get_ema_bias(df),
-            "hammer": bool(InsightEngine.detect_hammer(df)),
-            "engulfing": InsightEngine.detect_engulfing(df),
-            "upside_pct": float(round(((resistances[0]['price'] - cmp) / cmp * 100), 2)) if resistances else 0.0,
-            "adx": round(InsightEngine.get_adx(df), 2),
-            "structure": InsightEngine.get_structure_bias(df),
-            "volRatio": InsightEngine.get_volume_ratio(df),
-            "volume_ratio": InsightEngine.get_volume_ratio(df)
-        }
-
-        # Safe AI access
-        ai_regime = ai_analysis.get('regime', {}) if isinstance(ai_analysis.get('regime'), dict) else {}
-        ai_priority = ai_analysis.get('priority', {}) if isinstance(ai_analysis.get('priority'), dict) else {}
-
-        response_data = {
+        response_data: Dict[str, Any] = {
             "status": "success",
             "meta": {
-                "symbol": norm_symbol,
+                "symbol": symbol,
+                "norm_symbol": norm_symbol,
                 "tf": tf,
                 "strategy": strategy,
-                "cmp": float(round(cmp, 2)),
-                "currency": currency,
+                "cmp": cmp,
+                "currency": currency or "INR",
                 "last_update": datetime.now().strftime("%H:%M:%S")
             },
-            "summary": {
-                "nearest_support": float(round(strategy_result.get('nearest_support', s0_price), 2)) if strategy_result.get('nearest_support') or s0_price else None,
-                "nearest_resistance": float(round(strategy_result.get('nearest_resistance', r0_price), 2)) if strategy_result.get('nearest_resistance') or r0_price else None,
-                "market_regime": str(ai_regime.get('market_regime', 'UNKNOWN')),
-                "priority": str(ai_priority.get('level', 'LOW')),
-                "stop_loss": float(round(strategy_result.get('stopLoss', cmp * 0.98), 2)),
-                "target": float(round(strategy_result.get('target', cmp * 1.05), 2)),
-                "risk_reward": f"1:{round(float(strategy_result.get('riskReward', 2.0)), 2)}",
-                "trade_signal": str(strategy_result.get('entryStatus', 'HOLD')),
-                "trade_signal_reason": f"{strategy} Bias: {strategy_result.get('bias', 'NEUTRAL')}. Sector: {sector_state}.",
-                "confidence": int(strategy_result.get('confidence', 0)),
-                "volume_ratio": InsightEngine.get_volume_ratio(df),
-                "volRatio": InsightEngine.get_volume_ratio(df)
-            },
-            "strategy": strategy_result,
+            "ohlcv": ohlcv,
             "levels": {
                 "primary": rendered_levels,
                 "mtf": mtf_levels
             },
-            "insights": insights,
-            "ai_analysis": ai_analysis,
-            "fundamentals": fundamentals,
-            "ohlcv": ohlcv,
-            "sector_info": {"name": sector_name, "state": sector_state}
+            "strategy": strategy_result,
+            "insights": ai_analysis,
+            "ai_analysis": {
+                "status": "success",
+                **ai_analysis
+            },
+            "sector_info": {
+                "name": sector_name,
+                "state": sector_state
+            },
+            "summary": {
+                "trade_signal": str(strategy_result.get("entryStatus", strategy_result.get("signal", "HOLD"))),
+                "trade_signal_reason": strategy_result.get("bias", "Neutral bias"),
+                "confidence": int(strategy_result.get("confidence", 50)),
+                "nearest_support": ns,
+                "nearest_resistance": nr,
+                "stop_loss": strategy_result.get("stopLoss"),
+                "target": strategy_result.get("target"),
+                "risk_reward": strategy_result.get("riskReward"),
+                "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", "STABLE")
+            }
         }
+
+        # 6. Trade Decision Add-on
+        from app.services.trade_decision_service import TradeDecisionService
+        try:
+            decision_data = TradeDecisionService.compute_trade_score(response_data)
+            response_data.update(decision_data)
+        except Exception as e:
+            print(f"TradeDecisionService error: {e}")
+
+        # 7. Additional Data
+        fundamentals = await asyncio.to_thread(FundamentalService.get_fundamentals, norm_symbol)
+        response_data["fundamentals"] = fundamentals
+        response_data["source"] = source
+
         return _json_serializable(response_data)
     except Exception as e:
         import traceback
@@ -412,6 +407,41 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         })
 
 
+
+# --- Fyers Authentication Endpoints ---
+
+@app.get("/api/v1/fyers/login")
+async def fyers_login():
+    """Redirects the user to Fyers login page."""
+    try:
+        url = FyersService.get_login_url()
+        return RedirectResponse(url)
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to generate login URL: {str(e)}"}
+
+@app.get("/api/v1/fyers/callback")
+async def fyers_callback(auth_code: str, state: Optional[str] = None):
+    """Handles the callback from Fyers and generates access token."""
+    try:
+        success, message = FyersService.generate_token(auth_code)
+        if success:
+            # Redirect back to the dashboard with a success message
+            return RedirectResponse(url="/?fyers_login=success")
+        return {"status": "error", "message": message}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v1/fyers/status")
+async def fyers_status():
+    """Checks if Fyers is logged in."""
+    is_logged_in = FyersService.load_token()
+    from app.services.screener_service import ScreenerService as MomentumScreener
+    session_tag, session_quality = MomentumScreener.get_session_tag()
+    return {
+        "logged_in": is_logged_in,
+        "market_open": session_tag != "CLOSED",
+        "app_id": fyers_config.app_id[:5] + "..." if is_logged_in else None
+    }
 
 @app.get("/api/v1/screener")
 async def run_screener():
@@ -480,15 +510,35 @@ async def get_sector_rotation(tf: str = "1D"):
     Returns RS and RM data for all NSE sectors for the rotation dashboard.
     """
     try:
+        from app.services.sector_service import SectorService
         data, alerts = SectorService.get_rotation_data(days=60, timeframe=tf)
+        
+        source = "live"
+        if not data:
+            source = "error"
+
         return {
             "status": "success",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "data": data,
-            "alerts": alerts
+            "alerts": alerts,
+            "source": source
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Error in get_sector_rotation: {e}")
+        try:
+            from app.services.sector_service import SectorService
+            fb_data, fb_alerts = SectorService._load_fallback("1D" if tf == "Daily" else tf)
+            return {
+                "status": "success", 
+                "data": fb_data, 
+                "alerts": fb_alerts, 
+                "source": "fallback",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except:
+            pass
+        return {"status": "error", "message": str(e), "source": "error"}
 
 @app.get("/api/v1/momentum-hits")
 async def get_momentum_hits(tf: str = "1D"):
@@ -502,21 +552,44 @@ async def get_momentum_hits(tf: str = "1D"):
         from app.services.trade_tracking_service import TradeTrackingService
 
         data = MomentumScreener.get_screener_data(timeframe=tf)
+        if not data:
+             # Fallback if service returns empty list (e.g. rate limit caught but no file?)
+             # ScreenerService.get_screener_data already tries to load fallback, 
+             # but we can be extra sure here.
+             pass
+             
         filtered = SignalFilterService.annotate_many(data)
         enriched = TradeDecisionService.annotate_many(filtered)
         TradeTrackingService.log_trades(enriched)
+        
+        # Detect if this is fallback data (if all items are old)
+        source = "live"
+        if enriched and not any(h.get("isLatestSession", False) for h in enriched):
+            source = "fallback"
+
         return {
             "status": "success",
             "count": len(enriched),
-            "data": enriched
+            "data": enriched,
+            "source": source
         }
     except Exception as e:
-        # Keep response shape stable so UI can render an empty-state instead of hanging.
+        print(f"ERROR in get_momentum_hits: {e}")
+        # Try emergency fallback load in the outer catch too
+        try:
+             from app.services.screener_service import ScreenerService as MomentumScreener
+             fallback = MomentumScreener._load_fallback("1D" if tf == "Daily" else tf)
+             if fallback:
+                 return {"status": "success", "count": len(fallback), "data": fallback, "source": "fallback"}
+        except:
+             pass
+
         return {
             "status": "error",
             "count": 0,
             "data": [],
-            "message": str(e)
+            "message": str(e),
+            "source": "error"
         }
 
 @app.get("/api/v1/early-setups")
@@ -528,9 +601,27 @@ async def get_early_setups(tf: str = "1D", limit: int = 5):
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
         data = MomentumScreener.get_early_breakout_setups(timeframe=tf, limit=limit)
-        return {"status": "success", "count": len(data), "data": data}
+        
+        source = "live"
+        if not data:
+            # Check if this might be a rate limit case but let it be live for now
+            pass
+
+        return {
+            "status": "success",
+            "count": len(data),
+            "data": data,
+            "source": source
+        }
     except Exception as e:
-        return {"status": "error", "count": 0, "data": [], "message": str(e)}
+        print(f"Error in get_early_setups: {e}")
+        return {
+            "status": "error",
+            "count": 0,
+            "data": [],
+            "message": str(e),
+            "source": "error"
+        }
 
 @app.get("/api/v1/trade-performance")
 async def get_trade_performance():
@@ -565,14 +656,25 @@ async def get_market_summary(tf: str = "1D"):
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
         data = MomentumScreener.get_market_summary_data(timeframe=tf)
+        
+        source = "live"
+        if not data:
+            source = "error"
+
+        session_tag, session_quality = MomentumScreener.get_session_tag()
+
         return {
             "status": "success",
-            "data": data
+            "data": data,
+            "source": source,
+            "market_open": session_tag != "CLOSED"
         }
     except Exception as e:
+        print(f"Error in get_market_summary: {e}")
         return {
             "status": "error",
-            "message": str(e)
+            "message": str(e),
+            "source": "error"
         }
 
 # Mount Frontend - Robust Path Finding
@@ -588,33 +690,11 @@ except Exception as e:
     print(f"Failed to mount frontend: {e}")
 
 if __name__ == "__main__":
-    import socket
-
-    def _pick_port(preferred: int) -> int:
-        """
-        Pick a port to bind for local/dev runs.
-        - Uses preferred if free.
-        - Otherwise falls back to an ephemeral free port chosen by OS.
-        """
-        bind_host = "0.0.0.0"
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((bind_host, preferred))
-            return preferred
-        except OSError:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((bind_host, 0))
-                return int(s.getsockname()[1])
-
     env_port = os.getenv("PORT") or os.getenv("UVICORN_PORT")
     try:
-        preferred_port = int(env_port) if env_port else 8000
+        port = int(env_port) if env_port else 8000
     except ValueError:
-        preferred_port = 8000
+        port = 8000
 
-    port = _pick_port(preferred_port)
-    if port != preferred_port:
-        print(f"Port {preferred_port} is busy; starting on {port} instead.")
-
+    print(f"Starting server on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
