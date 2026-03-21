@@ -51,6 +51,9 @@ class TradeDecisionService:
         setup_score = 0
         if retest and breakout: setup_score = 20
         elif retest or breakout: setup_score = 15
+        elif not retest and not breakout:
+            # FORCE NO TRADE if both are missing
+            setup_score = 0
         else: setup_score = 5
         
         # 3. Volume: Weight 15
@@ -74,7 +77,8 @@ class TradeDecisionService:
         rr_score = 0
         if rr >= 2.0: rr_score = 15
         elif rr >= 1.5: rr_score = 10
-        else: rr_score = 5
+        elif rr >= 1.0: rr_score = 5
+        else: rr_score = 0  # RR < 1 is a major penalty
         
         # 5. Support/Resistance Proximity: Weight 10
         s0 = cls._f(summary.get("nearest_support") or hit.get("nearest_support"))
@@ -97,46 +101,47 @@ class TradeDecisionService:
         vol_high = bool(tech.get("volHigh"))
         vola_score = 5 if vol_high else 10 # Prefer stable volatility for setups
 
-        # 8. Sector Correlation: Weight 30 (NEW v2.1)
-        sector_state = str(hit.get("sectorState") or "NEUTRAL").upper()
-        sector_score = 0
-        if sector_state == "LEADING": sector_score = 30
-        elif sector_state == "IMPROVING": sector_score = 22 # Boosted from 20 for better visibility
-        elif sector_state == "WEAKENING": sector_score = 12 # Boosted from 10
-        else: sector_score = 5 # Neutral/Lagging base
-        
-        # Calculate raw total (Max possible: 20 + 20 + 15 + 15 + 10 + 10 + 10 + 30 = 130)
-        raw_total = trend_score + setup_score + vol_score + rr_score + sr_score + mo_score + vola_score + sector_score
-        
-        # Normalize to 100-point scale for UI consistency
-        final_score = (raw_total / 130.0) * 100.0
+        # Calculate final normalized score (Weight total: 20+20+15+15+10+10+10 = 100)
+        final_score = trend_score + setup_score + vol_score + rr_score + sr_score + mo_score + vola_score
         final_score = min(100.0, float(final_score))
         
-        # Decision Mapping
-        action = "WAIT"
-        if final_score >= 80: action = "STRONG BUY"
-        elif final_score >= 65: action = "ENTRY READY"
-        elif final_score >= 45: action = "WATCHLIST"
+        # Action Mapping & Safety Rules
+        action = "AVOID"
+        if not retest and not breakout:
+            action = "AVOID" # Strict rule: No setup = No trade
+        elif rr < 1.0:
+            action = "AVOID" # Strict rule: RR < 1 = Avoid
+        elif final_score >= 80:
+            action = "STRONG BUY"
+        elif final_score >= 70:
+            action = "BUY"
+        elif final_score >= 60:
+            action = "WATCH"
+        else:
+            action = "AVOID"
         
-        # Tags
+        # Tags (max 4)
         tags = []
-        if trend_score >= 15: tags.append("Trend Strong")
-        if retest: tags.append("Retest Confirmed")
-        if breakout: tags.append("Breakout Confirmed")
-        if vol_score >= 15: tags.append("Volume Strong")
-        if vol_score <= 5: tags.append("Volume Weak")
-        if rr_score >= 15: tags.append("RR Optimized")
-        if action == "STRONG BUY": tags.append("High Conviction")
+        if action == "AVOID":
+            if rr < 1.0: tags.append("Poor RR")
+            if not retest and not breakout: tags.append("No Setup")
+            if final_score < 60: tags.append("Weak Metrics")
+        else:
+            if retest: tags.append("Retest Confirmed")
+            if breakout: tags.append("Breakout Confirmed")
+            if vol_score >= 15: tags.append("Volume Strong")
+            if trend_score >= 20: tags.append("Strong Trend")
+            if rr_score >= 15: tags.append("High RR")
         
         # Factors for UI
         factors = [
-            {"label": "Sector Impact", "value": f"+{sector_score}%", "positive": sector_score >= 20},
             {"label": "Trend Strength", "value": f"+{trend_score}%", "positive": trend_score >= 15},
             {"label": "Setup Quality", "value": f"+{setup_score}%", "positive": setup_score >= 15},
             {"label": "Volume Profile", "value": f"+{vol_score}%", "positive": vol_score >= 10},
             {"label": "Risk-Reward", "value": f"+{rr_score}%", "positive": rr_score >= 10},
             {"label": "S/R Proximity", "value": f"{sr_score - 5:+}%", "positive": sr_score > 5},
             {"label": "Momentum", "value": f"+{mo_score}%", "positive": mo_score >= 8},
+            {"label": "Volatility", "value": f"+{vola_score}%", "positive": vola_score >= 10},
         ]
 
         return {
@@ -144,7 +149,8 @@ class TradeDecisionService:
             "confidence": int(final_score),
             "action": action,
             "reasonTags": list(tags[:4]),
-            "confidenceFactors": factors
+            "confidenceFactors": factors,
+            "rr": float(round(rr, 2))
         }
 
     @classmethod

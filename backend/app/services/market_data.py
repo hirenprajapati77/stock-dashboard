@@ -60,8 +60,9 @@ class MarketDataService:
         # Only append .NS if:
         # 1. No dots already present
         # 2. Not an index (doesn't start with ^)
-        # 3. Purely alphanumeric
-        if "." not in symbol and not symbol.startswith("^") and symbol.isalnum():
+        # 3. Purely alphanumeric (or hyphen if it doesn't have a colon)
+        # 4. No colon (Fyers style)
+        if "." not in symbol and ":" not in symbol and not symbol.startswith("^") and symbol.replace("-", "").isalnum():
             symbol = f"{symbol}.NS"
             
         print(f"DEBUG: Symbol Mapping: {original_symbol} -> {symbol}")
@@ -111,9 +112,13 @@ class MarketDataService:
         # Map TF to yfinance interval
         interval_map = {
             "5m": "5m",
+            "10m": "5m",
             "15m": "15m",
+            "30m": "30m",
+            "45m": "15m",
             "1H": "60m",
             "2H": "60m",
+            "3H": "60m",
             "4H": "60m",
             "1D": "1d",
             "1W": "1wk",
@@ -124,24 +129,36 @@ class MarketDataService:
         
         period = "1y"
         if tf == "5m": period = "7d"
+        elif tf == "10m": period = "7d"
         elif tf == "15m": period = "30d"
-        elif tf == "75m": period = "30d"
-        elif tf in ["1H", "2H", "4H"]: period = "180d"
+        elif tf in ["30m", "45m", "75m"]: period = "60d"
+        elif tf in ["1H", "2H", "3H", "4H"]: period = "180d"
         elif tf == "1D": period = "1y" 
         elif tf == "1W": period = "2y"
         elif tf == "1M": period = "5y"
         
         # 1.5 Try Fyers first if logged in
         try:
-            fyers_df, fyers_err = FyersService.get_ohlcv(symbol, tf, "", "") # range handled by service now or using default
+            # If symbol has a colon, it's a Fyers-style symbol (e.g., NSE:RELIANCE-EQ, MCX:GOLD...FUT)
+            fyers_df, fyers_err = FyersService.get_ohlcv(symbol, tf, "", "")
             if fyers_df is not None and not fyers_df.empty:
                 print(f"DEBUG: Successfully fetched {symbol} from Fyers")
                 fyers_df = fyers_df.tail(count)
-                # Save to disk for fallback
                 MarketDataService._save_to_disk(symbol, tf, fyers_df)
                 return fyers_df, "INR", None
             else:
                 print(f"DEBUG: Fyers fetch failed or not logged in: {fyers_err}")
+                
+            # If Fyers failed and it's a Fyers symbol, try to translate for Yahoo fallback
+            if ":" in symbol:
+                parts = symbol.split(':')
+                if len(parts) > 1:
+                    base_ticker = parts[1].split('-')[0]
+                    if parts[0] == "NSE":
+                        symbol = f"{base_ticker}.NS"
+                    elif parts[0] == "BSE":
+                        symbol = f"{base_ticker}.BO"
+                    # For MCX, Yahoo Finance uses different symbols (handled in synthetic or not at all)
         except Exception as fe:
             print(f"DEBUG: Fyers integration error: {fe}")
 
@@ -180,6 +197,7 @@ class MarketDataService:
                     return df, "INR", None
             
             # Standard Fetch
+            print(f"DEBUG: Yahoo Finance Fetching Symbol: {symbol}")
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
             
@@ -234,7 +252,14 @@ class MarketDataService:
                 
             df.columns = [c.lower() for c in df.columns]
 
-            resample_map = {"75m": "75min", "2H": "120min", "4H": "240min"}
+            resample_map = {
+                "10m": "10min",
+                "45m": "45min", 
+                "75m": "75min", 
+                "2H": "120min", 
+                "3H": "180min", 
+                "4H": "240min"
+            }
             if tf in resample_map:
                 resample_logic = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                 offset = '15min' if tf == "75m" else '0min'

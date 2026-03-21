@@ -196,9 +196,9 @@ class SignalFilterService:
             v = float(vol_ratio)
         except Exception:
             return "WEAK"
-        if v >= 2.0:
+        if v > 1.2:
             return "STRONG"
-        if v >= 1.2:
+        if v >= 0.8:
             return "MODERATE"
         return "WEAK"
 

@@ -46,48 +46,61 @@ class SwingEngine:
         return swing_highs, swing_lows
 
     @staticmethod
-    def calculate_swing_levels(df):
+    def calculate_swing_levels(df, tf='1D'):
         """
         Calculates Major Swing Levels (Structural).
-        Uses a larger window to find significant pivots.
+        Adapts window size based on timeframe so 1W/1M still produce levels.
         """
-        # 1. Get major swings (Window=20)
+        # Adapt pivot window to timeframe — higher TFs have fewer bars
+        window_map = {
+            '5m': 10, '10m': 10, '15m': 10, '30m': 8, '45m': 6, '75m': 5,
+            '1H': 5, '2H': 4, '3H': 4, '4H': 4,
+            '1D': 5, '1W': 3, '1M': 2
+        }
+        window = window_map.get(tf, 5)
+
         # Limit to last 200 candles for structure
         df_slice = df.tail(200).copy()
-        sh, sl = SwingEngine.get_swings(df_slice, window=20)
-        
+
+        # Need at least 2*window+1 candles to detect any pivot
+        if len(df_slice) < (2 * window + 1):
+            window = max(1, len(df_slice) // 4)
+
+        sh, sl = SwingEngine.get_swings(df_slice, window=window)
+
         all_pivots = sh + sl
         levels = []
-        
-        # 2. Add recent significant levels
+
         for p in all_pivots:
             levels.append({'price': p['price'], 'type': 'SWING_PIVOT'})
-            
-        # 3. Consolidate (1% threshold for major levels)
+
         if not levels: return [], []
-        
+
         levels.sort(key=lambda x: x['price'])
         consolidated = []
         current_group = [levels[0]]
-        
+
+        # Use wider consolidation for higher TFs (2% for weekly/monthly, 1% for intraday)
+        consolidation_pct = 0.02 if tf in ('1W', '1M') else 0.015 if tf in ('1D', '4H', '3H', '2H', '1H') else 0.01
+
         for i in range(1, len(levels)):
-            if (levels[i]['price'] - current_group[-1]['price']) / current_group[-1]['price'] < 0.01:
+            gap = (levels[i]['price'] - current_group[-1]['price']) / current_group[-1]['price']
+            if gap < consolidation_pct:
                 current_group.append(levels[i])
             else:
                 avg_price = sum(l['price'] for l in current_group) / len(current_group)
                 consolidated.append({'price': avg_price})
                 current_group = [levels[i]]
-                
+
         if current_group:
             avg_price = sum(l['price'] for l in current_group) / len(current_group)
             consolidated.append({'price': avg_price})
 
-        # 4. Classify
         cmp = df['close'].iloc[-1]
-        supports = [{'price': l['price'], 'visits': 1, 'timeframe': '1D'} for l in consolidated if l['price'] < cmp]
-        resistances = [{'price': l['price'], 'visits': 1, 'timeframe': '1D'} for l in consolidated if l['price'] > cmp]
-        
-        return sorted(supports, key=lambda x: x['price'], reverse=True)[:3], sorted(resistances, key=lambda x: x['price'])[:3]
+        supports = [{'price': l['price'], 'visits': 1, 'timeframe': tf} for l in consolidated if l['price'] < cmp]
+        resistances = [{'price': l['price'], 'visits': 1, 'timeframe': tf} for l in consolidated if l['price'] > cmp]
+
+        return sorted(supports, key=lambda x: x['price'], reverse=True)[:5], sorted(resistances, key=lambda x: x['price'])[:5]
 
     @staticmethod
     def runSwingStrategy(df, sector_state, htf_trend="NEUTRAL", supports=[], resistances=[]):

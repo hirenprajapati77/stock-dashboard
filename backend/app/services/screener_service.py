@@ -176,8 +176,15 @@ class ScreenerService:
         # 2. Stock Acceleration (20%) - Normalized -0.1 to +0.1 -> 0-100
         acc_score = float(max(0.0, float(min(100.0, float(stock_acc) * 500.0 + 50.0))))
         
-        # 3. Volume Ratio (15%) - 1.0 to 2.0 -> 0-100
-        vol_score = float(max(0.0, float(min(100.0, (float(vol_ratio) - 1.0) * 100.0))))
+        # 3. Volume Ratio (15%) - 0.8 to 1.2+ -> 0-100
+        # Normalization: < 0.8 (Weak), 0.8-1.2 (Neutral), > 1.2 (Strong)
+        vol_ratio_f = float(vol_ratio)
+        if vol_ratio_f > 1.2:
+            vol_score = 100
+        elif vol_ratio_f >= 0.8:
+            vol_score = 50
+        else:
+            vol_score = 10
         
         # 4. Structure Bias (15%)
         bias_score = 100 if structure_bias == "BULLISH" else 50 if structure_bias == "NEUTRAL" else 0
@@ -274,6 +281,10 @@ class ScreenerService:
         from datetime import timezone, timedelta
         now_utc = datetime.now(timezone.utc)
         now_ist = now_utc + timedelta(hours=5, minutes=30)
+        
+        # Handle weekends: NSE/BSE closed on Sat (5) and Sun (6)
+        if now_ist.weekday() >= 5: return "CLOSED", "BEST"
+        
         cur_time = now_ist.hour * 100 + now_ist.minute
         
         if 915 <= cur_time < 930: return "OPEN", "AVOID"
@@ -946,27 +957,31 @@ class ScreenerService:
                     "volRatio": sorted_hits_vol[0]['volRatio']
                 }
 
+            # --- Simplified Market Summary (Decision-Driven) ---
+            bias = "NEUTRAL"
+            if market_regime == "RISK-ON": bias = "BULLISH"
+            elif market_regime == "RISK-OFF": bias = "BEARISH"
+            
+            strategy_suggestion = "Wait for setups"
+            if bias == "BULLISH": strategy_suggestion = "Focus on LEADING sector breakouts"
+            elif bias == "BEARISH": strategy_suggestion = "Avoid fresh longs, trail stops"
+            else: strategy_suggestion = "Range-bound play, focus on mean reversion"
+
             summary = {
+                "marketBias": bias,
                 "marketReturn": float(int(float(market_return) * 100.0 + 0.5) / 100.0),
-                "prevMarketReturn": float(int(float(market_return) * 100.0 + 0.5) / 100.0), # Placeholder logic
-                "globalCuesPositive": bool(global_positive),
-                "giftNiftyPositive": bool(gift_nifty_positive),
-                "leadingSectors": list(leading),
-                "weakeningSectors": list(weakening),
-                "improvingSectors": list(improving),
-                "laggingSectors": list(lagging),
                 "marketRegime": str(market_regime),
+                "suggestedStrategy": strategy_suggestion,
+                "strongSectors": [s.get("name") for s in leading] + [s.get("name") for s in improving],
+                "weakSectors": [s.get("name") for s in lagging] + [s.get("name") for s in weakening],
                 "breadthScore": float(int(float(breadth_score) * 100.0 + 0.5) / 100.0),
-                "topStocks": [top_stocks[i] for i in range(min(len(top_stocks), 10))],
-                "systemPerformance": dict(performance)
-            }
-
-
-            # Append momentum leaders (Do NOT overwrite)
-            summary["momentumLeaders"] = {
-                "topSector": top_sector,
-                "topQualityStock": top_quality_stock,
-                "topVolumeStock": top_volume_stock
+                "topStocks": [top_stocks[i] for i in range(min(len(top_stocks), 5))],
+                "systemPerformance": dict(performance),
+                "momentumLeaders": {
+                    "topSector": top_sector,
+                    "topQualityStock": top_quality_stock,
+                    "topVolumeStock": top_volume_stock
+                }
             }
 
             return summary
