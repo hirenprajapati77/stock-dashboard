@@ -146,8 +146,10 @@ def _external_base_url(request: Request) -> str:
 def _resolve_fyers_redirect_url(request: Request) -> str:
     configured_redirect = os.getenv("FYERS_REDIRECT_URL")
     if configured_redirect:
-        return configured_redirect
-    return f"{_external_base_url(request)}/api/v1/fyers/callback"
+        return fyers_config.normalize_redirect_url(configured_redirect)
+    return fyers_config.normalize_redirect_url(
+        f"{_external_base_url(request)}/api/v1/fyers/callback"
+    )
 
 
 def _build_fyers_redirect(request: Request, status: str, message: Optional[str] = None) -> str:
@@ -493,7 +495,10 @@ async def fyers_callback(
                 )
             )
 
-        success, message = FyersService.generate_token(resolved_auth_code)
+        success, message = FyersService.generate_token(
+            resolved_auth_code,
+            redirect_uri=_resolve_fyers_redirect_url(request),
+        )
         if success:
             # Redirect back to the dashboard with a success message
             return RedirectResponse(url=_build_fyers_redirect(request, "success"))
@@ -522,6 +527,8 @@ async def fyers_status(request: Request):
         "callback_path": "/api/v1/fyers/callback",
         "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
         "last_auth_debug": FyersService.get_last_auth_debug(),
+        "fyers_token_file_from_env": bool(os.getenv("FYERS_TOKEN_FILE")),
+        "fyers_token_file_name": os.path.basename(fyers_config.token_file),
     }
 
 @app.get("/api/v1/screener")

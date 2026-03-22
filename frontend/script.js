@@ -1344,6 +1344,23 @@ function renderFyersCallbackState(isLoggedIn = false) {
         return;
     }
 
+    if (fyersCallbackState.status === 'success' && !isLoggedIn) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]";
+        if (text) {
+            text.textContent = "Session mismatch";
+            text.className = "text-[10px] font-bold text-amber-400 uppercase tracking-widest hidden lg:inline";
+        }
+        if (btn) btn.classList.remove('hidden');
+        if (messageEl) {
+            messageEl.textContent = 'Token not on this server. Use FYERS_TOKEN_FILE + Render Disk, or one instance.';
+            messageEl.title = 'Fyers returned success but this app instance has no token file. On Render, use a persistent disk and set FYERS_TOKEN_FILE to a path on that disk, or run a single instance.';
+            messageEl.className = "max-w-[280px] truncate text-[10px] font-medium text-amber-400 lg:inline-block";
+        }
+        console.warn("FYERS callback success but logged_in=false — likely multi-instance or ephemeral disk on Render.");
+        fyersCallbackState = null;
+        return;
+    }
+
     if (fyersCallbackState.status === 'error') {
         if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]";
         if (text) {
@@ -1396,14 +1413,23 @@ async function checkFyersStatus() {
             if (btn) btn.classList.remove('hidden');
         }
 
-        if (fyersCallbackState?.status === 'error') {
-            console.info("FYERS auth URL:", data.auth_url);
+        if (fyersCallbackState?.status === 'error' || (fyersCallbackState?.status === 'success' && !data.logged_in)) {
+            console.info("FYERS auth URL (full string — DevTools may wrap/truncate long lines):", data.auth_url);
+            try {
+                const au = new URL(data.auth_url);
+                const ru = au.searchParams.get('redirect_uri');
+                console.info("FYERS outbound OAuth redirect_uri (decoded):", ru ? decodeURIComponent(ru) : '(missing)');
+            } catch (e) {
+                console.warn("Could not parse FYERS auth URL:", e);
+            }
             console.info("FYERS effective redirect URL:", data.redirect_url);
             console.info("FYERS redirect URL source:", data.redirect_url_source);
             console.info("FYERS callback path:", data.callback_path);
             console.info("FYERS config ready:", data.config_ready);
             console.info("FYERS app id prefix:", data.app_id);
             console.info("FYERS app id source:", data.app_id_source);
+            console.info("FYERS token file from env:", data.fyers_token_file_from_env);
+            console.info("FYERS token file name:", data.fyers_token_file_name);
             console.info("FYERS auth debug:", data.last_auth_debug);
         }
 
