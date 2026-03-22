@@ -32,15 +32,56 @@ class FyersService:
 
     @classmethod
     def get_login_url(cls, redirect_url=None):
-        # API v3 Auth URL - Ensure redirect_uri is URL-encoded
-        import urllib.parse
         resolved_redirect = redirect_url or fyers_config.redirect_url
-        encoded_redirect = urllib.parse.quote(resolved_redirect, safe='')
-        url = f"{cls.BASE_URL}/generate-authcode?client_id={fyers_config.app_id}&redirect_uri={encoded_redirect}&response_type=code&state=fyers_auth"
-        return url
+        try:
+            from fyers_apiv3 import fyersModel
+
+            session = fyersModel.SessionModel(
+                client_id=fyers_config.app_id,
+                redirect_uri=resolved_redirect,
+                response_type="code",
+                state="fyers_auth",
+                secret_key=fyers_config.secret_id,
+                grant_type="authorization_code",
+            )
+            return session.generate_authcode()
+        except Exception:
+            import urllib.parse
+            encoded_redirect = urllib.parse.quote(resolved_redirect, safe='')
+            url = f"{cls.BASE_URL}/generate-authcode?client_id={fyers_config.app_id}&redirect_uri={encoded_redirect}&response_type=code&state=fyers_auth"
+            return url
 
     @classmethod
     def generate_token(cls, auth_code):
+        try:
+            return cls._generate_token_with_sdk(auth_code)
+        except Exception:
+            return cls._generate_token_with_http(auth_code)
+
+    @classmethod
+    def _generate_token_with_sdk(cls, auth_code):
+        from fyers_apiv3 import fyersModel
+
+        session = fyersModel.SessionModel(
+            client_id=fyers_config.app_id,
+            redirect_uri=fyers_config.redirect_url,
+            response_type="code",
+            state="fyers_auth",
+            secret_key=fyers_config.secret_id,
+            grant_type="authorization_code",
+        )
+        session.set_token(auth_code)
+        response = session.generate_token()
+
+        if isinstance(response, dict) and response.get("access_token"):
+            cls.save_token(response["access_token"])
+            return True, "Login successful"
+
+        message = response.get("message") if isinstance(response, dict) else str(response)
+        return False, cls._humanize_auth_error(message)
+
+    @classmethod
+    def _generate_token_with_http(cls, auth_code):
         # Exchange auth_code for access_token in v3
         # appIdHash = sha256(client_id:secret_key)
         hash_input = f"{fyers_config.app_id}:{fyers_config.secret_id}"
