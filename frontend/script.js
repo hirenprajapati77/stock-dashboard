@@ -1353,13 +1353,22 @@ function renderFyersCallbackState(isLoggedIn = false) {
         if (btn) btn.classList.remove('hidden');
 
         const message = fyersCallbackState.message || 'FYERS authentication failed. Please verify your FYERS redirect URL and app credentials.';
+        const compactMessage = summarizeFyersMessage(message);
         if (messageEl) {
-            messageEl.textContent = message;
+            messageEl.textContent = compactMessage;
             messageEl.title = message;
-            messageEl.className = "max-w-[260px] truncate text-[10px] font-medium text-amber-400";
+            messageEl.className = "max-w-[180px] truncate text-[10px] font-medium text-amber-400 lg:inline-block";
         }
         console.error("FYERS auth failed:", message);
     }
+}
+
+function summarizeFyersMessage(message) {
+    const normalized = String(message || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return 'FYERS authentication failed.';
+    if (normalized.includes('HTTP 403')) return 'Check FYERS redirect URL';
+    if (normalized.toLowerCase().includes('empty response')) return 'FYERS token not returned';
+    return normalized.length > 42 ? `${normalized.slice(0, 39)}...` : normalized;
 }
 
 async function checkFyersStatus() {

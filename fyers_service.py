@@ -66,7 +66,7 @@ class FyersService:
             raw_body = (res.text or "").strip()
 
             if not raw_body:
-                return False, (
+                return False, cls._humanize_auth_error(
                     f"FYERS token exchange returned an empty response (HTTP {res.status_code}). "
                     "Please verify FYERS app credentials and callback URL settings."
                 )
@@ -75,7 +75,7 @@ class FyersService:
                 response = res.json()
             except ValueError:
                 preview = raw_body[:200]
-                return False, (
+                return False, cls._humanize_auth_error(
                     f"Unexpected FYERS token response (HTTP {res.status_code}): {preview}"
                 )
             
@@ -85,7 +85,24 @@ class FyersService:
                 return True, "Login successful"
             return False, response.get("message", f"Login failed: {response}")
         except Exception as e:
-            return False, str(e)
+            return False, cls._humanize_auth_error(str(e))
+
+    @staticmethod
+    def _humanize_auth_error(message):
+        text = str(message or "").strip()
+        normalized = " ".join(text.split())
+
+        if "HTTP 403" in normalized:
+            return (
+                "FYERS rejected the callback (HTTP 403). "
+                "Verify that FYERS_REDIRECT_URL exactly matches the redirect URL configured in your FYERS app."
+            )
+        if "empty response" in normalized.lower():
+            return (
+                "FYERS did not return a token response. "
+                "Please verify the FYERS app credentials and callback URL configuration."
+            )
+        return normalized or "FYERS authentication failed. Please try again."
 
     @classmethod
     def get_ohlcv(cls, symbol, timeframe, range_from=None, range_to=None):
