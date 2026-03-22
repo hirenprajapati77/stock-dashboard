@@ -1403,6 +1403,7 @@ async function checkFyersStatus() {
             console.info("FYERS config ready:", data.config_ready);
             console.info("FYERS app id prefix:", data.app_id);
             console.info("FYERS app id source:", data.app_id_source);
+            console.info("FYERS auth debug:", data.last_auth_debug);
         }
 
         renderFyersCallbackState(!!data.logged_in);

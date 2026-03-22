@@ -516,6 +516,7 @@ async def fyers_status(request: Request):
         "redirect_url_source": redirect_url_source,
         "callback_path": "/api/v1/fyers/callback",
         "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
+        "last_auth_debug": FyersService.get_last_auth_debug(),
     }
 
 @app.get("/api/v1/screener")

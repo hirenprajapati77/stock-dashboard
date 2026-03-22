@@ -8,6 +8,7 @@ from app.config import fyers_config
 
 class FyersService:
     _access_token = None
+    _last_auth_debug = {}
     # Fyers API v3 Endpoints
     BASE_URL = "https://api-t1.fyers.in/api/v3"
     DATA_URL = "https://api-t1.fyers.in/data" 
@@ -59,6 +60,18 @@ class FyersService:
             return cls._generate_token_with_http(auth_code)
 
     @classmethod
+    def get_last_auth_debug(cls):
+        return dict(cls._last_auth_debug)
+
+    @classmethod
+    def _set_auth_debug(cls, source, message, detail=None):
+        cls._last_auth_debug = {
+            "source": source,
+            "message": str(message or ""),
+            "detail": str(detail or "")[:300],
+        }
+
+    @classmethod
     def _generate_token_with_sdk(cls, auth_code):
         from fyers_apiv3 import fyersModel
 
@@ -75,10 +88,13 @@ class FyersService:
 
         if isinstance(response, dict) and response.get("access_token"):
             cls.save_token(response["access_token"])
+            cls._set_auth_debug("sdk", "Login successful")
             return True, "Login successful"
 
         message = response.get("message") if isinstance(response, dict) else str(response)
-        return False, cls._humanize_auth_error(message)
+        humanized = cls._humanize_auth_error(message)
+        cls._set_auth_debug("sdk", humanized, response)
+        return False, humanized
 
     @classmethod
     def _generate_token_with_http(cls, auth_code):
@@ -107,26 +123,35 @@ class FyersService:
             raw_body = (res.text or "").strip()
 
             if not raw_body:
-                return False, cls._humanize_auth_error(
+                humanized = cls._humanize_auth_error(
                     f"FYERS token exchange returned an empty response (HTTP {res.status_code}). "
                     "Please verify FYERS app credentials and callback URL settings."
                 )
+                cls._set_auth_debug("http", humanized, f"status={res.status_code} body=<empty>")
+                return False, humanized
 
             try:
                 response = res.json()
             except ValueError:
                 preview = raw_body[:200]
-                return False, cls._humanize_auth_error(
+                humanized = cls._humanize_auth_error(
                     f"Unexpected FYERS token response (HTTP {res.status_code}): {preview}"
                 )
+                cls._set_auth_debug("http", humanized, f"status={res.status_code} body={preview}")
+                return False, humanized
             
             if response.get("s") == "ok":
                 token = response.get("access_token")
                 cls.save_token(token)
+                cls._set_auth_debug("http", "Login successful")
                 return True, "Login successful"
-            return False, response.get("message", f"Login failed: {response}")
+            message = response.get("message", f"Login failed: {response}")
+            cls._set_auth_debug("http", message, response)
+            return False, message
         except Exception as e:
-            return False, cls._humanize_auth_error(str(e))
+            humanized = cls._humanize_auth_error(str(e))
+            cls._set_auth_debug("http", humanized, str(e))
+            return False, humanized
 
     @staticmethod
     def _humanize_auth_error(message):
