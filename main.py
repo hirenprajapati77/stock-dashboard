@@ -11,18 +11,13 @@ import pandas as pd
 import requests
 import uvicorn
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
-
-# Add global asyncio just in case of scope issues
-try:
-    _test = asyncio.get_event_loop()
-except:
-    pass
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
@@ -39,7 +34,30 @@ from app.ai.engine import AIEngine
 from app.services.fyers_service import FyersService
 from app.config import fyers_config
 
-app = FastAPI(title="Support & Resistance Dashboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async def _warmup():
+        try:
+            import time
+
+            print("[Warmup] Pre-warming screener cache in background...")
+            t0 = time.time()
+
+            def _sync_warmup():
+                symbols = ConstituentService.get_nifty100_symbols()
+                ScreenerService.screen_symbols(symbols)
+
+            await asyncio.to_thread(_sync_warmup)
+            print(f"[Warmup] Done in {time.time() - t0:.1f}s")
+        except Exception as e:
+            print(f"[Warmup] Error: {e}")
+
+    asyncio.create_task(_warmup())
+    yield
+
+
+app = FastAPI(title="Support & Resistance Dashboard", lifespan=lifespan)
 ai_engine = AIEngine()
 
 
@@ -148,21 +166,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.on_event("startup")
-async def warmup_screener_cache():
-    """Pre-warms screener cache on boot so first Intelligence load is instant."""
-    async def _run():
-        try:
-            import time
-            print("[Warmup] Pre-warming screener cache in background...")
-            t0 = time.time()
-            symbols = ConstituentService.get_nifty100_symbols()
-            ScreenerService.screen_symbols(symbols)
-            print(f"[Warmup] Done in {time.time()-t0:.1f}s")
-        except Exception as e:
-            print(f"[Warmup] Error: {e}")
-    asyncio.create_task(_run())  # fire-and-forget, server starts instantly
 
 @app.get("/api/v2/ai-insights")
 async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: Optional[int] = None):

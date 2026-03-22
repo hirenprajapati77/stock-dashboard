@@ -12,8 +12,8 @@ def test_get_login_url_uses_official_fyers_auth_endpoint():
     query = parse_qs(parsed.query)
 
     assert parsed.scheme == "https"
-    assert parsed.netloc == "api.fyers.in"
-    assert parsed.path == "/api/v2/generate-authcode"
+    assert parsed.netloc == "api-t1.fyers.in"
+    assert parsed.path == "/api/v3/generate-authcode"
     assert query["response_type"] == ["code"]
     assert query["redirect_uri"] == [redirect_url]
     assert query["state"] == ["fyers_auth"]
