@@ -485,15 +485,19 @@ async def fyers_callback(
         return RedirectResponse(url=_build_fyers_redirect(request, "error", str(e)))
 
 @app.get("/api/v1/fyers/status")
-async def fyers_status():
+async def fyers_status(request: Request):
     """Checks if Fyers is logged in."""
     is_logged_in = FyersService.load_token()
     from app.services.screener_service import ScreenerService as MomentumScreener
     session_tag, session_quality = MomentumScreener.get_session_tag()
+    effective_redirect_url = _resolve_fyers_redirect_url(request)
     return {
         "logged_in": is_logged_in,
         "market_open": session_tag != "CLOSED",
-        "app_id": fyers_config.app_id[:5] + "..." if is_logged_in else None
+        "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
+        "redirect_url": effective_redirect_url,
+        "callback_path": "/api/v1/fyers/callback",
+        "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
     }
 
 @app.get("/api/v1/screener")

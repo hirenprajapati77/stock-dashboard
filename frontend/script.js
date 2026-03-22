@@ -1395,6 +1395,13 @@ async function checkFyersStatus() {
             if (btn) btn.classList.remove('hidden');
         }
 
+        if (fyersCallbackState?.status === 'error') {
+            console.info("FYERS effective redirect URL:", data.redirect_url);
+            console.info("FYERS callback path:", data.callback_path);
+            console.info("FYERS config ready:", data.config_ready);
+            console.info("FYERS app id prefix:", data.app_id);
+        }
+
         renderFyersCallbackState(!!data.logged_in);
     } catch (e) {
         console.error("Failed to check Fyers status", e);
