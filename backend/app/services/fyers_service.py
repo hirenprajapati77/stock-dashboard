@@ -41,10 +41,11 @@ class FyersService:
             f.write(token)
 
     @classmethod
-    def get_login_url(cls):
+    def get_login_url(cls, redirect_url=None):
         # API v3 Auth URL - Ensure redirect_uri is URL-encoded
         import urllib.parse
-        encoded_redirect = urllib.parse.quote(fyers_config.redirect_url, safe='')
+        resolved_redirect = redirect_url or fyers_config.redirect_url
+        encoded_redirect = urllib.parse.quote(resolved_redirect, safe='')
         url = f"{cls.BASE_URL}/generate-authcode?client_id={fyers_config.app_id}&redirect_uri={encoded_redirect}&response_type=code&state=fyers_auth"
         return url
 
