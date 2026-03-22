@@ -132,6 +132,15 @@ def _resolve_fyers_redirect_url(request: Request) -> str:
     return f"{_external_base_url(request)}/api/v1/fyers/callback"
 
 
+def _build_fyers_redirect(request: Request, status: str, message: Optional[str] = None) -> str:
+    from urllib.parse import urlencode
+
+    params = {"fyers_login": status}
+    if message:
+        params["fyers_message"] = str(message)[:200]
+    return f"{_external_base_url(request)}/?{urlencode(params)}"
+
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -463,15 +472,17 @@ async def fyers_callback(
     try:
         resolved_auth_code = auth_code or code
         if not resolved_auth_code:
-            return {"status": "error", "message": "Missing auth_code in Fyers callback."}
+            return RedirectResponse(
+                url=_build_fyers_redirect(request, "error", "Missing auth_code in Fyers callback.")
+            )
 
         success, message = FyersService.generate_token(resolved_auth_code)
         if success:
             # Redirect back to the dashboard with a success message
-            return RedirectResponse(url=f"{_external_base_url(request)}/?fyers_login=success")
-        return {"status": "error", "message": message}
+            return RedirectResponse(url=_build_fyers_redirect(request, "success"))
+        return RedirectResponse(url=_build_fyers_redirect(request, "error", message))
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return RedirectResponse(url=_build_fyers_redirect(request, "error", str(e)))
 
 @app.get("/api/v1/fyers/status")
 async def fyers_status():

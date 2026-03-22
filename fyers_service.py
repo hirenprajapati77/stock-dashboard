@@ -54,8 +54,30 @@ class FyersService:
         
         try:
             url = f"{cls.BASE_URL}/validate-authcode"
-            res = requests.post(url, json=payload, timeout=10)
-            response = res.json()
+            res = requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+            raw_body = (res.text or "").strip()
+
+            if not raw_body:
+                return False, (
+                    f"FYERS token exchange returned an empty response (HTTP {res.status_code}). "
+                    "Please verify FYERS app credentials and callback URL settings."
+                )
+
+            try:
+                response = res.json()
+            except ValueError:
+                preview = raw_body[:200]
+                return False, (
+                    f"Unexpected FYERS token response (HTTP {res.status_code}): {preview}"
+                )
             
             if response.get("s") == "ok":
                 token = response.get("access_token")
