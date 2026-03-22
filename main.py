@@ -505,6 +505,7 @@ async def fyers_status(request: Request):
     from app.services.screener_service import ScreenerService as MomentumScreener
     session_tag, session_quality = MomentumScreener.get_session_tag()
     effective_redirect_url = _resolve_fyers_redirect_url(request)
+    auth_url = FyersService.get_login_url(effective_redirect_url)
     app_id_source = "env" if os.getenv("FYERS_APP_ID") else "default"
     redirect_url_source = "env" if os.getenv("FYERS_REDIRECT_URL") else "derived"
     return {
@@ -514,6 +515,7 @@ async def fyers_status(request: Request):
         "app_id_source": app_id_source,
         "redirect_url": effective_redirect_url,
         "redirect_url_source": redirect_url_source,
+        "auth_url": auth_url,
         "callback_path": "/api/v1/fyers/callback",
         "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
         "last_auth_debug": FyersService.get_last_auth_debug(),

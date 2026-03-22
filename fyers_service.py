@@ -3,12 +3,14 @@ import requests
 import json
 import time
 import hashlib
+from urllib.parse import urlencode
 import pandas as pd
 from app.config import fyers_config
 
 class FyersService:
     _access_token = None
     _last_auth_debug = {}
+    AUTH_BASE_URL = "https://api.fyers.in/api/v2"
     # Fyers API v3 Endpoints
     BASE_URL = "https://api-t1.fyers.in/api/v3"
     DATA_URL = "https://api-t1.fyers.in/data" 
@@ -34,23 +36,17 @@ class FyersService:
     @classmethod
     def get_login_url(cls, redirect_url=None):
         resolved_redirect = redirect_url or fyers_config.redirect_url
-        try:
-            from fyers_apiv3 import fyersModel
+        return cls._build_auth_url(resolved_redirect)
 
-            session = fyersModel.SessionModel(
-                client_id=fyers_config.app_id,
-                redirect_uri=resolved_redirect,
-                response_type="code",
-                state="fyers_auth",
-                secret_key=fyers_config.secret_id,
-                grant_type="authorization_code",
-            )
-            return session.generate_authcode()
-        except Exception:
-            import urllib.parse
-            encoded_redirect = urllib.parse.quote(resolved_redirect, safe='')
-            url = f"{cls.BASE_URL}/generate-authcode?client_id={fyers_config.app_id}&redirect_uri={encoded_redirect}&response_type=code&state=fyers_auth"
-            return url
+    @classmethod
+    def _build_auth_url(cls, redirect_url):
+        params = {
+            "client_id": fyers_config.app_id,
+            "redirect_uri": redirect_url,
+            "response_type": "code",
+            "state": "fyers_auth",
+        }
+        return f"{cls.AUTH_BASE_URL}/generate-authcode?{urlencode(params)}"
 
     @classmethod
     def generate_token(cls, auth_code):
