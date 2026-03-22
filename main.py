@@ -470,10 +470,24 @@ async def fyers_callback(
 ):
     """Handles the callback from Fyers and generates access token."""
     try:
-        resolved_auth_code = auth_code or code
+        resolved_auth_code = auth_code
+
         if not resolved_auth_code:
+            alt_code = request.query_params.get("authCode") or request.query_params.get("authorization_code")
+            if alt_code:
+                resolved_auth_code = alt_code
+
+        if not resolved_auth_code and code and not str(code).isdigit():
+            resolved_auth_code = code
+
+        if not resolved_auth_code:
+            query_keys = ", ".join(sorted(request.query_params.keys())) or "none"
             return RedirectResponse(
-                url=_build_fyers_redirect(request, "error", "Missing auth_code in Fyers callback.")
+                url=_build_fyers_redirect(
+                    request,
+                    "error",
+                    f"Missing auth_code in Fyers callback (received query keys: {query_keys}).",
+                )
             )
 
         success, message = FyersService.generate_token(resolved_auth_code)

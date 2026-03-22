@@ -1366,6 +1366,7 @@ function renderFyersCallbackState(isLoggedIn = false) {
 function summarizeFyersMessage(message) {
     const normalized = String(message || '').replace(/\s+/g, ' ').trim();
     if (!normalized) return 'FYERS authentication failed.';
+    if (normalized.includes('Missing auth_code')) return 'FYERS did not return auth code';
     if (normalized.includes('HTTP 403')) return 'Check FYERS redirect URL';
     if (normalized.toLowerCase().includes('empty response')) return 'FYERS token not returned';
     return normalized.length > 42 ? `${normalized.slice(0, 39)}...` : normalized;
