@@ -31,10 +31,11 @@ class FyersService:
             f.write(token)
 
     @classmethod
-    def get_login_url(cls):
+    def get_login_url(cls, redirect_url=None):
         # API v3 Auth URL - Ensure redirect_uri is URL-encoded
         import urllib.parse
-        encoded_redirect = urllib.parse.quote(fyers_config.redirect_url, safe='')
+        resolved_redirect = redirect_url or fyers_config.redirect_url
+        encoded_redirect = urllib.parse.quote(resolved_redirect, safe='')
         url = f"{cls.BASE_URL}/generate-authcode?client_id={fyers_config.app_id}&redirect_uri={encoded_redirect}&response_type=code&state=fyers_auth"
         return url
 
@@ -53,8 +54,30 @@ class FyersService:
         
         try:
             url = f"{cls.BASE_URL}/validate-authcode"
-            res = requests.post(url, json=payload, timeout=10)
-            response = res.json()
+            res = requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+            raw_body = (res.text or "").strip()
+
+            if not raw_body:
+                return False, cls._humanize_auth_error(
+                    f"FYERS token exchange returned an empty response (HTTP {res.status_code}). "
+                    "Please verify FYERS app credentials and callback URL settings."
+                )
+
+            try:
+                response = res.json()
+            except ValueError:
+                preview = raw_body[:200]
+                return False, cls._humanize_auth_error(
+                    f"Unexpected FYERS token response (HTTP {res.status_code}): {preview}"
+                )
             
             if response.get("s") == "ok":
                 token = response.get("access_token")
@@ -62,7 +85,24 @@ class FyersService:
                 return True, "Login successful"
             return False, response.get("message", f"Login failed: {response}")
         except Exception as e:
-            return False, str(e)
+            return False, cls._humanize_auth_error(str(e))
+
+    @staticmethod
+    def _humanize_auth_error(message):
+        text = str(message or "").strip()
+        normalized = " ".join(text.split())
+
+        if "HTTP 403" in normalized:
+            return (
+                "FYERS rejected the callback (HTTP 403). "
+                "Verify that FYERS_REDIRECT_URL exactly matches the redirect URL configured in your FYERS app."
+            )
+        if "empty response" in normalized.lower():
+            return (
+                "FYERS did not return a token response. "
+                "Please verify the FYERS app credentials and callback URL configuration."
+            )
+        return normalized or "FYERS authentication failed. Please try again."
 
     @classmethod
     def get_ohlcv(cls, symbol, timeframe, range_from=None, range_to=None):

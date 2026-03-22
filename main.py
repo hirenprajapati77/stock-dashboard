@@ -114,6 +114,33 @@ def _build_trade_signal(ema_bias, risk_reward):
     return "HOLD", "Wait for better structure or confirmation"
 
 
+def _external_base_url(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    if forwarded_host:
+        scheme = forwarded_proto or request.url.scheme or "http"
+        return f"{scheme}://{forwarded_host}".rstrip("/")
+
+    return str(request.base_url).rstrip("/")
+
+
+def _resolve_fyers_redirect_url(request: Request) -> str:
+    configured_redirect = os.getenv("FYERS_REDIRECT_URL")
+    if configured_redirect:
+        return configured_redirect
+    return f"{_external_base_url(request)}/api/v1/fyers/callback"
+
+
+def _build_fyers_redirect(request: Request, status: str, message: Optional[str] = None) -> str:
+    from urllib.parse import urlencode
+
+    params = {"fyers_login": status}
+    if message:
+        params["fyers_message"] = str(message)[:200]
+    return f"{_external_base_url(request)}/?{urlencode(params)}"
+
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -426,36 +453,51 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 # --- Fyers Authentication Endpoints ---
 
 @app.get("/api/v1/fyers/login")
-async def fyers_login():
+async def fyers_login(request: Request):
     """Redirects the user to Fyers login page."""
     try:
-        url = FyersService.get_login_url()
+        url = FyersService.get_login_url(_resolve_fyers_redirect_url(request))
         return RedirectResponse(url)
     except Exception as e:
         return {"status": "error", "message": f"Failed to generate login URL: {str(e)}"}
 
 @app.get("/api/v1/fyers/callback")
-async def fyers_callback(auth_code: str, state: Optional[str] = None):
+async def fyers_callback(
+    request: Request,
+    auth_code: Optional[str] = None,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+):
     """Handles the callback from Fyers and generates access token."""
     try:
-        success, message = FyersService.generate_token(auth_code)
+        resolved_auth_code = auth_code or code
+        if not resolved_auth_code:
+            return RedirectResponse(
+                url=_build_fyers_redirect(request, "error", "Missing auth_code in Fyers callback.")
+            )
+
+        success, message = FyersService.generate_token(resolved_auth_code)
         if success:
             # Redirect back to the dashboard with a success message
-            return RedirectResponse(url="/?fyers_login=success")
-        return {"status": "error", "message": message}
+            return RedirectResponse(url=_build_fyers_redirect(request, "success"))
+        return RedirectResponse(url=_build_fyers_redirect(request, "error", message))
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return RedirectResponse(url=_build_fyers_redirect(request, "error", str(e)))
 
 @app.get("/api/v1/fyers/status")
-async def fyers_status():
+async def fyers_status(request: Request):
     """Checks if Fyers is logged in."""
     is_logged_in = FyersService.load_token()
     from app.services.screener_service import ScreenerService as MomentumScreener
     session_tag, session_quality = MomentumScreener.get_session_tag()
+    effective_redirect_url = _resolve_fyers_redirect_url(request)
     return {
         "logged_in": is_logged_in,
         "market_open": session_tag != "CLOSED",
-        "app_id": fyers_config.app_id[:5] + "..." if is_logged_in else None
+        "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
+        "redirect_url": effective_redirect_url,
+        "callback_path": "/api/v1/fyers/callback",
+        "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
     }
 
 @app.get("/api/v1/screener")
@@ -648,6 +690,8 @@ async def get_trade_performance():
         from app.services.trade_tracking_service import TradeTrackingService
         return {"status": "success", "data": TradeTrackingService.get_performance()}
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/trade-performance", str(e))
         return {"status": "error", "data": {}, "message": str(e)}
 
 @app.get("/api/v1/signal-performance")
@@ -660,6 +704,20 @@ async def get_signal_performance(tf: str = "1D"):
         from app.services.signal_performance_service import SignalPerformanceService
         perf = SignalPerformanceService.compute(timeframe=tf)
         return {"status": "success", "data": perf.to_dict()}
+    except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/signal-performance", str(e), {"tf": tf})
+        return {"status": "error", "data": {}, "message": str(e)}
+
+
+@app.get("/api/v1/observability-summary")
+async def get_observability_summary():
+    """
+    Returns a lightweight 24h summary of API failures and fail-safe events.
+    """
+    try:
+        from app.services.observability_service import ObservabilityService
+        return {"status": "success", "data": ObservabilityService.summarize_last_24h()}
     except Exception as e:
         return {"status": "error", "data": {}, "message": str(e)}
 
