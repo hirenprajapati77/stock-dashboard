@@ -505,11 +505,15 @@ async def fyers_status(request: Request):
     from app.services.screener_service import ScreenerService as MomentumScreener
     session_tag, session_quality = MomentumScreener.get_session_tag()
     effective_redirect_url = _resolve_fyers_redirect_url(request)
+    app_id_source = "env" if os.getenv("FYERS_APP_ID") else "default"
+    redirect_url_source = "env" if os.getenv("FYERS_REDIRECT_URL") else "derived"
     return {
         "logged_in": is_logged_in,
         "market_open": session_tag != "CLOSED",
         "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
+        "app_id_source": app_id_source,
         "redirect_url": effective_redirect_url,
+        "redirect_url_source": redirect_url_source,
         "callback_path": "/api/v1/fyers/callback",
         "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
     }

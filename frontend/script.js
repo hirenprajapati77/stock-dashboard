@@ -1398,9 +1398,11 @@ async function checkFyersStatus() {
 
         if (fyersCallbackState?.status === 'error') {
             console.info("FYERS effective redirect URL:", data.redirect_url);
+            console.info("FYERS redirect URL source:", data.redirect_url_source);
             console.info("FYERS callback path:", data.callback_path);
             console.info("FYERS config ready:", data.config_ready);
             console.info("FYERS app id prefix:", data.app_id);
+            console.info("FYERS app id source:", data.app_id_source);
         }
 
         renderFyersCallbackState(!!data.logged_in);
