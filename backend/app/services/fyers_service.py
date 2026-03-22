@@ -3,15 +3,12 @@ import requests
 import json
 import time
 import hashlib
-from urllib.parse import urlencode
 import pandas as pd
 from app.config import fyers_config
 
 class FyersService:
     _access_token = None
     _last_auth_debug = {}
-    AUTH_BASE_URL = "https://api.fyers.in/api/v2"
-    # Fyers API v3 Endpoints
     BASE_URL = "https://api-t1.fyers.in/api/v3"
     DATA_URL = "https://api-t1.fyers.in/data" 
     
@@ -50,13 +47,15 @@ class FyersService:
 
     @classmethod
     def _build_auth_url(cls, redirect_url):
-        params = {
-            "client_id": fyers_config.app_id,
-            "redirect_uri": redirect_url,
-            "response_type": "code",
-            "state": "fyers_auth",
-        }
-        return f"{cls.AUTH_BASE_URL}/generate-authcode?{urlencode(params)}"
+        from fyers_apiv3 import fyersModel
+
+        session = fyersModel.SessionModel(
+            client_id=fyers_config.app_id,
+            redirect_uri=redirect_url,
+            response_type="code",
+            state="fyers_auth",
+        )
+        return session.generate_authcode()
 
     @classmethod
     def generate_token(cls, auth_code):
