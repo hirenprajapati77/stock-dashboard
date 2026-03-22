@@ -16,9 +16,13 @@ class BreakoutClassifier:
         
         # Default State
         result = {
-            "breakout_quality": "UNCLEAR",
-            "reason": "Insufficient data to classify breakout.",
-            "confidence_bucket": "NEUTRAL"
+            "breakout_quality": "NO TRADE",
+            "reason": (
+                "Breakout quality cannot be trusted yet because volume and range "
+                "expansion do not provide enough confirmation. Avoid entering until "
+                "price shows a clearer breakout or retest."
+            ),
+            "confidence_bucket": "LOW"
         }
 
         # Heuristic Logic (Explainable)
@@ -49,7 +53,10 @@ class BreakoutClassifier:
                     # We blend ML with heuristics for safety
                     if ml_quality != result['breakout_quality']:
                         result['breakout_quality'] = ml_quality
-                        result['reason'] = f"AI Analysis: {ml_quality.replace('_', ' ')} based on {int(prob*100)}% model confidence."
+                        result['reason'] = (
+                            f"AI analysis suggests {ml_quality.replace('_', ' ').lower()} "
+                            f"behavior with {int(prob*100)}% model confidence."
+                        )
                         result['confidence_bucket'] = "HIGH" if prob > 0.8 else "MEDIUM"
             except Exception as e:
                 print(f"ML prediction error: {e}")
