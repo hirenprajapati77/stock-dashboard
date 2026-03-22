@@ -1308,6 +1308,60 @@ function applyIntelligenceData(allData) {
 window.fetchIntelligence = fetchIntelligence;
 
 // --- Fyers Integration ---
+let fyersCallbackState = null;
+
+function captureFyersCallbackState() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('fyers_login');
+    const message = params.get('fyers_message');
+
+    if (!status) return;
+
+    fyersCallbackState = {
+        status,
+        message: message || ''
+    };
+
+    const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+}
+
+function renderFyersCallbackState(isLoggedIn = false) {
+    if (!fyersCallbackState) return;
+
+    const dot = document.getElementById('fyers-status-dot');
+    const text = document.getElementById('fyers-status-text');
+    const btn = document.getElementById('fyers-login-btn');
+    const messageEl = document.getElementById('fyers-auth-message');
+
+    if (fyersCallbackState.status === 'success' && isLoggedIn) {
+        if (messageEl) {
+            messageEl.textContent = 'FYERS connected successfully.';
+            messageEl.title = 'FYERS connected successfully.';
+            messageEl.className = "max-w-[260px] truncate text-[10px] font-medium text-green-400";
+        }
+        fyersCallbackState = null;
+        return;
+    }
+
+    if (fyersCallbackState.status === 'error') {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]";
+        if (text) {
+            text.textContent = "Auth Failed";
+            text.className = "text-[10px] font-bold text-amber-400 uppercase tracking-widest hidden lg:inline";
+        }
+        if (btn) btn.classList.remove('hidden');
+
+        const message = fyersCallbackState.message || 'FYERS authentication failed. Please verify your FYERS redirect URL and app credentials.';
+        if (messageEl) {
+            messageEl.textContent = message;
+            messageEl.title = message;
+            messageEl.className = "max-w-[260px] truncate text-[10px] font-medium text-amber-400";
+        }
+        console.error("FYERS auth failed:", message);
+    }
+}
+
 async function checkFyersStatus() {
     try {
         const res = await fetch('/api/v1/fyers/status');
@@ -1331,6 +1385,8 @@ async function checkFyersStatus() {
             if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
             if (btn) btn.classList.remove('hidden');
         }
+
+        renderFyersCallbackState(!!data.logged_in);
     } catch (e) {
         console.error("Failed to check Fyers status", e);
     }
@@ -1344,6 +1400,7 @@ window.loginToFyers = loginToFyers;
 
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
+    captureFyersCallbackState();
     checkFyersStatus();
     // Poll every 30 seconds for faster updates after login
     setInterval(checkFyersStatus, 30000);

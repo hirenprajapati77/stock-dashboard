@@ -22,6 +22,24 @@ class ConstituentService:
         return cls.SECTOR_CONSTITUENTS.get(sector_name, [])
 
     @classmethod
+    def get_nifty100_symbols(cls):
+        """
+        Returns a de-duplicated watchlist built from the configured sector constituents.
+        Symbols are normalized to the plain NSE ticker format expected by the screener.
+        """
+        seen = set()
+        symbols = []
+
+        for constituents in cls.SECTOR_CONSTITUENTS.values():
+            for symbol in constituents:
+                normalized = str(symbol).replace(".NS", "")
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    symbols.append(normalized)
+
+        return symbols
+
+    @classmethod
     def get_sector_for_ticker(cls, ticker):
         """
         Finds which NIFTY sector a ticker belongs to.
