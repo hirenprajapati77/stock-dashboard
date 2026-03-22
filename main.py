@@ -648,6 +648,8 @@ async def get_trade_performance():
         from app.services.trade_tracking_service import TradeTrackingService
         return {"status": "success", "data": TradeTrackingService.get_performance()}
     except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/trade-performance", str(e))
         return {"status": "error", "data": {}, "message": str(e)}
 
 @app.get("/api/v1/signal-performance")
@@ -660,6 +662,20 @@ async def get_signal_performance(tf: str = "1D"):
         from app.services.signal_performance_service import SignalPerformanceService
         perf = SignalPerformanceService.compute(timeframe=tf)
         return {"status": "success", "data": perf.to_dict()}
+    except Exception as e:
+        from app.services.observability_service import ObservabilityService
+        ObservabilityService.record_api_failure("/api/v1/signal-performance", str(e), {"tf": tf})
+        return {"status": "error", "data": {}, "message": str(e)}
+
+
+@app.get("/api/v1/observability-summary")
+async def get_observability_summary():
+    """
+    Returns a lightweight 24h summary of API failures and fail-safe events.
+    """
+    try:
+        from app.services.observability_service import ObservabilityService
+        return {"status": "success", "data": ObservabilityService.summarize_last_24h()}
     except Exception as e:
         return {"status": "error", "data": {}, "message": str(e)}
 
