@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pandas
+numpy
+yfinance
+scikit-learn
+joblib
+requests
+lxml
+pytz
