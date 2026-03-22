@@ -114,6 +114,24 @@ def _build_trade_signal(ema_bias, risk_reward):
     return "HOLD", "Wait for better structure or confirmation"
 
 
+def _external_base_url(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    if forwarded_host:
+        scheme = forwarded_proto or request.url.scheme or "http"
+        return f"{scheme}://{forwarded_host}".rstrip("/")
+
+    return str(request.base_url).rstrip("/")
+
+
+def _resolve_fyers_redirect_url(request: Request) -> str:
+    configured_redirect = os.getenv("FYERS_REDIRECT_URL")
+    if configured_redirect:
+        return configured_redirect
+    return f"{_external_base_url(request)}/api/v1/fyers/callback"
+
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -426,22 +444,31 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 # --- Fyers Authentication Endpoints ---
 
 @app.get("/api/v1/fyers/login")
-async def fyers_login():
+async def fyers_login(request: Request):
     """Redirects the user to Fyers login page."""
     try:
-        url = FyersService.get_login_url()
+        url = FyersService.get_login_url(_resolve_fyers_redirect_url(request))
         return RedirectResponse(url)
     except Exception as e:
         return {"status": "error", "message": f"Failed to generate login URL: {str(e)}"}
 
 @app.get("/api/v1/fyers/callback")
-async def fyers_callback(auth_code: str, state: Optional[str] = None):
+async def fyers_callback(
+    request: Request,
+    auth_code: Optional[str] = None,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+):
     """Handles the callback from Fyers and generates access token."""
     try:
-        success, message = FyersService.generate_token(auth_code)
+        resolved_auth_code = auth_code or code
+        if not resolved_auth_code:
+            return {"status": "error", "message": "Missing auth_code in Fyers callback."}
+
+        success, message = FyersService.generate_token(resolved_auth_code)
         if success:
             # Redirect back to the dashboard with a success message
-            return RedirectResponse(url="/?fyers_login=success")
+            return RedirectResponse(url=f"{_external_base_url(request)}/?fyers_login=success")
         return {"status": "error", "message": message}
     except Exception as e:
         return {"status": "error", "message": str(e)}
