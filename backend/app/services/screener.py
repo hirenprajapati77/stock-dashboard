@@ -27,13 +27,25 @@ def _cache_ttl() -> float:
 
 class ScreenerService:
     @staticmethod
-    def _screen_single(sym: str) -> Dict:
+    def _screen_single(sym: str) -> Optional[Dict]:
         try:
-            ticker_sym = sym if "." in sym or sym.startswith("^") else f"{sym}.NS"
+            from app.services.market_data import MarketDataService
+            # We need both OHLCV and Info. MarketDataService currently focusing on OHLCV.
+            # But we can use it to at least get the prioritized ticker object or normalized symbol.
+            ticker_sym = MarketDataService.normalize_symbol(sym)
             ticker = yf.Ticker(ticker_sym)
+
+            # Use prioritized OHLCV for 'currentPrice' if possible
+            df, _, _ = MarketDataService.get_ohlcv(ticker_sym, "1D")
+            latest_price = 0
+            if df is not None and not df.empty:
+                latest_price = float(df['close'].iloc[-1])
 
             # Use fast_info first (lightweight) — avoids slow .info round-trip on basics
             info = ticker.info
+            if latest_price:
+                info['currentPrice'] = latest_price
+            
             qf = ticker.quarterly_financials
 
             if qf.empty or len(qf.columns) < 3:

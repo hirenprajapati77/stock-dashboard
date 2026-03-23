@@ -177,7 +177,7 @@ class FyersService:
         }
 
     @classmethod
-    def get_ohlcv(cls, symbol, timeframe, range_from=None, range_to=None):
+    def get_ohlcv(cls, symbol, timeframe, range_from=None, range_to=None, timeout=10):
         if not cls._access_token:
             if not cls.load_token():
                 return None, "Fyers not logged in"
@@ -199,11 +199,7 @@ class FyersService:
             range_from = time.strftime("%Y-%m-%d", time.localtime(now - (days * 86400)))
 
         # Handle symbol formatting
-        if ":" not in symbol:
-            # Default to NSE Equity if no exchange prefix
-            fyers_symbol = f"NSE:{symbol}-EQ"
-        else:
-            fyers_symbol = symbol
+        fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"
 
         params = {
             "symbol": fyers_symbol,
@@ -214,23 +210,26 @@ class FyersService:
             "cont_flag": "1"
         }
 
-        # Header format in v3: <app_id>:<access_token>
-        # Note: Bearer prefix is NOT used in v3 for these endpoints
         headers = {
             "Authorization": f"{fyers_config.app_id}:{cls._access_token}"
         }
 
         try:
             url = f"{cls.DATA_URL}/history"
-            res = requests.get(url, params=params, headers=headers, timeout=10)
-            response = res.json()
+            res = requests.get(url, params=params, headers=headers, timeout=timeout)
             
+            if res.status_code == 401:
+                return None, "Fyers Token Expired (401)"
+                
+            response = res.json()
             if response.get("s") == "ok":
                 df = pd.DataFrame(response.get("candles"), columns=["timestamp", "open", "high", "low", "close", "volume"])
                 df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
                 df.set_index("timestamp", inplace=True)
                 return df, None
             return None, response.get("message", f"Fyers Data Error: {response}")
+        except requests.exceptions.Timeout:
+            return None, "Fyers request timed out"
         except Exception as e:
             return None, f"Exception fetching Fyers data: {str(e)}"
     @classmethod
