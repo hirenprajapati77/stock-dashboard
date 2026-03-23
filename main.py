@@ -534,50 +534,63 @@ async def fyers_debug_auth(request: Request):
     """Diagnostic endpoint to test Fyers auth from the current environment."""
     import hashlib
     results = []
-    app_id = fyers_config.app_id
+    full_app_id = fyers_config.app_id # e.g. XAST...-100
+    base_app_id = full_app_id.split("-")[0] if "-" in full_app_id else full_app_id
     secret_id = fyers_config.secret_id
     redirect_uri = _resolve_fyers_redirect_url(request)
     
-    hash_input = f"{app_id}:{secret_id}"
-    app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-    
-    payload = {
-        "grant_type": "authorization_code",
-        "appIdHash": app_id_hash,
-        "code": "DIAGNOSTIC_CODE",
-        "redirect_uri": redirect_uri
-    }
-    
-    ua_list = [
-        "python-requests/2.31.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    # Test combinations of app_id and content_type
+    id_variants = [
+        {"val": full_app_id, "label": "with-suffix"},
+        {"val": base_app_id, "label": "no-suffix"}
     ]
     
-    urls = [
-        "https://api-t1.fyers.in/api/v3/validate-authcode",
-        "https://api.fyers.in/api/v3/validate-authcode"
-    ]
+    ct_list = ["application/json", "application/x-www-form-urlencoded"]
     
-    for url in urls:
-        for ua in ua_list:
+    url = "https://api.fyers.in/api/v3/validate-authcode"
+    
+    for id_var in id_variants:
+        # Calculate hash for this variant
+        hash_input = f"{id_var['val']}:{secret_id}"
+        app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+        
+        payload = {
+            "grant_type": "authorization_code",
+            "appIdHash": app_id_hash,
+            "code": "DIAGNOSTIC_CODE",
+            "redirect_uri": redirect_uri
+        }
+        
+        for ct in ct_list:
             headers = {
                 "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": ua
+                "Content-Type": ct,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
             }
             try:
-                res = requests.post(url, json=payload, headers=headers, timeout=10)
+                if ct == "application/json":
+                    res = requests.post(url, json=payload, headers=headers, timeout=10)
+                else:
+                    res = requests.post(url, data=payload, headers=headers, timeout=10)
+                    
                 results.append({
-                    "url": url,
-                    "ua": ua[:30] + "...",
+                    "id_type": id_var['label'],
+                    "ct": ct.split("/")[-1],
                     "status": res.status_code,
-                    "is_json": "application/json" in res.headers.get("Content-Type", ""),
-                    "body_start": res.text[:200]
+                    "body": res.text[:200]
                 })
             except Exception as e:
-                results.append({"url": url, "ua": ua[:30], "error": str(e)})
+                results.append({"id_type": id_var['label'], "ct": ct, "error": str(e)})
                 
-    return {"results": results, "config": {"app_id_prefix": app_id[:5], "redirect_uri": redirect_uri}}
+    return {
+        "results": results, 
+        "config": {
+            "full_app_id_prefix": full_app_id[:5], 
+            "base_app_id_prefix": base_app_id[:5],
+            "redirect_uri": redirect_uri
+        }
+    }
+
 
 
 @app.get("/api/v1/screener")
