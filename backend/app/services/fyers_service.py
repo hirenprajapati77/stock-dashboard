@@ -93,9 +93,10 @@ class FyersService:
             headers = {
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                "Origin": "https://stock-dashboard-9nvy.onrender.com",
+                "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
-
 
             best_error_message = None
             last_raw_text = ""
@@ -112,11 +113,13 @@ class FyersService:
                     try:
                         resp = res.json()
                     except json.JSONDecodeError:
-                        # Non-JSON response (usually HTML error or empty body)
-                        msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:200]}"
+                        # Capture more of the HTML for diagnostic
+                        msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:1000]}"
                         if not best_error_message or "Invalid Request" in best_error_message:
                             best_error_message = msg
+                        time.sleep(1) # Small delay
                         continue
+
 
                     if resp.get("s") == "ok":
                         token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
