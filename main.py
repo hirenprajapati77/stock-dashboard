@@ -565,6 +565,16 @@ async def fyers_debug_auth(request: Request):
         {"label": "api-t1-json", "ct": "application/json",                  "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE"}, "url": "https://api-t1.fyers.in/api/v3/validate-authcode"},
     ]
     
+    # Add proxy tests if configured
+    if fyers_config.auth_proxy_url:
+        payload_variants.insert(0, {
+            "label": "proxy-test", 
+            "ct": "application/x-www-form-urlencoded", 
+            "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "appId": full_app_id},
+            "url": fyers_config.auth_proxy_url
+        })
+
+    
     for variant in payload_variants:
         target_url = variant.get("url", url)
         ct = variant["ct"]

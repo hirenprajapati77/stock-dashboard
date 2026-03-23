@@ -99,19 +99,26 @@ class FyersService:
             }
             
             # Ordered attempts: fastest-likely-to-succeed first.
-            # Fyers Production (api.fyers.in) only accepts form-encoded.
-            # api-t1 is blocked on Render by Cloudflare.
-            attempts = [
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded"},
-                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded"},
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json"},
-            ]
+            # 1. Proxy if available (as it bypasses Cloudflare datacenter blocks)
+            # 2. Fyers Production (api.fyers.in) - usually form-encoded.
+            # 3. api-t1 (often blocked on datacenter IPs but good for local)
+            attempts = []
+            if fyers_config.auth_proxy_url:
+                attempts.append({"url": fyers_config.auth_proxy_url, "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
+                attempts.append({"url": fyers_config.auth_proxy_url, "ct": "application/json",                   "label": "Proxy (JSON)"})
+            
+            attempts.extend([
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Production (Form)"},
+                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded", "label": "API-T1 (Form)"},
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json",                  "label": "Production (JSON)"},
+            ])
             
             best_error_message = ""
             for attempt in attempts:
                 url = attempt["url"]
                 ct = attempt["ct"]
-                cls._set_auth_debug(f"exchange_{ct.split('/')[-1]}", f"Trying {url}", "")
+                cls._set_auth_debug(f"exchange_{attempt['label']}", f"Trying {url}", "")
+
                 try:
                     current_headers = {**headers, "Content-Type": ct}
                     if ct == "application/json":
