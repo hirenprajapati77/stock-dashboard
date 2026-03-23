@@ -53,15 +53,15 @@ class FyersService:
 
     @classmethod
     def _build_auth_url(cls, redirect_url):
-        from fyers_apiv3 import fyersModel
-
-        session = fyersModel.SessionModel(
-            client_id=fyers_config.app_id,
-            redirect_uri=redirect_url,
-            response_type="code",
-            state="fyers_auth",
-        )
-        return session.generate_authcode()
+        """Builds the Fyers authorization URL manually to avoid SDK dependencies."""
+        params = {
+            "client_id": fyers_config.app_id,
+            "redirect_uri": redirect_url,
+            "response_type": "code",
+            "state": "fyers_auth"
+        }
+        query_string = "&".join([f"{k}={requests.utils.quote(v)}" for k, v in params.items()])
+        return f"{cls.BASE_URL}/generate-authcode?{query_string}"
 
     @classmethod
     def generate_token(cls, auth_code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, str]:
