@@ -98,45 +98,65 @@ class FyersService:
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
 
-            best_error_message = None
-            last_raw_text = ""
+            best_error_message = ""
+            last_was_json = False
             
             # 1. Try Primary (api-t1) then Fallback (api.fyers.in)
             for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
                 url = f"{url_base}/validate-authcode"
                 cls._set_auth_debug(f"exchange_try_{url_base.split('.')[0].split('//')[1]}", f"Trying {url}", "")
                 
-                try:
-                    res = requests.post(url, json=payload, headers=headers, timeout=30)
-                    last_raw_text = res.text
-                    
+                # Test both JSON and Form-Encoded (Production sometimes prefers Form-Encoded)
+                for content_type in ["application/json", "application/x-www-form-urlencoded"]:
                     try:
-                        resp = res.json()
-                    except json.JSONDecodeError:
-                        # Capture more of the HTML for diagnostic
-                        msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:1000]}"
-                        if not best_error_message or "Invalid Request" in best_error_message:
-                            best_error_message = msg
-                        time.sleep(1) # Small delay
+                        current_headers = headers.copy()
+                        current_headers["Content-Type"] = content_type
+                        
+                        if content_type == "application/json":
+                            res = requests.post(url, json=payload, headers=current_headers, timeout=30)
+                        else:
+                            res = requests.post(url, data=payload, headers=current_headers, timeout=30)
+                            
+                        last_raw_text = res.text
+                        
+                        try:
+                            resp = res.json()
+                            is_json = True
+                        except json.JSONDecodeError:
+                            is_json = False
+                            
+                        if is_json:
+                            # If we got JSON, this is a "real" API response, prioritize it over HTML 403s
+                            msg = resp.get("message") or resp.get("error_description") or last_raw_text[:200]
+                            
+                            # Prioritize JSON errors over previous HTML errors
+                            if not last_was_json:
+                                best_error_message = msg
+                                last_was_json = True
+                            elif "Invalid Request" not in msg:
+                                # Overwrite generic "Invalid Request" with more specific JSON errors
+                                best_error_message = msg
+                            
+                            if resp.get("s") == "ok":
+                                token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                                if token:
+                                    cls._access_token = token
+                                    cls.save_token(token)
+                                    cls._set_auth_debug("success", "Token generated", f"Final URL: {url}")
+                                    return True, "Token generated successfully"
+                        else:
+                            # Non-JSON response (HTML or empty) - only use if we don't have a JSON error yet
+                            if not last_was_json:
+                                msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:500]}"
+                                if not best_error_message or "Invalid Request" in best_error_message:
+                                    best_error_message = msg
+                            time.sleep(0.5)
+                            
+                    except Exception as e:
+                        if not last_was_json:
+                            best_error_message = f"Request failed: {str(e)}"
                         continue
 
-
-                    if resp.get("s") == "ok":
-                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                        if token:
-                            cls.save_token(token)
-                            return True, "Login successful"
-                    
-                    # Capture error message if not already set or if previous was generic
-                    msg = resp.get("message") or f"Error {res.status_code}: {last_raw_text[:100]}"
-                    if not best_error_message or "Invalid Request" in best_error_message:
-                        if "Invalid Request" not in msg:
-                            best_error_message = msg
-                        elif not best_error_message:
-                            best_error_message = msg
-                except Exception as e:
-                    if not best_error_message:
-                        best_error_message = f"Request Exception: {str(e)}"
 
             # 2. Final attempt without redirect_uri (sometimes needed)
             cls._set_auth_debug("exchange_try_no_redirect", "Final attempt without redirect_uri", "")
@@ -156,8 +176,8 @@ class FyersService:
                 except:
                     pass
 
-
             return False, cls._humanize_auth_error(best_error_message or "Authentication failed")
+
             
         except Exception as e:
             msg = f"Exception during manual token exchange: {str(e)}"
