@@ -90,61 +90,59 @@ class FyersService:
                 "redirect_uri": resolved_redirect
             }
             
-            # 1. Try Primary (api-t1)
-            url = f"{cls.BASE_URL}/validate-authcode"
-            cls._set_auth_debug("exchange_try_1", f"Attempting primary (api-t1)", f"url={url}")
-            
-            success = False
-            response = {}
-            
-            try:
-                res = requests.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
-                raw_text = res.text
-                response = res.json()
-                if response.get("s") == "ok":
-                    success = True
-            except Exception as e:
-                raw_text = str(e)
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
 
-            # 2. Try Fallback (api.fyers.in) if primary fails or returns method error
-            if not success or "Invalid Request" in raw_text:
-                fallback_url = f"{cls.AUTH_FALLBACK_URL}/validate-authcode"
-                cls._set_auth_debug("exchange_try_2", f"Retrying with fallback (api.fyers.in)", f"url={fallback_url}")
+            best_error_message = None
+            last_raw_text = ""
+            
+            # 1. Try Primary (api-t1) then Fallback (api.fyers.in)
+            for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
+                url = f"{url_base}/validate-authcode"
+                cls._set_auth_debug(f"exchange_try_{url_base.split('.')[0].split('//')[1]}", f"Trying {url}", "")
                 
                 try:
-                    res = requests.post(fallback_url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
-                    raw_text = res.text
-                    response = res.json()
-                    if response.get("s") == "ok":
-                        success = True
+                    res = requests.post(url, json=payload, headers=headers, timeout=30)
+                    last_raw_text = res.text
+                    resp = res.json()
+                    
+                    if resp.get("s") == "ok":
+                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                        if token:
+                            cls.save_token(token)
+                            return True, "Login successful"
+                    
+                    # Capture error message if not already set or if previous was generic
+                    msg = resp.get("message") or f"Error {res.status_code}: {last_raw_text[:100]}"
+                    if not best_error_message or "Invalid Request" in best_error_message:
+                        if "Invalid Request" not in msg:
+                            best_error_message = msg
+                        elif not best_error_message:
+                            best_error_message = msg
+                except Exception as e:
+                    if not best_error_message:
+                        best_error_message = str(e)
+
+            # 2. Final attempt without redirect_uri (sometimes needed)
+            cls._set_auth_debug("exchange_try_no_redirect", "Final attempt without redirect_uri", "")
+            payload_no_redirect = payload.copy()
+            payload_no_redirect.pop("redirect_uri", None)
+            
+            for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
+                try:
+                    res = requests.post(f"{url_base}/validate-authcode", json=payload_no_redirect, headers=headers, timeout=30)
+                    resp = res.json()
+                    if resp.get("s") == "ok":
+                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                        if token:
+                            cls.save_token(token)
+                            return True, "Login successful (no-redirect fallback)"
                 except:
                     pass
 
-            if success:
-                token = response.get("access_token") or (response.get("data") or {}).get("access_token")
-                if token:
-                    cls.save_token(token)
-                    return True, "Login successful"
-                return False, "Login successful but no token found in response."
-
-            # Final attempt without redirect_uri (sometimes needed)
-            if not success:
-                cls._set_auth_debug("exchange_try_3", "Final attempt without redirect_uri", "")
-                payload_no_redirect = payload.copy()
-                payload_no_redirect.pop("redirect_uri", None)
-                for try_url in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
-                    try:
-                        res = requests.post(f"{try_url}/validate-authcode", json=payload_no_redirect, timeout=30)
-                        resp = res.json()
-                        if resp.get("s") == "ok":
-                            token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                            if token:
-                                cls.save_token(token)
-                                return True, "Login successful (no-redirect fallback)"
-                    except: pass
-
-            message = response.get("message", f"Fyers error: {raw_text[:200]}")
-            return False, cls._humanize_auth_error(message)
+            return False, cls._humanize_auth_error(best_error_message or "Authentication failed")
             
         except Exception as e:
             msg = f"Exception during manual token exchange: {str(e)}"
@@ -155,9 +153,10 @@ class FyersService:
     def _humanize_auth_error(message):
         text = str(message or "").strip()
         normalized = " ".join(text.split())
-        if "403" in normalized:
-            return "FYERS rejected the token exchange (HTTP 403). Ensure Redirect URI matches in Fyers Dashboard."
+        if "403" in normalized or "Invalid Request" in normalized:
+            return f"{normalized}. TIP: Ensure your Redirect URI is EXACTLY matched in Fyers Dashboard (including http/https and trailing slashes)."
         return normalized or "FYERS authentication failed. Please try again."
+
 
     @classmethod
     def get_last_auth_debug(cls):
