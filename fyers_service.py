@@ -11,8 +11,8 @@ from app.config import fyers_config
 class FyersService:
     _access_token = None
     _last_auth_debug = {}
-    BASE_URL = "https://api-t1.fyers.in/api/v3"
-    DATA_URL = "https://api-t1.fyers.in/data" 
+    BASE_URL = "https://api.fyers.in/api/v3"
+    DATA_URL = "https://api.fyers.in/data" 
     
     SYMBOL_MASTER_URLS = {
         "NSE_CM": "https://public.fyers.in/sym_details/NSE_CM.csv",

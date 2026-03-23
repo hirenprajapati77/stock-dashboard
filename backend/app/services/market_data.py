@@ -11,11 +11,7 @@ import requests
 import json as json_lib # Avoid conflict with possible local json var
 
 class MarketDataService:
-    # Use a custom session for yfinance to avoid 401 Unauthorized/Invalid Crumb issues on Render
-    _session = requests.Session()
-    _session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    })
+    # Removed custom session as it conflicts with newer yfinance/curl_cffi requirements on Render
 
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
     _ohlcv_cache = {}
@@ -170,8 +166,8 @@ class MarketDataService:
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---
             if symbol == "SYNTHETIC_CRUDE_INR":
-                base_ticker = yf.Ticker("CL=F", session=MarketDataService._session)
-                fx_ticker = yf.Ticker("USDINR=X", session=MarketDataService._session)
+                base_ticker = yf.Ticker("CL=F")
+                fx_ticker = yf.Ticker("USDINR=X")
                 
                 df = base_ticker.history(period=period, interval=interval)
                 
@@ -203,7 +199,7 @@ class MarketDataService:
             
             # Standard Fetch
             print(f"DEBUG: Yahoo Finance Fetching Symbol: {symbol}")
-            ticker = yf.Ticker(symbol, session=MarketDataService._session)
+            ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
             
             if use_fast_info:
@@ -243,7 +239,7 @@ class MarketDataService:
             if df.empty:
                 if symbol.endswith(".NS"):
                     fallback_symbol = symbol.replace(".NS", ".BO")
-                    ticker = yf.Ticker(fallback_symbol, session=MarketDataService._session)
+                    ticker = yf.Ticker(fallback_symbol)
                     df = ticker.history(period=period, interval=interval)
             
             # Handle rate limit fallback before checking empty
