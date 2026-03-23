@@ -65,46 +65,71 @@ class FyersService:
 
     @classmethod
     def generate_token(cls, auth_code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, str]:
-        """Generates access token from authorization code using the Fyers SDK."""
+        """Generates access token from authorization code using manual exchange to avoid SDK version issues."""
         if not auth_code:
             return False, "Missing authorization code."
         
         resolved_redirect = cls._normalize_redirect_uri(redirect_uri or fyers_config.redirect_url)
         
         try:
-            from fyers_apiv3 import fyersModel
+            # Manual SHA256 of appId:secretId
+            hash_input = f"{fyers_config.app_id}:{fyers_config.secret_id}"
+            app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
             
-            # Use SDK's SessionModel for token exchange
-            session = fyersModel.SessionModel(
-                client_id=fyers_config.app_id,
-                secret_key=fyers_config.secret_id,
-                redirect_uri=resolved_redirect,
-                response_type="code",
-                grant_type="authorization_code"
+            payload = {
+                "grant_type": "authorization_code",
+                "appIdHash": app_id_hash,
+                "code": auth_code,
+                "redirect_uri": resolved_redirect
+            }
+            
+            # Log exchange attempt (redact secret details if possible, but keeping it for now for debug)
+            cls._set_auth_debug("manual_exchange", f"Attempting exchange with {resolved_redirect}", f"appIdHash={app_id_hash[:10]}...")
+            
+            url = f"{cls.BASE_URL}/validate-authcode"
+            res = requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout=30,
             )
             
-            session.set_token(auth_code)
-            response = session.generate_access_token()
-            
-            # Log exchange attempt for debugging
-            cls._set_auth_debug("sdk", f"Token exchange attempted with {resolved_redirect}", str(response)[:300])
+            response = res.json()
+            cls._set_auth_debug("manual_response", f"HTTP {res.status_code}", str(response)[:300])
             
             if response.get("s") == "ok":
-                token = response.get("access_token")
+                token = response.get("access_token") or (response.get("data") or {}).get("access_token")
                 if token:
                     try:
                         cls.save_token(token)
                         return True, "Login successful"
                     except OSError as e:
                         return False, f"Could not save token: {e}"
-                return False, "Login successful but no token received."
+                return False, f"Login successful but no token found in: {response}"
             
-            message = response.get("message", f"Fyers error: {response}")
+            message = response.get("message", f"Fyers error (HTTP {res.status_code}): {response}")
+            
+            # If with_redirect fails, try once without it (Fyers v3 sometimes likes it without)
+            if "redirect" in str(message).lower() or res.status_code == 403:
+                cls._set_auth_debug("retry", "Retrying without redirect_uri", "")
+                del payload["redirect_uri"]
+                res_retry = requests.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
+                response_retry = res_retry.json()
+                if response_retry.get("s") == "ok":
+                    token = response_retry.get("access_token") or (response_retry.get("data") or {}).get("access_token")
+                    if token:
+                        cls.save_token(token)
+                        return True, "Login successful (retry)"
+                message = response_retry.get("message", message)
+
             return False, cls._humanize_auth_error(message)
             
         except Exception as e:
-            msg = f"Exception during token exchange: {str(e)}"
-            cls._set_auth_debug("sdk_exception", msg, str(e))
+            msg = f"Exception during manual token exchange: {str(e)}"
+            cls._set_auth_debug("manual_exception", msg, str(e))
             return False, cls._humanize_auth_error(msg)
 
     @staticmethod
