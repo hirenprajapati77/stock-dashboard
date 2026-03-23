@@ -97,9 +97,24 @@ class FyersService:
                 timeout=30,
             )
             
-            response = res.json()
-            cls._set_auth_debug("manual_response", f"HTTP {res.status_code}", str(response)[:300])
+            # Log raw response for debugging before parsing
+            raw_text = res.text
+            cls._set_auth_debug("manual_response_raw", f"HTTP {res.status_code}", raw_text[:300])
             
+            try:
+                response = res.json()
+            except Exception as json_err:
+                # If JSON fails, it might be an HTML error page from Fyers (e.g. 403, 500)
+                # Try the other URL if we're on api-t1 and get a strange response
+                if "api-t1" in cls.BASE_URL and (res.status_code != 200 or "html" in raw_text.lower()):
+                    cls._set_auth_debug("retry_url", "Switching to api.fyers.in", "")
+                    alt_base = "https://api.fyers.in/api/v3"
+                    res = requests.post(f"{alt_base}/validate-authcode", json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
+                    raw_text = res.text
+                    response = res.json()
+                else:
+                    return False, f"Fyers returned non-JSON response (HTTP {res.status_code}): {raw_text[:200]}"
+
             if response.get("s") == "ok":
                 token = response.get("access_token") or (response.get("data") or {}).get("access_token")
                 if token:
@@ -112,18 +127,22 @@ class FyersService:
             
             message = response.get("message", f"Fyers error (HTTP {res.status_code}): {response}")
             
-            # If with_redirect fails, try once without it (Fyers v3 sometimes likes it without)
-            if "redirect" in str(message).lower() or res.status_code == 403:
-                cls._set_auth_debug("retry", "Retrying without redirect_uri", "")
-                del payload["redirect_uri"]
-                res_retry = requests.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
-                response_retry = res_retry.json()
-                if response_retry.get("s") == "ok":
-                    token = response_retry.get("access_token") or (response_retry.get("data") or {}).get("access_token")
-                    if token:
-                        cls.save_token(token)
-                        return True, "Login successful (retry)"
-                message = response_retry.get("message", message)
+            # If with_redirect fails, try once without it
+            if "redirect" in str(message).lower() or res.status_code == 403 or "invalid_id" in str(message).lower():
+                cls._set_auth_debug("retry_no_redirect", "Retrying without redirect_uri", "")
+                payload_retry = payload.copy()
+                payload_retry.pop("redirect_uri", None)
+                res_retry = requests.post(url, json=payload_retry, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
+                try:
+                    response_retry = res_retry.json()
+                    if response_retry.get("s") == "ok":
+                        token = response_retry.get("access_token") or (response_retry.get("data") or {}).get("access_token")
+                        if token:
+                            cls.save_token(token)
+                            return True, "Login successful (retry)"
+                    message = response_retry.get("message", message)
+                except:
+                    pass
 
             return False, cls._humanize_auth_error(message)
             
