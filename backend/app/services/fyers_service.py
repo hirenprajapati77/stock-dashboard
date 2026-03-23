@@ -79,108 +79,72 @@ class FyersService:
         resolved_redirect = cls._normalize_redirect_uri(redirect_uri or fyers_config.redirect_url)
         
         try:
-            # Manual SHA256 of appId:secretId (IMPORTANT: App ID usually must be WITHOUT the -100 suffix for hashing)
-            raw_app_id = fyers_config.app_id
-            base_app_id = raw_app_id.split("-")[0] if "-" in raw_app_id else raw_app_id
-            
-            hash_input = f"{base_app_id}:{fyers_config.secret_id}"
+            raw_app_id = fyers_config.app_id  # e.g. XAST342P8T-100
+            hash_input = f"{raw_app_id}:{fyers_config.secret_id}"
             app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
             
-            payload = {
+            base_payload = {
                 "grant_type": "authorization_code",
+                "appId": raw_app_id,
                 "appIdHash": app_id_hash,
                 "code": auth_code,
-                "redirect_uri": resolved_redirect
+                "redirect_uri": resolved_redirect,
             }
             
             headers = {
                 "Accept": "application/json",
-                "Content-Type": "application/json",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                 "Origin": "https://stock-dashboard-9nvy.onrender.com",
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
-
-
+            
+            # Ordered attempts: fastest-likely-to-succeed first.
+            # Fyers Production (api.fyers.in) only accepts form-encoded.
+            # api-t1 is blocked on Render by Cloudflare.
+            attempts = [
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded"},
+                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded"},
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json"},
+            ]
+            
             best_error_message = ""
-            last_was_json = False
-            
-            # 1. Try Primary (api-t1) then Fallback (api.fyers.in)
-            for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
-                url = f"{url_base}/validate-authcode"
-                cls._set_auth_debug(f"exchange_try_{url_base.split('.')[0].split('//')[1]}", f"Trying {url}", "")
-                
-                # Test both JSON and Form-Encoded (Production sometimes prefers Form-Encoded)
-                for content_type in ["application/json", "application/x-www-form-urlencoded"]:
-                    try:
-                        current_headers = headers.copy()
-                        current_headers["Content-Type"] = content_type
-                        
-                        if content_type == "application/json":
-                            res = requests.post(url, json=payload, headers=current_headers, timeout=30)
-                        else:
-                            res = requests.post(url, data=payload, headers=current_headers, timeout=30)
-                            
-                        last_raw_text = res.text
-                        
-                        try:
-                            resp = res.json()
-                            is_json = True
-                        except json.JSONDecodeError:
-                            is_json = False
-                            
-                        if is_json:
-                            # If we got JSON, this is a "real" API response, prioritize it over HTML 403s
-                            msg = resp.get("message") or resp.get("error_description") or last_raw_text[:200]
-                            
-                            # Prioritize JSON errors over previous HTML errors
-                            if not last_was_json:
-                                best_error_message = msg
-                                last_was_json = True
-                            elif "Invalid Request" not in msg:
-                                # Overwrite generic "Invalid Request" with more specific JSON errors
-                                best_error_message = msg
-                            
-                            if resp.get("s") == "ok":
-                                token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                                if token:
-                                    cls._access_token = token
-                                    cls.save_token(token)
-                                    cls._set_auth_debug("success", "Token generated", f"Final URL: {url}")
-                                    return True, "Token generated successfully"
-                        else:
-                            # Non-JSON response (HTML or empty) - only use if we don't have a JSON error yet
-                            if not last_was_json:
-                                msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:500]}"
-                                if not best_error_message or "Invalid Request" in best_error_message:
-                                    best_error_message = msg
-                            time.sleep(0.5)
-                            
-                    except Exception as e:
-                        if not last_was_json:
-                            best_error_message = f"Request failed: {str(e)}"
-                        continue
-
-
-            # 2. Final attempt without redirect_uri (sometimes needed)
-            cls._set_auth_debug("exchange_try_no_redirect", "Final attempt without redirect_uri", "")
-            payload_no_redirect = payload.copy()
-            payload_no_redirect.pop("redirect_uri", None)
-            
-            for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
+            for attempt in attempts:
+                url = attempt["url"]
+                ct = attempt["ct"]
+                cls._set_auth_debug(f"exchange_{ct.split('/')[-1]}", f"Trying {url}", "")
                 try:
-                    res = requests.post(f"{url_base}/validate-authcode", json=payload_no_redirect, headers=headers, timeout=30)
-                    if res.status_code == 200:
+                    current_headers = {**headers, "Content-Type": ct}
+                    if ct == "application/json":
+                        res = requests.post(url, json=base_payload, headers=current_headers, timeout=20)
+                    else:
+                        res = requests.post(url, data=base_payload, headers=current_headers, timeout=20)
+                    
+                    try:
                         resp = res.json()
+                        is_json = True
+                    except Exception:
+                        is_json = False
+                    
+                    if is_json:
                         if resp.get("s") == "ok":
                             token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
                             if token:
+                                cls._access_token = token
                                 cls.save_token(token)
-                                return True, "Login successful (no-redirect fallback)"
-                except:
-                    pass
+                                cls._set_auth_debug("success", f"Token generated via {url}", "")
+                                return True, "Token generated successfully"
+                        msg = resp.get("message") or resp.get("error_description") or res.text[:200]
+                        best_error_message = msg
+                    else:
+                        if not best_error_message:
+                            best_error_message = f"Non-JSON response HTTP {res.status_code}: {res.text[:300]}"
+                except Exception as e:
+                    if not best_error_message:
+                        best_error_message = f"Request error: {str(e)}"
+                    continue
 
             return False, cls._humanize_auth_error(best_error_message or "Authentication failed")
+
 
             
         except Exception as e:

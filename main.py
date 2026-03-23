@@ -562,10 +562,12 @@ async def fyers_debug_auth(request: Request):
             
             payload = {
                 "grant_type": "authorization_code",
+                "appId": id_var['val'],
                 "appIdHash": app_id_hash,
                 "code": "DIAGNOSTIC_CODE",
                 "redirect_uri": redirect_uri
             }
+
             
             for ct in ct_list:
                 headers = {
