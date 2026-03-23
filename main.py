@@ -508,28 +508,77 @@ async def fyers_callback(
 
 @app.get("/api/v1/fyers/status")
 async def fyers_status(request: Request):
-    """Checks if Fyers is logged in."""
+    """Checks if Fyers is logged in and provides diagnostic info."""
     is_logged_in = FyersService.load_token()
-    from app.services.screener_service import ScreenerService as MomentumScreener
-    session_tag, session_quality = MomentumScreener.get_session_tag()
     effective_redirect_url = _resolve_fyers_redirect_url(request)
     auth_url = FyersService.get_login_url(effective_redirect_url)
-    app_id_source = "env" if os.getenv("FYERS_APP_ID") else "default"
-    redirect_url_source = "env" if os.getenv("FYERS_REDIRECT_URL") else "derived"
+    
     return {
+        "status": "online" if is_logged_in else "offline",
         "logged_in": is_logged_in,
-        "market_open": session_tag != "CLOSED",
         "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
-        "app_id_source": app_id_source,
+        "app_id_source": "env" if os.getenv("FYERS_APP_ID") else "default",
         "redirect_url": effective_redirect_url,
-        "redirect_url_source": redirect_url_source,
+        "redirect_url_source": "env" if os.getenv("FYERS_REDIRECT_URL") else "derived",
         "auth_url": auth_url,
         "callback_path": "/api/v1/fyers/callback",
-        "config_ready": bool(fyers_config.app_id and fyers_config.secret_id and effective_redirect_url),
-        "last_auth_debug": FyersService.get_last_auth_debug(),
+        "config_ready": bool(fyers_config.app_id and fyers_config.secret_id),
         "fyers_token_file_from_env": bool(os.getenv("FYERS_TOKEN_FILE")),
         "fyers_token_file_name": os.path.basename(fyers_config.token_file),
+        "last_auth_debug": FyersService.get_last_auth_debug()
     }
+
+
+@app.get("/api/v1/fyers/debug-auth")
+async def fyers_debug_auth(request: Request):
+    """Diagnostic endpoint to test Fyers auth from the current environment."""
+    import hashlib
+    results = []
+    app_id = fyers_config.app_id
+    secret_id = fyers_config.secret_id
+    redirect_uri = _resolve_fyers_redirect_url(request)
+    
+    hash_input = f"{app_id}:{secret_id}"
+    app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+    
+    payload = {
+        "grant_type": "authorization_code",
+        "appIdHash": app_id_hash,
+        "code": "DIAGNOSTIC_CODE",
+        "redirect_uri": redirect_uri
+    }
+    
+    ua_list = [
+        "python-requests/2.31.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    ]
+    
+    urls = [
+        "https://api-t1.fyers.in/api/v3/validate-authcode",
+        "https://api.fyers.in/api/v3/validate-authcode"
+    ]
+    
+    for url in urls:
+        for ua in ua_list:
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": ua
+            }
+            try:
+                res = requests.post(url, json=payload, headers=headers, timeout=10)
+                results.append({
+                    "url": url,
+                    "ua": ua[:30] + "...",
+                    "status": res.status_code,
+                    "is_json": "application/json" in res.headers.get("Content-Type", ""),
+                    "body_start": res.text[:200]
+                })
+            except Exception as e:
+                results.append({"url": url, "ua": ua[:30], "error": str(e)})
+                
+    return {"results": results, "config": {"app_id_prefix": app_id[:5], "redirect_uri": redirect_uri}}
+
 
 @app.get("/api/v1/screener")
 async def run_screener():
