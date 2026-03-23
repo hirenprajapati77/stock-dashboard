@@ -3,7 +3,7 @@ import requests
 import json
 import time
 import hashlib
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List
 
 import pandas as pd
 from app.config import fyers_config
@@ -11,8 +11,13 @@ from app.config import fyers_config
 class FyersService:
     _access_token = None
     _last_auth_debug = {}
-    BASE_URL = "https://api.fyers.in/api/v3"
+    
+    # Primary BASE_URL (api-t1) is preferred for login page in some accounts
+    BASE_URL = "https://api-t1.fyers.in/api/v3"
+    # Production data endpoint
     DATA_URL = "https://api.fyers.in/data" 
+    # Fallback endpoint for token exchange
+    AUTH_FALLBACK_URL = "https://api.fyers.in/api/v3"
     
     SYMBOL_MASTER_URLS = {
         "NSE_CM": "https://public.fyers.in/sym_details/NSE_CM.csv",
@@ -60,12 +65,14 @@ class FyersService:
             "response_type": "code",
             "state": "fyers_auth"
         }
+        # Use api-t1 for login page as it seems more stable for this account
+        login_base = "https://api-t1.fyers.in/api/v3"
         query_string = "&".join([f"{k}={requests.utils.quote(v)}" for k, v in params.items()])
-        return f"{cls.BASE_URL}/generate-authcode?{query_string}"
+        return f"{login_base}/generate-authcode?{query_string}"
 
     @classmethod
     def generate_token(cls, auth_code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, str]:
-        """Generates access token from authorization code using manual exchange to avoid SDK version issues."""
+        """Generates access token from authorization code using manual exchange with dual-endpoint fallback."""
         if not auth_code:
             return False, "Missing authorization code."
         
@@ -83,67 +90,60 @@ class FyersService:
                 "redirect_uri": resolved_redirect
             }
             
-            # Log exchange attempt (redact secret details if possible, but keeping it for now for debug)
-            cls._set_auth_debug("manual_exchange", f"Attempting exchange with {resolved_redirect}", f"appIdHash={app_id_hash[:10]}...")
-            
+            # 1. Try Primary (api-t1)
             url = f"{cls.BASE_URL}/validate-authcode"
-            res = requests.post(
-                url,
-                json=payload,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-                timeout=30,
-            )
+            cls._set_auth_debug("exchange_try_1", f"Attempting primary (api-t1)", f"url={url}")
             
-            # Log raw response for debugging before parsing
-            raw_text = res.text
-            cls._set_auth_debug("manual_response_raw", f"HTTP {res.status_code}", raw_text[:300])
+            success = False
+            response = {}
             
             try:
+                res = requests.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
+                raw_text = res.text
                 response = res.json()
-            except Exception as json_err:
-                # If JSON fails, it might be an HTML error page from Fyers (e.g. 403, 500)
-                # Try the other URL if we're on api-t1 and get a strange response
-                if "api-t1" in cls.BASE_URL and (res.status_code != 200 or "html" in raw_text.lower()):
-                    cls._set_auth_debug("retry_url", "Switching to api.fyers.in", "")
-                    alt_base = "https://api.fyers.in/api/v3"
-                    res = requests.post(f"{alt_base}/validate-authcode", json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
+                if response.get("s") == "ok":
+                    success = True
+            except Exception as e:
+                raw_text = str(e)
+
+            # 2. Try Fallback (api.fyers.in) if primary fails or returns method error
+            if not success or "Invalid Request" in raw_text:
+                fallback_url = f"{cls.AUTH_FALLBACK_URL}/validate-authcode"
+                cls._set_auth_debug("exchange_try_2", f"Retrying with fallback (api.fyers.in)", f"url={fallback_url}")
+                
+                try:
+                    res = requests.post(fallback_url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
                     raw_text = res.text
                     response = res.json()
-                else:
-                    return False, f"Fyers returned non-JSON response (HTTP {res.status_code}): {raw_text[:200]}"
-
-            if response.get("s") == "ok":
-                token = response.get("access_token") or (response.get("data") or {}).get("access_token")
-                if token:
-                    try:
-                        cls.save_token(token)
-                        return True, "Login successful"
-                    except OSError as e:
-                        return False, f"Could not save token: {e}"
-                return False, f"Login successful but no token found in: {response}"
-            
-            message = response.get("message", f"Fyers error (HTTP {res.status_code}): {response}")
-            
-            # If with_redirect fails, try once without it
-            if "redirect" in str(message).lower() or res.status_code == 403 or "invalid_id" in str(message).lower():
-                cls._set_auth_debug("retry_no_redirect", "Retrying without redirect_uri", "")
-                payload_retry = payload.copy()
-                payload_retry.pop("redirect_uri", None)
-                res_retry = requests.post(url, json=payload_retry, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
-                try:
-                    response_retry = res_retry.json()
-                    if response_retry.get("s") == "ok":
-                        token = response_retry.get("access_token") or (response_retry.get("data") or {}).get("access_token")
-                        if token:
-                            cls.save_token(token)
-                            return True, "Login successful (retry)"
-                    message = response_retry.get("message", message)
+                    if response.get("s") == "ok":
+                        success = True
                 except:
                     pass
 
+            if success:
+                token = response.get("access_token") or (response.get("data") or {}).get("access_token")
+                if token:
+                    cls.save_token(token)
+                    return True, "Login successful"
+                return False, "Login successful but no token found in response."
+
+            # Final attempt without redirect_uri (sometimes needed)
+            if not success:
+                cls._set_auth_debug("exchange_try_3", "Final attempt without redirect_uri", "")
+                payload_no_redirect = payload.copy()
+                payload_no_redirect.pop("redirect_uri", None)
+                for try_url in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
+                    try:
+                        res = requests.post(f"{try_url}/validate-authcode", json=payload_no_redirect, timeout=30)
+                        resp = res.json()
+                        if resp.get("s") == "ok":
+                            token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                            if token:
+                                cls.save_token(token)
+                                return True, "Login successful (no-redirect fallback)"
+                    except: pass
+
+            message = response.get("message", f"Fyers error: {raw_text[:200]}")
             return False, cls._humanize_auth_error(message)
             
         except Exception as e:
@@ -155,13 +155,8 @@ class FyersService:
     def _humanize_auth_error(message):
         text = str(message or "").strip()
         normalized = " ".join(text.split())
-
-        if "HTTP 403" in normalized or " 403" in normalized:
-            return (
-                "FYERS rejected the token exchange (HTTP 403). "
-                "Ensure FYERS_REDIRECT_URL matches EXACTLY in your Render settings AND Fyers API dashboard. "
-                "Even a missing or extra trailing slash will cause this error."
-            )
+        if "403" in normalized:
+            return "FYERS rejected the token exchange (HTTP 403). Ensure Redirect URI matches in Fyers Dashboard."
         return normalized or "FYERS authentication failed. Please try again."
 
     @classmethod
@@ -182,7 +177,6 @@ class FyersService:
             if not cls.load_token():
                 return None, "Fyers not logged in"
 
-        # Map timeframe (Fyers uses: 1, 5, 10, 15, 30, 60, 120, 240, D, W, M)
         tf_map = {
             "1m": "1", "5m": "5", "10m": "10", "15m": "15", 
             "30m": "30", "60m": "60", "1H": "60", 
@@ -191,36 +185,24 @@ class FyersService:
         }
         fyers_tf = tf_map.get(timeframe, "D")
 
-        # Default range if none provided (last 200 bars)
         if not range_from or not range_to:
             now = int(time.time())
             range_to = time.strftime("%Y-%m-%d", time.localtime(now))
             days = 300 if fyers_tf == "D" else 30
             range_from = time.strftime("%Y-%m-%d", time.localtime(now - (days * 86400)))
 
-        # Handle symbol formatting
         fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"
-
         params = {
-            "symbol": fyers_symbol,
-            "resolution": fyers_tf,
-            "date_format": "1",
-            "range_from": range_from,
-            "range_to": range_to,
-            "cont_flag": "1"
+            "symbol": fyers_symbol, "resolution": fyers_tf, "date_format": "1",
+            "range_from": range_from, "range_to": range_to, "cont_flag": "1"
         }
-
-        headers = {
-            "Authorization": f"{fyers_config.app_id}:{cls._access_token}"
-        }
+        headers = {"Authorization": f"{fyers_config.app_id}:{cls._access_token}"}
 
         try:
             url = f"{cls.DATA_URL}/history"
             res = requests.get(url, params=params, headers=headers, timeout=timeout)
-            
             if res.status_code == 401:
                 return None, "Fyers Token Expired (401)"
-                
             response = res.json()
             if response.get("s") == "ok":
                 df = pd.DataFrame(response.get("candles"), columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -232,96 +214,58 @@ class FyersService:
             return None, "Fyers request timed out"
         except Exception as e:
             return None, f"Exception fetching Fyers data: {str(e)}"
+
     @classmethod
     def update_symbol_master(cls, force=False):
-        """Downloads and caches symbol masters from Fyers."""
         symbols_file = os.path.join(os.path.dirname(fyers_config.token_file), "fyers_symbols.json")
-        
-        # Check if sync is needed (e.g., once a day)
         now = time.time()
         if not force and os.path.exists(symbols_file):
             file_time = os.path.getmtime(symbols_file)
-            if now - file_time < 86400: # 24 hours
+            if now - file_time < 86400:
                 if not cls._symbols_cache:
                     try:
                         with open(symbols_file, "r") as f:
                             cls._symbols_cache = json.load(f)
-                        cls._last_sync = file_time
                     except: pass
-                if cls._symbols_cache:
-                    return True, "Loaded from cache"
+                if cls._symbols_cache: return True, "Loaded from cache"
 
         all_symbols = []
         for key, url in cls.SYMBOL_MASTER_URLS.items():
             try:
-                print(f"Syncing Fyers master: {key}...")
                 res = requests.get(url, timeout=30)
                 if res.status_code == 200:
                     lines = res.text.splitlines()
                     for line in lines:
                         parts = line.split(',')
                         if len(parts) > 13:
-                            ticker = parts[9]
-                            name = parts[1]
-                            short_name = parts[13]
+                            ticker, name, short_name = parts[9], parts[1], parts[13]
                             exch = ticker.split(':')[0] if ':' in ticker else key.split('_')[0]
-                            
-                            all_symbols.append({
-                                "s": ticker,
-                                "n": name.strip('"'),
-                                "sn": short_name.strip('"'),
-                                "e": exch
-                            })
-            except Exception as e:
-                print(f"Error syncing {key}: {e}")
+                            all_symbols.append({"s": ticker, "n": name.strip('"'), "sn": short_name.strip('"'), "e": exch})
+            except: pass
         
         if all_symbols:
             cls._symbols_cache = all_symbols
             cls._last_sync = now
             try:
-                with open(symbols_file, "w") as f:
-                    json.dump(all_symbols, f)
+                with open(symbols_file, "w") as f: json.dump(all_symbols, f)
             except: pass
             return True, f"Synced {len(all_symbols)} symbols"
         return False, "Failed to sync any symbols"
 
     @classmethod
     def search_symbols(cls, query):
-        """Searches symbols by ticker, name or short name."""
-        if not cls._symbols_cache:
-            cls.update_symbol_master()
-            
+        if not cls._symbols_cache: cls.update_symbol_master()
         query = query.upper()
         results = []
-        
-        # Priority 1: Exact Ticker match
         for s in cls._symbols_cache:
             if query == s['sn'] or query == s['s'].split(':')[-1].split('-')[0]:
                 results.append(s)
                 if len(results) >= 15: break
-        
-        # Priority 2: Starts with query
         if len(results) < 15:
             for s in cls._symbols_cache:
                 if s not in results:
                     if s['sn'].startswith(query) or any(p.startswith(query) for p in s['n'].split()):
                         results.append(s)
                         if len(results) >= 15: break
-                        
-        # Priority 3: Contains query
-        if len(results) < 15:
-            for s in cls._symbols_cache:
-                if s not in results:
-                    if query in s['s'] or query in s['n']:
-                        results.append(s)
-                        if len(results) >= 15: break
-                        
-        # Format for frontend
-        formatted = []
-        for r in results:
-            formatted.append({
-                "symbol": r['s'],
-                "shortname": f"{r['n']} ({r['e']})",
-                "exchange": r['e']
-            })
+        formatted = [{"symbol": r['s'], "shortname": f"{r['n']} ({r['e']})", "exchange": r['e']} for r in results]
         return formatted
