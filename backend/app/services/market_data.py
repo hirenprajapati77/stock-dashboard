@@ -7,7 +7,16 @@ import time
 from functools import lru_cache
 from app.services.fyers_service import FyersService
 
+import requests
+import json as json_lib # Avoid conflict with possible local json var
+
 class MarketDataService:
+    # Use a custom session for yfinance to avoid 401 Unauthorized/Invalid Crumb issues on Render
+    _session = requests.Session()
+    _session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
     _ohlcv_cache = {}
     CACHE_TTL = 300 # 5 minutes
@@ -139,34 +148,30 @@ class MarketDataService:
         
         # 1.5 Try Fyers first if logged in
         try:
-            # If symbol has a colon, it's a Fyers-style symbol (e.g., NSE:RELIANCE-EQ, MCX:GOLD...FUT)
-            fyers_df, fyers_err = FyersService.get_ohlcv(symbol, tf, "", "")
+            # If symbol has a colon, it's already a Fyers-style symbol
+            fyers_sym = symbol if ":" in symbol else f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
+            
+            print(f"DEBUG: Trying Fyers for {fyers_sym} (Timeout: 3s)")
+            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=3)
+            
             if fyers_df is not None and not fyers_df.empty:
                 print(f"DEBUG: Successfully fetched {symbol} from Fyers")
                 fyers_df = fyers_df.tail(count)
                 MarketDataService._save_to_disk(symbol, tf, fyers_df)
                 return fyers_df, "INR", None
-            else:
-                print(f"DEBUG: Fyers fetch failed or not logged in: {fyers_err}")
+            elif fyers_err == "Fyers request timed out":
+                print(f"DEBUG: Fyers timed out for {symbol}, falling back to Yahoo")
+            elif "not logged in" not in str(fyers_err).lower():
+                print(f"DEBUG: Fyers fetch failed for {symbol}: {fyers_err}. Falling back to Yahoo.")
                 
-            # If Fyers failed and it's a Fyers symbol, try to translate for Yahoo fallback
-            if ":" in symbol:
-                parts = symbol.split(':')
-                if len(parts) > 1:
-                    base_ticker = parts[1].split('-')[0]
-                    if parts[0] == "NSE":
-                        symbol = f"{base_ticker}.NS"
-                    elif parts[0] == "BSE":
-                        symbol = f"{base_ticker}.BO"
-                    # For MCX, Yahoo Finance uses different symbols (handled in synthetic or not at all)
         except Exception as fe:
-            print(f"DEBUG: Fyers integration error: {fe}")
+            print(f"DEBUG: Fyers integration error: {fe}. Falling back to Yahoo.")
 
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---
             if symbol == "SYNTHETIC_CRUDE_INR":
-                base_ticker = yf.Ticker("CL=F")
-                fx_ticker = yf.Ticker("USDINR=X")
+                base_ticker = yf.Ticker("CL=F", session=MarketDataService._session)
+                fx_ticker = yf.Ticker("USDINR=X", session=MarketDataService._session)
                 
                 df = base_ticker.history(period=period, interval=interval)
                 
@@ -198,7 +203,7 @@ class MarketDataService:
             
             # Standard Fetch
             print(f"DEBUG: Yahoo Finance Fetching Symbol: {symbol}")
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=MarketDataService._session)
             df = ticker.history(period=period, interval=interval)
             
             if use_fast_info:
@@ -238,7 +243,7 @@ class MarketDataService:
             if df.empty:
                 if symbol.endswith(".NS"):
                     fallback_symbol = symbol.replace(".NS", ".BO")
-                    ticker = yf.Ticker(fallback_symbol)
+                    ticker = yf.Ticker(fallback_symbol, session=MarketDataService._session)
                     df = ticker.history(period=period, interval=interval)
             
             # Handle rate limit fallback before checking empty

@@ -347,30 +347,44 @@ class ScreenerService:
             if str(sector) in cls.SECTOR_INDEX_BY_KEY
         ]
 
-        try:
-            stock_batch_df = yf.download(
-                tickers=" ".join(all_symbols),
-                period=config["period"],
-                interval=config["interval"],
-                progress=False,
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
-            )
-            sector_batch_df = yf.download(
-                tickers=" ".join(sorted(set(sector_indices))),
-                period=config["period"],
-                interval=config["interval"],
-                progress=False,
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
-            ) if sector_indices else pd.DataFrame()
-        except Exception as e:
-            print(f"Momentum screener batch download failed: {e}")
-            return cls._load_fallback(normalized_tf)
+        # 1. Fetch data for all symbols using MarketDataService (which prioritizes Fyers)
+        print(f"DEBUG: Fetching data for {len(all_symbols)} symbols using MarketDataService with Fyers priority...")
+        stock_batch_data = {}
+        
+        from app.services.market_data import MarketDataService
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_symbol = {
+                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
+                for symbol in all_symbols
+            }
+            for future in concurrent.futures.as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    df, currency, err = future.result()
+                    if df is not None and not df.empty:
+                        stock_batch_data[symbol] = df
+                except Exception as e:
+                    print(f"ERROR: Failed to fetch {symbol} in screener: {e}")
 
-        if stock_batch_df is None or stock_batch_df.empty:
+        # Also fetch sector indices
+        sector_batch_data = {}
+        if sector_indices:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_sector = {
+                    executor.submit(MarketDataService.get_ohlcv, sec_sym, normalized_tf): sec_sym 
+                    for sec_sym in sector_indices
+                }
+                for future in concurrent.futures.as_completed(future_to_sector):
+                    sec_sym = future_to_sector[future]
+                    try:
+                        df, currency, err = future.result()
+                        if df is not None and not df.empty:
+                            sector_batch_data[sec_sym] = df
+                    except Exception as e:
+                        print(f"ERROR: Failed to fetch sector {sec_sym} in screener: {e}")
+
+        if not stock_batch_data:
+            print("WARNING: No stock data fetched for screener. Using fallback.")
             return cls._load_fallback(normalized_tf)
 
         sector_by_symbol = {
@@ -455,25 +469,6 @@ class ScreenerService:
                         sector_close = sector_df[sec_close_col].dropna()
                         if len(sector_close) > hit_idx:
                             sector_return = float((sector_close.pct_change() * 100).iloc[hit_idx])
-
-                latest_idx = len(close) - 1
-                prev_idx = latest_idx - 1
-                stock_return = float(pct.iloc[hit_idx])
-                latest_price = float(close.iloc[latest_idx])
-                latest_change = float(pct.iloc[latest_idx]) if prev_idx >= 0 else stock_return
-                
-                # Difference-based RS (avoid ratio explosions)
-                rs_sector = (stock_return - sector_return)
-
-                # Phase 4: Stock Acceleration (fixed: use pre-fetched sector data)
-                sector_pct = pd.Series(0.0, index=pct.index)
-                if sector_key in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
-                    _sec_sym = cls.SECTOR_INDEX_BY_KEY[sector_key]  # type: ignore
-                    _sec_df = sector_batch_df[_sec_sym] if isinstance(sector_batch_df.columns, pd.MultiIndex) else sector_batch_df
-                    if _sec_df is not None and not _sec_df.empty:
-                        _sec_close_col = "Close" if "Close" in _sec_df.columns else "close"
-                        _sec_close = _sec_df[_sec_close_col].dropna()
-                        sector_pct = _sec_close.pct_change().reindex(pct.index).fillna(0) * 100
 
                 # --- Forward 3-Day Performance (Daily TF Only) ---
                 forward_return = None
@@ -577,19 +572,11 @@ class ScreenerService:
                 # Since get_market_summary_data is expensive, we'll use a simplified check or assume it's passed/cached
                 # For this implementation, we'll calculate NIFTY return inline for the regime
                 market_regime = "NEUTRAL"
-                try:
-                    nifty_ticker = yf.Ticker("^NSEI")
-                    n_fast = nifty_ticker.fast_info
-                    n_price = n_fast.get('lastPrice') or n_fast.get('last_price', 0)
-                    n_prev = n_fast.get('previousClose') or n_fast.get('previous_close', 0)
-                    n_return = ((n_price - n_prev) / n_prev * 100) if n_prev > 0 else 0.0
-                    
-                    if n_return > 0.5:
-                        market_regime = "STRONG"
-                    elif n_return < -0.5:
-                        market_regime = "WEAK"
-                except:
-                    pass
+                if market_regime == "WEAK":
+                    if entry_tag == "STRONG_ENTRY":
+                        entry_tag = "ENTRY_READY"
+                    elif entry_tag == "ENTRY_READY":
+                        entry_tag = "WATCHLIST"
 
                 if market_regime == "WEAK":
                     if entry_tag == "STRONG_ENTRY":
@@ -719,21 +706,25 @@ class ScreenerService:
         if not all_symbols:
             return []
 
-        try:
-            stock_batch_df = yf.download(
-                tickers=" ".join(all_symbols),
-                period=config["period"],
-                interval=config["interval"],
-                progress=False,
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
-            )
-        except Exception as e:
-            print(f"Early breakout batch download failed: {e}")
-            return []
+        # 1. Fetch data for all symbols using MarketDataService (which prioritizes Fyers)
+        print(f"DEBUG: Fetching data for {len(all_symbols)} early setups using MarketDataService...")
+        stock_batch_data = {}
+        from app.services.market_data import MarketDataService
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_symbol = {
+                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
+                for symbol in all_symbols
+            }
+            for future in concurrent.futures.as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    df, currency, err = future.result()
+                    if df is not None and not df.empty:
+                        stock_batch_data[symbol] = df
+                except Exception as e:
+                    print(f"ERROR: Failed to fetch {symbol} for early setups: {e}")
 
-        if stock_batch_df is None or stock_batch_df.empty:
+        if not stock_batch_data:
             return []
 
         sector_by_symbol = {
@@ -753,7 +744,7 @@ class ScreenerService:
         setups: List[Dict] = []
         for symbol in all_symbols:
             try:
-                raw_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
+                raw_df = stock_batch_data.get(symbol)
                 if raw_df is None or raw_df.empty:
                     continue
                 sdf = raw_df.copy()
@@ -845,12 +836,14 @@ class ScreenerService:
         try:
             # 1. Market Return (NIFTY 50)
             market_return = 0.0
+            # 1. Market Return (NIFTY 50) using MarketDataService
+            market_return = 0.0
             try:
-                nifty = yf.Ticker("^NSEI")
-                fast = nifty.fast_info
-                price = fast.get('lastPrice') or fast.get('last_price', 0)
-                prev = fast.get('previousClose') or fast.get('previous_close', 0)
-                market_return = ((price - prev) / prev * 100) if prev > 0 else 0.0
+                from app.services.market_data import MarketDataService
+                n_df, _, _ = MarketDataService.get_ohlcv("^NSEI", timeframe)
+                if n_df is not None and len(n_df) >= 2:
+                    n_close = n_df["close" if "close" in n_df.columns else "Close"]
+                    market_return = float(((n_close.iloc[-1] - n_close.iloc[-2]) / n_close.iloc[-2]) * 100)
             except Exception as e:
                 print(f"Warning: NIFTY fetch failed: {e}")
 

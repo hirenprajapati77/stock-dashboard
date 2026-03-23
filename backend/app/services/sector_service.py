@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import concurrent.futures
 import math
 import time
 import sys
@@ -131,42 +132,39 @@ class SectorService:
         unique_symbols = list(set(all_sector_symbols + all_cons_symbols))
         
         try:
-            print(f"DEBUG: Batch downloading {len(unique_symbols)} symbols... (Include Constituents: {include_constituents})")
-            batch_df = yf.download(
-                " ".join(unique_symbols),
-                period=period,
-                interval=interval,
-                progress=False,
-                group_by='ticker',
-                timeout=5 # Strict timeout for Render
-            )
-            
-            if batch_df.empty:
-                print(f"Warning: Batch download empty. Trying fallback.")
+            print(f"DEBUG: Downloading {len(unique_symbols)} symbols for Sector Intelligence (MarketDataService)...")
+            batch_data = {}
+            from app.services.market_data import MarketDataService
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_symbol = {
+                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_timeframe): sym 
+                    for sym in unique_symbols
+                }
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    sym = future_to_symbol[future]
+                    try:
+                        df, _, _ = future.result()
+                        if df is not None and not df.empty:
+                            batch_data[sym] = df
+                    except Exception as e:
+                        print(f"ERROR: Failed to fetch {sym} for sectors: {e}")
+
+            if not batch_data:
+                print(f"Warning: No data fetched for sectors. Trying fallback.")
                 data, alerts = cls._load_fallback(timeframe)
                 return data, alerts
         except Exception as e:
-            print(f"CRITICAL: Batch download failed: {e}. Trying fallback.")
+            print(f"CRITICAL: Sector download failed: {e}. Trying fallback.")
             data, alerts = cls._load_fallback(timeframe)
             if data: return data, alerts
             return {}, []
 
-        # --- REAL-TIME PATCHING ---
-        # yf.download is often delayed. We patch the indices with fast_info to ensure live RS/RM.
-        try:
-            cls._patch_latest_data(batch_df, all_sector_symbols)
-        except Exception as e:
-            print(f"Real-time patch failed: {e}")
 
         results = {}
         
-        # Helper to get ticker data from multi-index batch_df
+        # Helper to get ticker data from batch_data dict
         def get_ticker_df(ticker_sym):
-            try:
-                if len(unique_symbols) == 1: return batch_df
-                return batch_df[ticker_sym].dropna()
-            except:
-                return pd.DataFrame()
+            return batch_data.get(ticker_sym, pd.DataFrame())
 
         benchmark_df = get_ticker_df(cls.BENCHMARK)
         if benchmark_df.empty:
@@ -175,7 +173,8 @@ class SectorService:
             if data: return data, alerts
             return {}, []
             
-        benchmark_data = benchmark_df['Close']
+        benchmark_close_col = "close" if "close" in benchmark_df.columns else "Close"
+        benchmark_data = benchmark_df[benchmark_close_col]
 
         # 2. Process each sector
         for name, symbol in cls.SECTORS.items():
@@ -183,7 +182,8 @@ class SectorService:
                 s_df = get_ticker_df(symbol)
                 if s_df.empty: continue
                 
-                sector_close = s_df['Close']
+                sector_close_col = "close" if "close" in s_df.columns else "Close"
+                sector_close = s_df[sector_close_col]
                 
                 # Align data
                 combined = pd.DataFrame({
@@ -247,30 +247,34 @@ class SectorService:
                         c_df = get_ticker_df(const)
                         if c_df.empty or len(c_df) < 2: continue
                         
-                        last_c = float(c_df['Close'].iloc[-1])
-                        last_o = float(c_df['Open'].iloc[-1])
-                        last_v = float(c_df['Volume'].iloc[-1])
+                        c_close_col = "close" if "close" in c_df.columns else "Close"
+                        c_open_col = "open" if "open" in c_df.columns else "Open"
+                        c_vol_col = "volume" if "volume" in c_df.columns else "Volume"
+                        
+                        last_c = float(c_df[c_close_col].iloc[-1])
+                        last_o = float(c_df[c_open_col].iloc[-1])
+                        last_v = float(c_df[c_vol_col].iloc[-1])
                         
                         if last_c > last_o:
                             advances += 1
                         
                         # DMA & Highs
                         if len(c_df) >= 20:
-                            ma20 = float(c_df['Close'].rolling(20).mean().iloc[-1])
+                            ma20 = float(c_df[c_close_col].rolling(20).mean().iloc[-1])
                             if last_c > ma20:
                                 above20 += 1
                         if len(c_df) >= 50:
-                            ma50 = float(c_df['Close'].rolling(50).mean().iloc[-1])
+                            ma50 = float(c_df[c_close_col].rolling(50).mean().iloc[-1])
                             if last_c > ma50:
                                 above50 += 1
                         if len(c_df) >= 10:
-                            max10 = float(c_df['Close'].rolling(10).max().iloc[-1])
+                            max10 = float(c_df[c_close_col].rolling(10).max().iloc[-1])
                             if last_c >= max10:
                                 hi10 += 1
                             
                         valid_cons += 1
                         total_vol += last_v
-                        avg_vol += float(c_df['Volume'].mean())
+                        avg_vol += float(c_df[c_vol_col].mean())
                     
                     breadth_ratio = float(advances) / float(valid_cons) if valid_cons > 0 else 0.5
                     rel_volume = float(total_vol) / float(avg_vol) if avg_vol > 0 else 1.0
@@ -531,63 +535,3 @@ class SectorService:
         }
         return weights.get(name, 0.05)
 
-    @classmethod
-    def _patch_latest_data(cls, batch_df, symbols):
-        """
-        Fetches fast_info for sector indices and updates the batch_df in-place.
-        Handles MultiIndex columns (Ticker, PriceType).
-        """
-        import concurrent.futures
-        
-        def fetch_fast(sym):
-            try:
-                t = yf.Ticker(sym)
-                f = t.fast_info
-                return sym, f.get('lastPrice') or f.get('last_price')
-            except:
-                return sym, None
-
-        updates = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_fast, s) for s in symbols]  # type: ignore
-            for fut in concurrent.futures.as_completed(futures):
-                sym, price = fut.result()
-                if price:
-                    updates[sym] = price
-        
-        # Apply updates
-        # batch_df columns are likely MultiIndex: (Ticker, 'Close'), etc.
-        if isinstance(batch_df.columns, pd.MultiIndex):
-            for sym, price in updates.items():
-                if sym in batch_df.columns.levels[0]:
-                    # Update Last Row if today, or Append new row
-                    # Simplify: Just update the last 'Close' if it exists
-                     try:
-                        # We just update the last returned candle to the current price.
-                        # This avoids index mismatch issues.
-                        # If the last candle is yesterday, we effectively "morph" it to today for calculation 
-                        # OR if we want to be strict, we check the date.
-                        # For RS/RM, we just need the "Latest Price".
-                        
-                        # Find the Close column for this ticker
-                        # Note: yfinance 0.2+ uses 'Close', older might use 'close'
-                        # The df columns might be (Ticker, 'Close')
-                        
-                        # Check last available index
-                        last_idx = batch_df.index[-1]
-                        
-                        # Assign the real-time price to the Close column of the last row
-                        # This works assuming the batch_df has at least one row
-                        if not batch_df.empty:
-                            if ('Close', sym) in batch_df.columns: # Flattened or swapped?
-                                # group_by='ticker' means columns are (Ticker, PriceType)
-                                batch_df.loc[last_idx, (sym, 'Close')] = price
-                            elif (sym, 'Close') in batch_df.columns:
-                                batch_df.loc[last_idx, (sym, 'Close')] = price
-                            elif (sym, 'close') in batch_df.columns:
-                                batch_df.loc[last_idx, (sym, 'close')] = price
-                     except Exception as e:
-                         print(f"Failed to patch {sym}: {e}")
-        else:
-            # Single ticker case (unlikely here as we request multiple)
-            pass
