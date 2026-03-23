@@ -106,8 +106,16 @@ class FyersService:
                 try:
                     res = requests.post(url, json=payload, headers=headers, timeout=30)
                     last_raw_text = res.text
-                    resp = res.json()
                     
+                    try:
+                        resp = res.json()
+                    except json.JSONDecodeError:
+                        # Non-JSON response (usually HTML error or empty body)
+                        msg = f"Non-JSON response (HTTP {res.status_code}): {last_raw_text[:200]}"
+                        if not best_error_message or "Invalid Request" in best_error_message:
+                            best_error_message = msg
+                        continue
+
                     if resp.get("s") == "ok":
                         token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
                         if token:
@@ -123,7 +131,7 @@ class FyersService:
                             best_error_message = msg
                 except Exception as e:
                     if not best_error_message:
-                        best_error_message = str(e)
+                        best_error_message = f"Request Exception: {str(e)}"
 
             # 2. Final attempt without redirect_uri (sometimes needed)
             cls._set_auth_debug("exchange_try_no_redirect", "Final attempt without redirect_uri", "")
@@ -133,14 +141,16 @@ class FyersService:
             for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
                 try:
                     res = requests.post(f"{url_base}/validate-authcode", json=payload_no_redirect, headers=headers, timeout=30)
-                    resp = res.json()
-                    if resp.get("s") == "ok":
-                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                        if token:
-                            cls.save_token(token)
-                            return True, "Login successful (no-redirect fallback)"
+                    if res.status_code == 200:
+                        resp = res.json()
+                        if resp.get("s") == "ok":
+                            token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                            if token:
+                                cls.save_token(token)
+                                return True, "Login successful (no-redirect fallback)"
                 except:
                     pass
+
 
             return False, cls._humanize_auth_error(best_error_message or "Authentication failed")
             
