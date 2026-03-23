@@ -531,75 +531,59 @@ async def fyers_status(request: Request):
 
 @app.get("/api/v1/fyers/debug-auth")
 async def fyers_debug_auth(request: Request):
-    """Diagnostic endpoint to test Fyers auth from the current environment."""
+    """Diagnostic endpoint to identify exactly which payload field causes auth failure."""
     import hashlib
     results = []
-    full_app_id = fyers_config.app_id # e.g. XAST...-100
-    base_app_id = full_app_id.split("-")[0] if "-" in full_app_id else full_app_id
+    full_app_id = fyers_config.app_id
     secret_id = fyers_config.secret_id
     redirect_uri = _resolve_fyers_redirect_url(request)
     
-    # Test combinations of app_id and content_type
-    id_variants = [
-        {"val": full_app_id, "label": "with-suffix"},
-        {"val": base_app_id, "label": "no-suffix"}
-    ]
-    
-    ct_list = ["application/json", "application/x-www-form-urlencoded"]
+    hash_input = f"{full_app_id}:{secret_id}"
+    app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
     
     url = "https://api.fyers.in/api/v3/validate-authcode"
-    
-    for id_var in id_variants:
-        # Test BOTH hashing with suffix and without suffix for this ID
-        for hash_mode in ["base-only", "as-is"]:
-            if hash_mode == "base-only":
-                h_id = id_var['val'].split("-")[0]
-            else:
-                h_id = id_var['val']
-                
-            hash_input = f"{h_id}:{secret_id}"
-            app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-            
-            payload = {
-                "grant_type": "authorization_code",
-                "appId": id_var['val'],
-                "appIdHash": app_id_hash,
-                "code": "DIAGNOSTIC_CODE",
-                "redirect_uri": redirect_uri
-            }
-
-            
-            for ct in ct_list:
-                headers = {
-                    "Accept": "application/json",
-                    "Content-Type": ct,
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-                }
-                try:
-                    if ct == "application/json":
-                        res = requests.post(url, json=payload, headers=headers, timeout=10)
-                    else:
-                        res = requests.post(url, data=payload, headers=headers, timeout=10)
-                        
-                    results.append({
-                        "id": id_var['label'],
-                        "hash": hash_mode,
-                        "ct": ct.split("/")[-1],
-                        "status": res.status_code,
-                        "body": res.text[:200]
-                    })
-                except Exception as e:
-                    results.append({"id": id_var['label'], "hash": hash_mode, "error": str(e)})
-
-                
-    return {
-        "results": results, 
-        "config": {
-            "full_app_id_prefix": full_app_id[:5], 
-            "base_app_id_prefix": base_app_id[:5],
-            "redirect_uri": redirect_uri
-        }
+    browser_headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
     }
+    
+    # Test different payload variations to identify which field is wrong
+    payload_variants = [
+        # Standard with all fields
+        {"label": "full-json",   "ct": "application/json",                  "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "redirect_uri": redirect_uri, "appId": full_app_id}},
+        # Without redirect_uri
+        {"label": "no-redirect", "ct": "application/json",                  "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "appId": full_app_id}},
+        # Without appId
+        {"label": "no-appid",    "ct": "application/json",                  "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "redirect_uri": redirect_uri}},
+        # Form-encoded with all fields
+        {"label": "form-full",   "ct": "application/x-www-form-urlencoded", "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "redirect_uri": redirect_uri, "appId": full_app_id}},
+        # Form-encoded without redirect_uri
+        {"label": "form-no-redir","ct": "application/x-www-form-urlencoded","payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE", "appId": full_app_id}},
+        # Minimal (just hash + code)
+        {"label": "minimal",     "ct": "application/json",                  "payload": {"appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE"}},
+        # api-t1 benchmark
+        {"label": "api-t1-json", "ct": "application/json",                  "payload": {"grant_type": "authorization_code", "appIdHash": app_id_hash, "code": "DIAGNOSTIC_CODE"}, "url": "https://api-t1.fyers.in/api/v3/validate-authcode"},
+    ]
+    
+    for variant in payload_variants:
+        target_url = variant.get("url", url)
+        ct = variant["ct"]
+        payload = variant["payload"]
+        hdrs = {**browser_headers, "Content-Type": ct}
+        try:
+            if ct == "application/json":
+                res = requests.post(target_url, json=payload, headers=hdrs, timeout=10)
+            else:
+                res = requests.post(target_url, data=payload, headers=hdrs, timeout=10)
+            results.append({
+                "label": variant["label"],
+                "status": res.status_code,
+                "body": res.text[:200]
+            })
+        except Exception as e:
+            results.append({"label": variant["label"], "error": str(e)})
+    
+    return {"results": results, "config": {"app_id": full_app_id[:8] + "...", "redirect_uri": redirect_uri}}
 
 
 
