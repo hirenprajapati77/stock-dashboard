@@ -79,19 +79,22 @@ class FyersService:
         resolved_redirect = cls._normalize_redirect_uri(redirect_uri or fyers_config.redirect_url)
         
         try:
-            # Manual SHA256 of appId:secretId (IMPORTANT: App ID usually must be WITHOUT the -100 suffix for hashing)
-            raw_app_id = fyers_config.app_id
-            base_app_id = raw_app_id.split("-")[0] if "-" in raw_app_id else raw_app_id
+            # Fyers V3: appIdHash = SHA256(appId:secretId). 
+            # The full appId (e.g. XAST342P8T-100) is used as the hash input.
+            # The payload also requires the 'appId' field with the full app_id value.
+            raw_app_id = fyers_config.app_id  # e.g. XAST342P8T-100
             
-            hash_input = f"{base_app_id}:{fyers_config.secret_id}"
+            hash_input = f"{raw_app_id}:{fyers_config.secret_id}"
             app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
             
             payload = {
                 "grant_type": "authorization_code",
                 "appIdHash": app_id_hash,
                 "code": auth_code,
-                "redirect_uri": resolved_redirect
+                "redirect_uri": resolved_redirect,
+                "appId": raw_app_id
             }
+
             
             headers = {
                 "Accept": "application/json",
