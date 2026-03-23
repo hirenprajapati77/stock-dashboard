@@ -138,7 +138,7 @@ def _external_base_url(request: Request) -> str:
 
     if forwarded_host:
         scheme = forwarded_proto or request.url.scheme or "http"
-        return f"{scheme}://{forwarded_host}".rstrip("/")
+        return f"{scheme}://{forwarded_host}"
 
     return str(request.base_url).rstrip("/")
 
