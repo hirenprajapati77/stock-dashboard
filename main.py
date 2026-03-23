@@ -550,37 +550,45 @@ async def fyers_debug_auth(request: Request):
     url = "https://api.fyers.in/api/v3/validate-authcode"
     
     for id_var in id_variants:
-        # Calculate hash for this variant
-        hash_input = f"{id_var['val']}:{secret_id}"
-        app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-        
-        payload = {
-            "grant_type": "authorization_code",
-            "appIdHash": app_id_hash,
-            "code": "DIAGNOSTIC_CODE",
-            "redirect_uri": redirect_uri
-        }
-        
-        for ct in ct_list:
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": ct,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        # Test BOTH hashing with suffix and without suffix for this ID
+        for hash_mode in ["base-only", "as-is"]:
+            if hash_mode == "base-only":
+                h_id = id_var['val'].split("-")[0]
+            else:
+                h_id = id_var['val']
+                
+            hash_input = f"{h_id}:{secret_id}"
+            app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+            
+            payload = {
+                "grant_type": "authorization_code",
+                "appIdHash": app_id_hash,
+                "code": "DIAGNOSTIC_CODE",
+                "redirect_uri": redirect_uri
             }
-            try:
-                if ct == "application/json":
-                    res = requests.post(url, json=payload, headers=headers, timeout=10)
-                else:
-                    res = requests.post(url, data=payload, headers=headers, timeout=10)
-                    
-                results.append({
-                    "id_type": id_var['label'],
-                    "ct": ct.split("/")[-1],
-                    "status": res.status_code,
-                    "body": res.text[:200]
-                })
-            except Exception as e:
-                results.append({"id_type": id_var['label'], "ct": ct, "error": str(e)})
+            
+            for ct in ct_list:
+                headers = {
+                    "Accept": "application/json",
+                    "Content-Type": ct,
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+                }
+                try:
+                    if ct == "application/json":
+                        res = requests.post(url, json=payload, headers=headers, timeout=10)
+                    else:
+                        res = requests.post(url, data=payload, headers=headers, timeout=10)
+                        
+                    results.append({
+                        "id": id_var['label'],
+                        "hash": hash_mode,
+                        "ct": ct.split("/")[-1],
+                        "status": res.status_code,
+                        "body": res.text[:200]
+                    })
+                except Exception as e:
+                    results.append({"id": id_var['label'], "hash": hash_mode, "error": str(e)})
+
                 
     return {
         "results": results, 
