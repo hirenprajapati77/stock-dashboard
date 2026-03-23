@@ -2,13 +2,10 @@ import os
 
 
 def normalize_redirect_url(url: str) -> str:
-    """Strip whitespace and trailing slash so env/Fyers-console URLs match."""
+    """Only strip whitespace; trailing slashes are significant for Fyers."""
     if not url:
         return url
-    u = url.strip()
-    if len(u) > 1 and u.endswith("/"):
-        u = u.rstrip("/")
-    return u
+    return url.strip()
 
 
 # Fyers API Credentials (prefer env; defaults for local dev only)
