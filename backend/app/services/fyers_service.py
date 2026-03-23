@@ -79,8 +79,11 @@ class FyersService:
         resolved_redirect = cls._normalize_redirect_uri(redirect_uri or fyers_config.redirect_url)
         
         try:
-            # Manual SHA256 of appId:secretId
-            hash_input = f"{fyers_config.app_id}:{fyers_config.secret_id}"
+            # Manual SHA256 of appId:secretId (IMPORTANT: App ID usually must be WITHOUT the -100 suffix for hashing)
+            raw_app_id = fyers_config.app_id
+            base_app_id = raw_app_id.split("-")[0] if "-" in raw_app_id else raw_app_id
+            
+            hash_input = f"{base_app_id}:{fyers_config.secret_id}"
             app_id_hash = hashlib.sha256(hash_input.encode()).hexdigest()
             
             payload = {
@@ -97,6 +100,7 @@ class FyersService:
                 "Origin": "https://stock-dashboard-9nvy.onrender.com",
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
+
 
             best_error_message = ""
             last_was_json = False
