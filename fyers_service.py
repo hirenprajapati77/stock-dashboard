@@ -17,6 +17,7 @@ except ImportError:
         secret_id = os.environ.get("FYERS_SECRET_ID", "")
         token_file = os.environ.get("FYERS_TOKEN_FILE", "fyers_token.txt")
         redirect_url = os.environ.get("FYERS_REDIRECT_URL", "")
+        auth_proxy_url = os.environ.get("FYERS_AUTH_PROXY_URL", "").strip()
         def normalize_redirect_url(self, url): return url
     fyers_config = MockConfig()
 
@@ -84,10 +85,21 @@ class FyersService:
             response = {}
             raw_text = ""
             
-            # Try Primary then Fallback
-            for url_base in [cls.BASE_URL, cls.AUTH_FALLBACK_URL]:
+            # Ordered attempts:
+            attempts = []
+            if fyers_config.auth_proxy_url:
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
+                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/json",                   "label": "Proxy (JSON)"})
+            
+            attempts.extend([
+                {"url": f"{cls.BASE_URL}/validate-authcode", "ct": "application/json", "label": "API-T1"},
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json", "label": "Fallback"}
+            ])
+            
+            for attempt in attempts:
                 try:
-                    res = requests.post(f"{url_base}/validate-authcode", json=payload, timeout=30)
+                    res = requests.post(attempt["url"], json=payload if attempt["ct"] == "application/json" else None, data=payload if attempt["ct"] != "application/json" else None, timeout=30)
                     raw_text = res.text
                     response = res.json()
                     if response.get("s") == "ok":
@@ -121,6 +133,11 @@ class FyersService:
         params = {"symbol": fyers_symbol, "resolution": "D", "date_format": "1", "range_from": "2024-01-01", "range_to": "2024-12-31", "cont_flag": "1"}
         
         try:
-            res = requests.get(f"{cls.DATA_URL}/history", params=params, headers=headers, timeout=timeout)
+            url = f"{cls.DATA_URL}/history"
+            if fyers_config.auth_proxy_url:
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                url = f"{proxy_base}/data/history"
+                
+            res = requests.get(url, params=params, headers=headers, timeout=timeout)
             return pd.DataFrame(res.json().get("candles")), None
         except Exception as e: return None, str(e)
