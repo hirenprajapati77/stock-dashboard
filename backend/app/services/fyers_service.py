@@ -99,19 +99,28 @@ class FyersService:
             }
             
             # Ordered attempts: fastest-likely-to-succeed first.
-            # Fyers Production (api.fyers.in) only accepts form-encoded.
-            # api-t1 is blocked on Render by Cloudflare.
-            attempts = [
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded"},
-                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded"},
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json"},
-            ]
+            # 1. Proxy if available (as it bypasses Cloudflare datacenter blocks)
+            # 2. Fyers Production (api.fyers.in) - usually form-encoded.
+            # 3. api-t1 (often blocked on datacenter IPs but good for local)
+            attempts = []
+            if fyers_config.auth_proxy_url:
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                # The proxy script prepends the path to https://api.fyers.in
+                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
+                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/json",                   "label": "Proxy (JSON)"})
+            
+            attempts.extend([
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Production (Form)"},
+                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded", "label": "API-T1 (Form)"},
+                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json",                  "label": "Production (JSON)"},
+            ])
             
             best_error_message = ""
             for attempt in attempts:
                 url = attempt["url"]
                 ct = attempt["ct"]
-                cls._set_auth_debug(f"exchange_{ct.split('/')[-1]}", f"Trying {url}", "")
+                cls._set_auth_debug(f"exchange_{attempt['label']}", f"Trying {url}", "")
+
                 try:
                     current_headers = {**headers, "Content-Type": ct}
                     if ct == "application/json":
@@ -202,6 +211,15 @@ class FyersService:
 
         try:
             url = f"{cls.DATA_URL}/history"
+            
+            # Use proxy if configured to bypass IP blocks
+            if fyers_config.auth_proxy_url:
+                # The proxy script prepends the path to https://api.fyers.in
+                # Since DATA_URL is already https://api.fyers.in/data, we can just replace the base
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                url = f"{proxy_base}/data/history"
+                print(f"Fetching Fyers data via proxy: {url}")
+            
             res = requests.get(url, params=params, headers=headers, timeout=timeout)
             if res.status_code == 401:
                 return None, "Fyers Token Expired (401)"
@@ -234,7 +252,14 @@ class FyersService:
         all_symbols = []
         for key, url in cls.SYMBOL_MASTER_URLS.items():
             try:
-                res = requests.get(url, timeout=30)
+                # Use proxy if configured
+                target_url = url
+                if fyers_config.auth_proxy_url:
+                    # Generic proxy handles api.fyers.in. Public symbols are on public.fyers.in.
+                    # We might need to handle public.fyers.in too if it's blocked.
+                    # For now, let's leave it as is or add public support to proxy if needed.
+                    pass 
+                res = requests.get(target_url, timeout=30)
                 if res.status_code == 200:
                     lines = res.text.splitlines()
                     for line in lines:

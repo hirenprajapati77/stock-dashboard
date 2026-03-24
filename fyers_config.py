@@ -26,3 +26,6 @@ token_file = os.path.abspath(
         os.path.join(_default_token_dir, "fyers_token.txt"),
     )
 )
+
+# Auth Proxy (to bypass IP blocks on Cloudflare/Fyers)
+auth_proxy_url = os.environ.get("FYERS_AUTH_PROXY_URL", "").strip()
