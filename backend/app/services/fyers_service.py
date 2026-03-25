@@ -98,35 +98,45 @@ class FyersService:
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
             
-            # Define variations to try: trailing slashes, official endpoints, and different content types.
-            # Fyers V3 sometimes requires specific protocol nuances depending on the hitting environment.
+            # Define variations to try: trailing slashes, official endpoints, different content types, and minimal payloads.
+            # Fyers V3 is extremely sensitive to extra fields like 'appId' if 'appIdHash' is present.
             attempts = []
             
-            # 1. Proxy Attempts (if configured)
+            # Diagnostic: check if proxy is even configured
             if fyers_config.auth_proxy_url:
                 p_base = fyers_config.auth_proxy_url.rstrip('/')
-                # Many proxies/servers redirect paths without trailing slashes, turning POST into GET.
-                # We try both to be absolutely sure.
+                cls._set_auth_debug("proxy_detected", f"Proxy active: {p_base}", "")
+                # Proxy attempts
                 attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
-                attempts.append({"url": f"{p_base}/api/v3/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form, Slash)"})
                 attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/json",                   "label": "Proxy (JSON)"})
+            else:
+                cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set in env.", "Render IPs will likely be blocked.")
+
+            # Prepare alternate payloads
+            minimal_payload = {
+                "grant_type": "authorization_code",
+                "appIdHash": app_id_hash,
+                "code": auth_code
+            }
             
-            # 2. Production API (Standard & Slash)
-            prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
-            attempts.extend([
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)"},
-                {"url": f"{prod_base}/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Prod (Form, Slash)"},
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (JSON)"},
-            ])
-
-            # 3. API-T1 (often better for dev/local)
+            # Prepare standard endpoints
+            p_base = cls.AUTH_FALLBACK_URL.rstrip('/')
             t1_base = cls.BASE_URL.rstrip('/')
+
             attempts.extend([
-                {"url": f"{t1_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "API-T1 (Form)"},
-                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json",                  "label": "API-T1 (JSON, Slash)"},
+                # Production Standard & Minimal
+                {"url": f"{p_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)"},
+                {"url": f"{p_base}/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Prod (Form, Slash)"},
+                {"url": f"{p_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (JSON)"},
+                {"url": f"{p_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (Min)", "payload": minimal_payload},
+                
+                # API-T1 (Standard & Minimal)
+                {"url": f"{t1_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "T1 (Form)"},
+                {"url": f"{t1_base}/validate-authcode",  "ct": "application/json",                  "label": "T1 (Min)", "payload": minimal_payload},
+                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json",                  "label": "T1 (Slash)"},
             ])
 
-            # Headers: Remove Origin/Referer for server-to-server calls to avoid CORS-like security triggers.
+            # Headers: Remove Origin/Referer for server-to-server calls.
             clean_headers = {
                 "Accept": "application/json",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
@@ -139,6 +149,9 @@ class FyersService:
                 url = att["url"]
                 ct = att["ct"]
                 lbl = att["label"]
+                # Use specific payload if provided, otherwise base_payload
+                current_payload = att.get("payload", base_payload)
+                
                 cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
 
                 resp = {} # Initialize as dict for safety
