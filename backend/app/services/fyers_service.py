@@ -98,61 +98,85 @@ class FyersService:
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
             
-            # Ordered attempts: fastest-likely-to-succeed first.
-            # 1. Proxy if available (as it bypasses Cloudflare datacenter blocks)
-            # 2. Fyers Production (api.fyers.in) - usually form-encoded.
-            # 3. api-t1 (often blocked on datacenter IPs but good for local)
+            # Define variations to try: trailing slashes, official endpoints, and different content types.
+            # Fyers V3 sometimes requires specific protocol nuances depending on the hitting environment.
             attempts = []
+            
+            # 1. Proxy Attempts (if configured)
             if fyers_config.auth_proxy_url:
-                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
-                # The proxy script prepends the path to https://api.fyers.in
-                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
-                attempts.append({"url": f"{proxy_base}/api/v3/validate-authcode", "ct": "application/json",                   "label": "Proxy (JSON)"})
+                p_base = fyers_config.auth_proxy_url.rstrip('/')
+                # Many proxies/servers redirect paths without trailing slashes, turning POST into GET.
+                # We try both to be absolutely sure.
+                attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
+                attempts.append({"url": f"{p_base}/api/v3/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form, Slash)"})
+                attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/json",                   "label": "Proxy (JSON)"})
             
+            # 2. Production API (Standard & Slash)
+            prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
             attempts.extend([
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Production (Form)"},
-                {"url": f"{cls.BASE_URL}/validate-authcode",          "ct": "application/x-www-form-urlencoded", "label": "API-T1 (Form)"},
-                {"url": f"{cls.AUTH_FALLBACK_URL}/validate-authcode", "ct": "application/json",                  "label": "Production (JSON)"},
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)"},
+                {"url": f"{prod_base}/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Prod (Form, Slash)"},
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (JSON)"},
             ])
-            
-            best_error_message = ""
-            for attempt in attempts:
-                url = attempt["url"]
-                ct = attempt["ct"]
-                cls._set_auth_debug(f"exchange_{attempt['label']}", f"Trying {url}", "")
 
+            # 3. API-T1 (often better for dev/local)
+            t1_base = cls.BASE_URL.rstrip('/')
+            attempts.extend([
+                {"url": f"{t1_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "API-T1 (Form)"},
+                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json",                  "label": "API-T1 (JSON, Slash)"},
+            ])
+
+            # Headers: Remove Origin/Referer for server-to-server calls to avoid CORS-like security triggers.
+            clean_headers = {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            }
+            
+            # Track errors from ALL variations for the last_auth_debug
+            all_errors: List[str] = []
+            
+            for att in attempts:
+                url = att["url"]
+                ct = att["ct"]
+                lbl = att["label"]
+                cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
+
+                resp = {} # Initialize as dict for safety
                 try:
-                    current_headers = {**headers, "Content-Type": ct}
+                    h = {**clean_headers, "Content-Type": ct}
                     if ct == "application/json":
-                        res = requests.post(url, json=base_payload, headers=current_headers, timeout=20)
+                        res = requests.post(url, json=base_payload, headers=h, timeout=15)
                     else:
-                        res = requests.post(url, data=base_payload, headers=current_headers, timeout=20)
+                        res = requests.post(url, data=base_payload, headers=h, timeout=15)
                     
                     try:
                         resp = res.json()
                         is_json = True
-                    except Exception:
+                    except:
                         is_json = False
+                        resp = {"message": res.text[:200] if res.text else f"Status {res.status_code}"}
                     
-                    if is_json:
-                        if resp.get("s") == "ok":
-                            token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                            if token:
-                                cls._access_token = token
-                                cls.save_token(token)
-                                cls._set_auth_debug("success", f"Token generated via {url}", "")
-                                return True, "Token generated successfully"
-                        msg = resp.get("message") or resp.get("error_description") or res.text[:200]
-                        best_error_message = msg
-                    else:
-                        if not best_error_message:
-                            best_error_message = f"Non-JSON response HTTP {res.status_code}: {res.text[:300]}"
+                    if is_json and resp.get("s") == "ok":
+                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
+                        if token:
+                            cls._access_token = token
+                            cls.save_token(token)
+                            cls._set_auth_debug("success", f"Token via {lbl}", f"URL: {url}")
+                            return True, "Token generated successfully"
+                    
+                    err_msg = resp.get("message") or resp.get("error_description") or f"HTTP {getattr(res, 'status_code', 'unknown')}"
+                    all_errors.append(f"{lbl}: {err_msg}")
+                    
                 except Exception as e:
-                    if not best_error_message:
-                        best_error_message = f"Request error: {str(e)}"
+                    all_errors.append(f"{lbl} Exception: {str(e)}")
                     continue
 
-            return False, cls._humanize_auth_error(best_error_message or "Authentication failed")
+            # If ALL failed, provide the most descriptive summary
+            # Slice safe check
+            recent_errors = all_errors[-3:] if len(all_errors) >= 3 else all_errors
+            final_err = " | ".join(recent_errors) 
+            cls._set_auth_debug("failed_all", "All auth variants failed.", final_err)
+            return False, cls._humanize_auth_error(final_err or "Unknown authentication failure")
 
 
             
