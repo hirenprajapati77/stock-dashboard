@@ -98,42 +98,43 @@ class FyersService:
                 "Referer": "https://stock-dashboard-9nvy.onrender.com/"
             }
             
-            # Define variations to try: trailing slashes, official endpoints, different content types, and minimal payloads.
-            # Fyers V3 is extremely sensitive to extra fields like 'appId' if 'appIdHash' is present.
+            # Fyers V3 can be extremely specific about the appIdHash salt and the field names.
+            # Variant 1: Hash with full App ID (e.g. XAST...-100)
+            hash_full = hashlib.sha256(f"{raw_app_id}:{fyers_config.secret_id}".encode()).hexdigest()
+            # Variant 2: Hash with prefix only (e.g. XAST...)
+            app_id_prefix = raw_app_id.split('-')[0]
+            hash_prefix = hashlib.sha256(f"{app_id_prefix}:{fyers_config.secret_id}".encode()).hexdigest()
+
+            # Define variations to try. We prioritize Proxy since Render is blocked.
             attempts = []
             
-            # Diagnostic: check if proxy is even configured
-            if fyers_config.auth_proxy_url:
-                p_base = fyers_config.auth_proxy_url.rstrip('/')
-                cls._set_auth_debug("proxy_detected", f"Proxy active: {p_base}", "")
-                # Proxy attempts
-                attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Proxy (Form)"})
-                attempts.append({"url": f"{p_base}/api/v3/validate-authcode",  "ct": "application/json",                   "label": "Proxy (JSON)"})
-            else:
-                cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set in env.", "Render IPs will likely be blocked.")
-
-            # Prepare alternate payloads
-            minimal_payload = {
-                "grant_type": "authorization_code",
-                "appIdHash": app_id_hash,
-                "code": auth_code
-            }
+            p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
-            # Prepare standard endpoints
-            p_base = cls.AUTH_FALLBACK_URL.rstrip('/')
-            t1_base = cls.BASE_URL.rstrip('/')
+            if p_url:
+                # 1. Proxy Attempts (Standard Hash)
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (JSON)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id}})
+                # 2. Proxy Minimal (Hash Full)
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}})
+                # 3. Proxy Prefix Hash (Standard Field Names)
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (PrefixHash)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "appId": raw_app_id}})
+                # 4. Proxy client_id variant
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (ClientID)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id}})
+            else:
+                cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
+            # Production & API-T1 fallback variants
+            prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
+            t1_base = cls.BASE_URL.rstrip('/')
+            
             attempts.extend([
-                # Production Standard & Minimal
-                {"url": f"{p_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)"},
-                {"url": f"{p_base}/validate-authcode/", "ct": "application/x-www-form-urlencoded", "label": "Prod (Form, Slash)"},
-                {"url": f"{p_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (JSON)"},
-                {"url": f"{p_base}/validate-authcode",  "ct": "application/json",                  "label": "Prod (Min)", "payload": minimal_payload},
-                
-                # API-T1 (Standard & Minimal)
-                {"url": f"{t1_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "T1 (Form)"},
-                {"url": f"{t1_base}/validate-authcode",  "ct": "application/json",                  "label": "T1 (Min)", "payload": minimal_payload},
-                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json",                  "label": "T1 (Slash)"},
+                # Production Minimal (Standard Hash)
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
+                # Production Form (Standard)
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
+                # API-T1 Minimal
+                {"url": f"{t1_base}/validate-authcode",  "ct": "application/json", "label": "T1 (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
+                # API-T1 Slash
+                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json", "label": "T1 (Slash)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
             ])
 
             # Headers: Remove Origin/Referer for server-to-server calls.
@@ -149,8 +150,7 @@ class FyersService:
                 url = att["url"]
                 ct = att["ct"]
                 lbl = att["label"]
-                # Use specific payload if provided, otherwise base_payload
-                current_payload = att.get("payload", base_payload)
+                current_payload = att["payload"]
                 
                 cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
 
