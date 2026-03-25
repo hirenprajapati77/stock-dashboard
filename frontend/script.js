@@ -1383,10 +1383,25 @@ function renderFyersCallbackState(isLoggedIn = false) {
 function summarizeFyersMessage(message) {
     const normalized = String(message || '').replace(/\s+/g, ' ').trim();
     if (!normalized) return 'FYERS authentication failed.';
-    if (normalized.includes('Missing auth_code')) return 'FYERS did not return auth code';
-    if (normalized.includes('HTTP 403')) return 'Check FYERS redirect URL';
-    if (normalized.toLowerCase().includes('empty response')) return 'FYERS token not returned';
-    return normalized.length > 42 ? `${normalized.slice(0, 39)}...` : normalized;
+    
+    // If it's the new multi-attempt format, try to find the most useful part
+    if (normalized.includes('|')) {
+        const parts = normalized.split('|').map(p => p.trim());
+        // If any part succeeded or has a specific error, prioritize it. 
+        // But if all are "Invalid Request", just show one.
+        if (parts.every(p => p.includes('Invalid Request') || p.includes('method'))) {
+            return 'FYERS: Invalid Request (Check Redirect URI/Method)';
+        }
+        // Otherwise show the last one which is usually the most relevant "Production" attempt
+        return parts[parts.length - 1];
+    }
+
+    if (normalized.includes('Missing auth_code')) return 'FYERS: No auth code returned';
+    if (normalized.includes('403') || normalized.includes('Invalid Request')) return 'FYERS: Invalid Request / 403 (Check Redirect URI)';
+    if (normalized.toLowerCase().includes('method')) return 'FYERS: Invalid Method (Check API Version)';
+    if (normalized.toLowerCase().includes('empty response')) return 'FYERS: No token returned';
+    
+    return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized;
 }
 
 async function checkFyersStatus() {
