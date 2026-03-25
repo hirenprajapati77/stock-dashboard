@@ -59,16 +59,21 @@ class FyersService:
     @classmethod
     def _build_auth_url(cls, redirect_url):
         """Builds the Fyers authorization URL manually to avoid SDK dependencies."""
+        # Use a hardcoded fallback if redirect_url is suspicious or empty
+        final_redirect = redirect_url
+        if not final_redirect or "onrender.com" not in final_redirect:
+            final_redirect = "https://stock-dashboard-9nvy.onrender.com/api/v1/fyers/callback"
+            
         params = {
             "client_id": fyers_config.app_id,
-            "redirect_uri": redirect_url,
+            "redirect_uri": final_redirect,
             "response_type": "code",
             "state": "fyers_auth"
         }
         # Use api-t1 for login page as it seems more stable for this account
         login_base = "https://api-t1.fyers.in/api/v3"
-        query_string = "&".join([f"{k}={requests.utils.quote(v)}" for k, v in params.items()])
-        return f"{login_base}/generate-authcode?{query_string}"
+        from urllib.parse import urlencode
+        return f"{login_base}/generate-authcode?{urlencode(params)}"
 
     @classmethod
     def generate_token(cls, auth_code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, str]:
