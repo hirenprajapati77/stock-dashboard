@@ -110,15 +110,28 @@ class FyersService:
             
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
+            # Define variations to try. We prioritize Proxy since Render is blocked.
+            attempts = []
+            
+            p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
+            
             if p_url:
-                # 1. Proxy Attempts (Standard Hash)
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (JSON)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id}})
-                # 2. Proxy Minimal (Hash Full)
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}})
-                # 3. Proxy Prefix Hash (Standard Field Names)
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (PrefixHash)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "appId": raw_app_id}})
-                # 4. Proxy client_id variant
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (ClientID)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id}})
+                # 1. Proxy (JSON + redirect_uri) - Common V3 requirement
+                payload_std = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (JSON)", "payload": payload_std})
+                
+                # 2. Proxy (Min + redirect_uri)
+                payload_min = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (Min)", "payload": payload_min})
+                
+                # 3. Proxy (PrefixHash + redirect_uri)
+                payload_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (PrefixHash)", "payload": payload_pref})
+                
+                # 4. Proxy (Targeting API-T1 specifically through proxy)
+                # Some users find api-t1 more stable for V3, but it MUST be behind proxy for Render
+                t1_base_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
+                attempts.append({"url": f"{p_url}/proxy?target={t1_base_url}", "ct": "application/json", "label": "Proxy (T1)", "payload": payload_std})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
@@ -127,14 +140,10 @@ class FyersService:
             t1_base = cls.BASE_URL.rstrip('/')
             
             attempts.extend([
-                # Production Minimal (Standard Hash)
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
-                # Production Form (Standard)
+                # Production Minimal
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}},
+                # Production Form
                 {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
-                # API-T1 Minimal
-                {"url": f"{t1_base}/validate-authcode",  "ct": "application/json", "label": "T1 (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
-                # API-T1 Slash
-                {"url": f"{t1_base}/validate-authcode/", "ct": "application/json", "label": "T1 (Slash)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
             ])
 
             # Headers: Remove Origin/Referer for server-to-server calls.
