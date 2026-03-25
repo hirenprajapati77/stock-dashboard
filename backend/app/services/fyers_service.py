@@ -154,34 +154,40 @@ class FyersService:
                 
                 cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
 
-                resp = {} # Initialize as dict for safety
                 try:
-                    h = {**clean_headers, "Content-Type": ct}
                     if ct == "application/json":
-                        res = requests.post(url, json=base_payload, headers=h, timeout=15)
+                        res = requests.post(url, json=current_payload, headers=clean_headers, timeout=12)
                     else:
-                        res = requests.post(url, data=base_payload, headers=h, timeout=15)
+                        res = requests.post(url, data=current_payload, headers=clean_headers, timeout=12)
                     
-                    try:
-                        resp = res.json()
-                        is_json = True
-                    except:
-                        is_json = False
-                        resp = {"message": res.text[:200] if res.text else f"Status {res.status_code}"}
+                    # DEEP LOGGING: Output to Render logs for troubleshooting
+                    print(f"FYERS AUTH DEBUG [{lbl}]: URL={url} Status={res.status_code} Resp={res.text[:500]}")
                     
-                    if is_json and resp.get("s") == "ok":
-                        token = resp.get("access_token") or (resp.get("data") or {}).get("access_token")
-                        if token:
-                            cls._access_token = token
-                            cls.save_token(token)
-                            cls._set_auth_debug("success", f"Token via {lbl}", f"URL: {url}")
-                            return True, "Token generated successfully"
-                    
-                    err_msg = resp.get("message") or resp.get("error_description") or f"HTTP {getattr(res, 'status_code', 'unknown')}"
-                    all_errors.append(f"{lbl}: {err_msg}")
-                    
+                    if res.status_code == 200:
+                        try:
+                            resp_data = res.json()
+                            if resp_data.get("s") == "ok":
+                                token = resp_data.get("access_token")
+                                if token:
+                                    cls._access_token = token
+                                    cls.save_token(token)
+                                    cls._set_auth_debug("success", "Login successful!", f"Variant: {lbl}")
+                                    return True, "Login Successful"
+                            
+                            all_errors.append(f"{lbl}: {resp_data.get('message', 'Unknown Error')}")
+                        except:
+                            all_errors.append(f"{lbl}: Invalid JSON response")
+                    else:
+                        # Non-200 responses
+                        msg = res.text[:100]
+                        try:
+                            msg = res.json().get("message", msg)
+                        except: pass
+                        all_errors.append(f"{lbl}: {msg}")
+
                 except Exception as e:
                     all_errors.append(f"{lbl} Exception: {str(e)}")
+                    print(f"FYERS AUTH EXCEPTION [{lbl}]: {str(e)}")
                     continue
 
             # If ALL failed, provide the most descriptive summary
