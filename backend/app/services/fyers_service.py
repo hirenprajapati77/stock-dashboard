@@ -185,11 +185,17 @@ class FyersService:
                     continue
 
             # If ALL failed, provide the most descriptive summary
-            # Slice safe check
-            recent_errors = all_errors[-3:] if len(all_errors) >= 3 else all_errors
-            final_err = " | ".join(recent_errors) 
-            cls._set_auth_debug("failed_all", "All auth variants failed.", final_err)
-            return False, cls._humanize_auth_error(final_err or "Unknown authentication failure")
+            # IMPORTANT: Prioritize Proxy errors in the message if they were tried and failed.
+            proxy_errs = [e for e in all_errors if "Proxy" in e]
+            if proxy_errs:
+                best_summary = " | ".join(proxy_errs)
+            else:
+                # Last 3 attempts usually most relevant (Production fallbacks)
+                best_summary = " | ".join(all_errors[-3:] if len(all_errors) >= 3 else all_errors)
+            
+            cls._set_auth_debug("failed_all", "All auth variants failed.", best_summary)
+            human_msg = cls._humanize_auth_error(best_summary or "Unknown authentication failure")
+            return False, human_msg
 
 
             
