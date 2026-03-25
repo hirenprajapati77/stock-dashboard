@@ -169,8 +169,8 @@ class FyersService:
                     else:
                         res = requests.post(url, data=current_payload, headers=clean_headers, timeout=12)
                     
-                    # DEEP LOGGING: Output to Render logs for troubleshooting
-                    print(f"FYERS AUTH DEBUG [{lbl}]: URL={url} Status={res.status_code} Resp={res.text[:500]}")
+                    # DEEP LOGGING: Output to Render logs (forced flush)
+                    print(f"FYERS AUTH DEBUG [{lbl}]: URL={url} Status={res.status_code} Resp={res.text[:500]}", flush=True)
                     
                     if res.status_code == 200:
                         try:
@@ -196,7 +196,7 @@ class FyersService:
 
                 except Exception as e:
                     all_errors.append(f"{lbl} Exception: {str(e)}")
-                    print(f"FYERS AUTH EXCEPTION [{lbl}]: {str(e)}")
+                    print(f"FYERS AUTH EXCEPTION [{lbl}]: {str(e)}", flush=True)
                     continue
 
             # If ALL failed, provide the most descriptive summary
