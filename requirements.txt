@@ -7,5 +7,3 @@ scikit-learn
 joblib
 requests
 lxml
-pyarrow
-fastparquet
