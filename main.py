@@ -14,6 +14,22 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+
+# Runtime Dependency Check for stubborn Render environments
+def ensure_dependencies():
+    needed = ["pyarrow", "fastparquet"]
+    for pkg in needed:
+        try:
+            __import__(pkg)
+        except ImportError:
+            print(f"INFO: Installing missing dependency {pkg} at runtime...", flush=True)
+            try:
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+            except Exception as e:
+                print(f"ERROR: Failed to install {pkg}: {e}")
+
+ensure_dependencies()
 from fastapi import FastAPI, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -133,19 +149,20 @@ def _build_trade_signal(ema_bias, risk_reward):
 
 
 def _external_base_url(request: Request) -> str:
-    # Improved detection for Render and SSL terminates proxies
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    # Most reliable detection for Render and SSL terminates proxies
+    env_url = os.getenv("FYERS_REDIRECT_URL")
+    if env_url and "http" in env_url:
+        return env_url.split("/api/v1/fyers/callback")[0].rstrip("/")
 
-    # Force https if on render.com
-    if not forwarded_proto and "render.com" in str(request.url):
-        forwarded_proto = "https"
-
-    if forwarded_host:
-        scheme = forwarded_proto or request.url.scheme or "http"
-        return f"{scheme}://{forwarded_host}"
-
-    return str(request.base_url).rstrip("/")
+    forwarded_host = request.headers.get("x-forwarded-host")
+    host = forwarded_host if forwarded_host else request.headers.get("host", "stock-dashboard-9nvy.onrender.com")
+    
+    # Force https if on render.com or if x-forwarded-proto says so
+    proto = request.headers.get("x-forwarded-proto")
+    if not proto:
+        proto = "https" if "render.com" in host else "http"
+    
+    return f"{proto}://{host}"
 
 
 def _resolve_fyers_redirect_url(request: Request) -> str:
