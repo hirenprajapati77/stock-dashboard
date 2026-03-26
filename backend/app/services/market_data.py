@@ -76,7 +76,7 @@ class MarketDataService:
     @staticmethod
     def _get_cache_path(symbol, tf):
         safe_symbol = "".join(c for c in symbol if c.isalnum() or c in ('^', '.'))
-        return Path(__file__).parent.parent / "data" / "ohlcv_cache" / f"{safe_symbol}_{tf}.parquet"
+        return Path(__file__).parent.parent / "data" / "ohlcv_cache" / f"{safe_symbol}_{tf}.csv"
 
     @staticmethod
     def _save_to_disk(symbol, tf, df):
@@ -84,7 +84,8 @@ class MarketDataService:
             if df.empty: return
             path = MarketDataService._get_cache_path(symbol, tf)
             path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_parquet(path)
+            # Use CSV for maximum compatibility and zero dependencies
+            df.to_csv(path, index=True)
         except Exception as e:
             print(f"DEBUG: Failed to save {symbol} to disk: {e}")
 
@@ -93,7 +94,16 @@ class MarketDataService:
         try:
             path = MarketDataService._get_cache_path(symbol, tf)
             if path.exists():
-                return pd.read_parquet(path)
+                df = pd.read_csv(path)
+                if not df.empty and 'timestamp' in df.columns:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    df.set_index('timestamp', inplace=True)
+                elif not df.empty and df.columns[0] == 'Unnamed: 0':
+                    # Sometimes pandas saves index as Unnamed: 0
+                    df.rename(columns={'Unnamed: 0': 'timestamp'}, inplace=True)
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    df.set_index('timestamp', inplace=True)
+                return df
         except Exception as e:
             print(f"DEBUG: Failed to load {symbol} from disk: {e}")
         return None
