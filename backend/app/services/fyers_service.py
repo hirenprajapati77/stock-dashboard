@@ -112,12 +112,6 @@ class FyersService:
 
             # Define variations to try. We prioritize Proxy since Render is blocked.
             attempts = []
-            
-            p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
-            
-            # Define variations to try. We prioritize Proxy since Render is blocked.
-            attempts = []
-            
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
@@ -132,11 +126,6 @@ class FyersService:
                 # 3. Proxy (PrefixHash + redirect_uri)
                 payload_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (PrefixHash)", "payload": payload_pref})
-                
-                # 4. Proxy (Targeting API-T1 specifically through proxy)
-                # Some users find api-t1 more stable for V3, but it MUST be behind proxy for Render
-                t1_base_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
-                attempts.append({"url": f"{p_url}/proxy?target={t1_base_url}", "ct": "application/json", "label": "Proxy (T1)", "payload": payload_std})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
