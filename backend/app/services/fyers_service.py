@@ -115,46 +115,32 @@ class FyersService:
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
-                # 1. Proxy (Standard V3 - JSON)
+                # 1. Proxy (Standard V3 - JSON) - The most likely candidate
                 p_v3 = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
                 
-                # 2. Proxy (Standard V3 - Form)
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
-
-                # 3. Proxy (NoID - some accounts prefer this)
-                p_noid = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-NoID)", "payload": p_noid})
-                
-                # 4. Proxy (Prefix Hash - JSON)
-                p_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-PrefHash)", "payload": p_pref})
-
-                # 5. Proxy (No-Suffix appId variant)
-                # Some V3 accounts fail if the "-100" suffix is in the appId field but appIdHash is correct
+                # 2. Proxy (No-Suffix appId variant) - Very common fix for V3
                 short_id = raw_app_id.split('-')[0] if '-' in raw_app_id else raw_app_id
                 p_short = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": short_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ShortID)", "payload": p_short})
+
+                # 3. Proxy (V3-Form) - fallback content type
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
+
+                # 4. Proxy (V3-Client-ID) - Some V3 versions use client_id instead of appId
+                p_cli = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ClientID)", "payload": p_cli})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
-            # Production & API-T1 fallback variants
+            # Production & API-T1 fallback variants (Direct skip proxy if proxy fails)
             prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
-            t1_base = cls.BASE_URL.rstrip('/')
             
             attempts.extend([
-                # Production Minimal
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (Min)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}},
-                # Production Form
+                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (JSON)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
                 {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
             ])
 
-            # Headers: Remove Origin/Referer for server-to-server calls.
-            clean_headers = {
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-            }
-            
             # Track errors from ALL variations for the last_auth_debug
             all_errors: List[str] = []
             
@@ -164,19 +150,27 @@ class FyersService:
                 lbl = att["label"]
                 current_payload = att["payload"]
                 
-                cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
+                # HEADERS: High-emulation to match browser/postman exactly
+                # This helps bypass WAFs that block generic scripts
+                clean_headers = {
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": ct,
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+                    "x-target-host": "api.fyers.in" if "workers.dev" in url else None
+                }
+                # Remove None headers
+                clean_headers = {k: v for k, v in clean_headers.items() if v is not None}
 
                 try:
-                    # Log the payload before sending, redacting sensitive parts if necessary
                     p_log = {k: (v[:5] + "..." if k in ["appIdHash", "code"] and isinstance(v, str) and len(v) > 10 else v) for k, v in current_payload.items()}
                     print(f"FYERS AUTH DEBUG [{lbl}]: Target={url} | CT={ct} | Payload={p_log}", flush=True)
 
                     if ct == "application/json":
-                        res = requests.post(url, json=current_payload, headers=clean_headers, timeout=12)
+                        # Use data=json.dumps to have full control over the payload string
+                        res = requests.post(url, data=json.dumps(current_payload), headers=clean_headers, timeout=12)
                     else:
                         res = requests.post(url, data=current_payload, headers=clean_headers, timeout=12)
                     
-                    # DEEP LOGGING: Output to Render logs (forced flush)
                     print(f"FYERS AUTH DEBUG [{lbl}]: URL={url} Status={res.status_code} Resp={res.text[:500]}", flush=True)
                     
                     if res.status_code == 200:
