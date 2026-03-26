@@ -115,19 +115,19 @@ class FyersService:
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
-                # 1. Proxy (Standard V3 - JSON) - The most likely candidate
+                # 1. Proxy (V3-Form) - Lead with Form-encoded as it's often more resilient to WAFs
                 p_v3 = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
+                
+                # 2. Proxy (Standard V3 - JSON)
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
                 
-                # 2. Proxy (No-Suffix appId variant) - Very common fix for V3
+                # 3. Proxy (No-Suffix appId variant)
                 short_id = raw_app_id.split('-')[0] if '-' in raw_app_id else raw_app_id
                 p_short = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": short_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ShortID)", "payload": p_short})
 
-                # 3. Proxy (V3-Form) - fallback content type
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
-
-                # 4. Proxy (V3-Client-ID) - Some V3 versions use client_id instead of appId
+                # 4. Proxy (V3-Client-ID) 
                 p_cli = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ClientID)", "payload": p_cli})
             else:
@@ -151,11 +151,11 @@ class FyersService:
                 current_payload = att["payload"]
                 
                 # HEADERS: High-emulation to match browser/postman exactly
-                # This helps bypass WAFs that block generic scripts
                 clean_headers = {
                     "Accept": "application/json, text/plain, */*",
                     "Content-Type": ct,
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+                    "X-Fyers-AppId": raw_app_id,
                     "x-target-host": "api.fyers.in" if "workers.dev" in url else None
                 }
                 # Remove None headers
