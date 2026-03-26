@@ -115,21 +115,21 @@ class FyersService:
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
-                # 1. Proxy (V3-Form) - Lead with Form-encoded as it's often more resilient to WAFs
+                # 1. Proxy (V3-Form) - The most standard V3 approach
                 p_v3 = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
                 
-                # 2. Proxy (Standard V3 - JSON)
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
-                
-                # 3. Proxy (No-Suffix appId variant)
+                # 2. Proxy (V3-Form-ClientID) - Some V3 docs use client_id instead of appId
+                p_cli_f = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form-CID)", "payload": p_cli_f})
+
+                # 3. Proxy (V3-Form-ShortID) - Removing -100 suffix
                 short_id = raw_app_id.split('-')[0] if '-' in raw_app_id else raw_app_id
                 p_short = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": short_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ShortID)", "payload": p_short})
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form-SID)", "payload": p_short})
 
-                # 4. Proxy (V3-Client-ID) 
-                p_cli = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ClientID)", "payload": p_cli})
+                # 4. Proxy (V3-JSON) - Fallback to JSON
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 

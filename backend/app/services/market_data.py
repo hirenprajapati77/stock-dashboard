@@ -90,6 +90,29 @@ class MarketDataService:
             print(f"DEBUG: Failed to save {symbol} to disk: {e}")
 
     @staticmethod
+    def _fetch_via_proxy(url):
+        """Fetches a URL via the Cloudflare Worker proxy."""
+        try:
+            from app.config import fyers_config
+            p_url = fyers_config.auth_proxy_url
+            if not p_url: return None
+            
+            p_url = p_url.rstrip('/')
+            target_host = url.split('//')[1].split('/')[0]
+            proxy_url = f"{p_url}{url.replace('https://' + target_host, '')}"
+            
+            headers = {
+                "x-target-host": target_host,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
+            }
+            res = requests.get(proxy_url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                return res
+        except Exception as e:
+            print(f"DEBUG: Proxy fetch failed: {e}")
+        return None
+
+    @staticmethod
     def _load_from_disk(symbol, tf):
         try:
             path = MarketDataService._get_cache_path(symbol, tf)
@@ -211,6 +234,32 @@ class MarketDataService:
             print(f"DEBUG: Yahoo Finance Fetching Symbol: {symbol}")
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
+            
+            # 401 / Invalid Crumb Bypass via Proxy
+            if df.empty:
+                print(f"DEBUG: Yahoo Direct failed for {symbol}, trying Proxy...")
+                # Map yf intervals to yahoo query params
+                y_range = period # e.g. '1y'
+                y_interval = interval # e.g. '1d'
+                # Construction: https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?range=1y&interval=1d
+                y_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={y_range}&interval={y_interval}"
+                
+                res = MarketDataService._fetch_via_proxy(y_url)
+                if res:
+                    data = res.json()
+                    result = data.get('chart', {}).get('result', [{}])[0]
+                    if result:
+                        ts = result.get('timestamp', [])
+                        indicators = result.get('indicators', {}).get('quote', [{}])[0]
+                        o, h, l, c, v = indicators.get('open', []), indicators.get('high', []), indicators.get('low', []), indicators.get('close', []), indicators.get('volume', [])
+                        
+                        if ts and o:
+                            df = pd.DataFrame({
+                                'Open': o, 'High': h, 'Low': l, 'Close': c, 'Volume': v
+                            }, index=pd.to_datetime(ts, unit='s'))
+                            # Drop NaNs which Yahoo often sends for current partial bars
+                            df = df.dropna()
+                            print(f"DEBUG: Proxy Yahoo Success for {symbol}")
             
             if use_fast_info:
                 try:
