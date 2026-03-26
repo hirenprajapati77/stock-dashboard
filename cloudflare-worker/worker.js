@@ -1,35 +1,50 @@
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+    const method = request.method;
     
     // Support custom target host via header
     const targetHost = request.headers.get('x-target-host') || 'api.fyers.in';
     const targetUrl = `https://${targetHost}${url.pathname}${url.search}`;
     
+    // Log for Cloudflare dashboard debugging
+    console.log(`Proxying ${method} ${url.pathname} to ${targetUrl}`);
+    
+    // Handle CORS preflight
+    if (method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, x-target-host',
+          'Access-Control-Max-Age': '86400',
+        }
+      });
+    }
+
     // Forward essential headers
     const headers = new Headers();
     for (const [key, value] of request.headers.entries()) {
       const k = key.toLowerCase();
-      if (!['host', 'cf-ray', 'cf-connecting-ip', 'cf-visitor', 'x-forwarded-for', 'x-real-ip'].includes(k)) {
+      if (!['host', 'cf-ray', 'cf-connecting-ip', 'cf-visitor', 'x-forwarded-for', 'x-real-ip', 'cf-ipcountry', 'cf-ray'].includes(k)) {
         headers.set(key, value);
       }
     }
     
-    // Ensure critical headers for Fyers
+    // Force specific headers for Fyers V3
     headers.set('Accept', 'application/json');
     if (!headers.has('User-Agent')) {
-      headers.set('User-Agent', 'FyersAuthProxy/1.1');
+      headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     }
 
     try {
-      // Correctly handle body for POST requests
       let body = null;
-      if (request.method === 'POST' || request.method === 'PUT') {
+      if (method === 'POST' || method === 'PUT') {
         body = await request.arrayBuffer();
       }
       
       const newRequest = new Request(targetUrl, {
-        method: request.method,
+        method: method,
         headers: headers,
         body: body,
         redirect: 'follow'
@@ -47,15 +62,13 @@ export default {
     } catch (e) {
       return new Response(JSON.stringify({ 
         error: e.message, 
+        message: e.message, // Support legacy error structures
         s: 'error',
         code: 500,
-        debug: {
-          url: targetUrl,
-          method: request.method
-        }
+        debug: { url: targetUrl, method: method }
       }), { 
         status: 500, 
-        headers: { 'Content-Type': 'application/json' } 
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
       });
     }
   }
