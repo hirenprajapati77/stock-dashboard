@@ -1136,7 +1136,7 @@ window.onload = function () {
             } else {
                 fetchData(true);
             }
-        }, 10000); // reduced frequency for expensive intelligence calls (10s)
+        }, 30000); // reduced frequency to 30s to avoid rate limits on free-tier hosting
 
         document.getElementById('strategy-selector').addEventListener('change', () => {
             fetchData();

@@ -6,6 +6,7 @@ class FundamentalService:
     # Minimal in-memory cache to avoid heavy info calls
     _cache = {}
     CACHE_TTL = 3600 # 1 hour for fundamentals
+    ERROR_CACHE_TTL = 600 # 10 minutes for rate limit failures / empty responses
 
     @classmethod
     def get_fundamentals(cls, symbol: str):
@@ -17,7 +18,9 @@ class FundamentalService:
         now = time.time()
         if symbol in cls._cache:
             entry = cls._cache[symbol]
-            if (now - entry['timestamp']) < cls.CACHE_TTL:
+            # Use shorter TTL for error/empty states
+            ttl = cls.CACHE_TTL if not entry.get('is_error') else cls.ERROR_CACHE_TTL
+            if (now - entry['timestamp']) < ttl:
                 return entry['data']
 
         try:
@@ -25,10 +28,15 @@ class FundamentalService:
             info = ticker.info
             
             if not info or len(info) < 5:
-                # If info is mostly empty (common during rate limits), try to return old cache if exists
-                if symbol in cls._cache:
-                    return cls._cache[symbol]['data']
-                return None
+                # If info is mostly empty (common during rate limits), cache error state
+                # but keep old data if we have it
+                old_data = cls._cache[symbol]['data'] if symbol in cls._cache else None
+                cls._cache[symbol] = {
+                    'timestamp': now,
+                    'data': old_data,
+                    'is_error': True
+                }
+                return old_data
 
             # Helper to safely get value or None
             def get_val(key, default=None):
@@ -62,8 +70,10 @@ class FundamentalService:
             }
             
             # Simple health check
+            pe = data.get('pe_ratio')
+            pb = data.get('pb_ratio')
             is_undervalued = False
-            if data['pe_ratio'] and data['pe_ratio'] < 20 and data['pb_ratio'] and data['pb_ratio'] < 1.5:
+            if pe is not None and pe < 20 and pb is not None and pb < 1.5:
                 is_undervalued = True
             data['is_undervalued'] = bool(is_undervalued)
             
@@ -77,7 +87,11 @@ class FundamentalService:
 
         except Exception as e:
             print(f"Error fetching fundamentals for {symbol}: {e}")
-            # Fallback to expired cache if available
-            if symbol in cls._cache:
-                return cls._cache[symbol]['data']
-            return None
+            # Cache exception as error state to avoid immediate retry
+            old_data = cls._cache[symbol]['data'] if symbol in cls._cache else None
+            cls._cache[symbol] = {
+                'timestamp': now,
+                'data': old_data,
+                'is_error': True
+            }
+            return old_data
