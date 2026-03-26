@@ -133,8 +133,13 @@ def _build_trade_signal(ema_bias, risk_reward):
 
 
 def _external_base_url(request: Request) -> str:
+    # Improved detection for Render and SSL terminates proxies
     forwarded_proto = request.headers.get("x-forwarded-proto")
     forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    # Force https if on render.com
+    if not forwarded_proto and "render.com" in str(request.url):
+        forwarded_proto = "https"
 
     if forwarded_host:
         scheme = forwarded_proto or request.url.scheme or "http"

@@ -185,10 +185,18 @@ class SectorService:
                 sector_close_col = "close" if "close" in s_df.columns else "Close"
                 sector_close = s_df[sector_close_col]
                 
-                # Align data
+                # Align data - FORCE timezone naive to avoid comparison errors
+                s_naive = sector_close.copy()
+                b_naive = benchmark_data.copy()
+                
+                if hasattr(s_naive.index, 'tz') and s_naive.index.tz is not None:
+                    s_naive.index = s_naive.index.tz_localize(None)
+                if hasattr(b_naive.index, 'tz') and b_naive.index.tz is not None:
+                    b_naive.index = b_naive.index.tz_localize(None)
+
                 combined = pd.DataFrame({
-                    'sector': sector_close,
-                    'benchmark': benchmark_data
+                    'sector': s_naive,
+                    'benchmark': b_naive
                 }).dropna()
                 
                 if combined.empty:
@@ -410,7 +418,8 @@ class SectorService:
                     if dt_obj.date() == now_ist.date() and i == len(hist) - 1:
                         ts = time.time()
                     else:
-                        ts = dt_obj.timestamp()
+                        # Ensure dt_obj is naive if comparing or generating timestamp
+                        ts = dt_obj.replace(tzinfo=None).timestamp()
                 except:
                     ts = time.time()
 
