@@ -189,10 +189,14 @@ class SectorService:
                 s_naive = sector_close.copy()
                 b_naive = benchmark_data.copy()
                 
-                if hasattr(s_naive.index, 'tz') and s_naive.index.tz is not None:
-                    s_naive.index = s_naive.index.tz_localize(None)
-                if hasattr(b_naive.index, 'tz') and b_naive.index.tz is not None:
-                    b_naive.index = b_naive.index.tz_localize(None)
+                # Robust conversion to naive DatetimeIndex
+                try:
+                    s_naive.index = pd.to_datetime(s_naive.index, utc=True).tz_localize(None)
+                    b_naive.index = pd.to_datetime(b_naive.index, utc=True).tz_localize(None)
+                except Exception as e:
+                    print(f"WARN: Timezone normalization fallback for {name}: {e}")
+                    if hasattr(s_naive.index, 'tz'): s_naive.index = s_naive.index.tz_localize(None)
+                    if hasattr(b_naive.index, 'tz'): b_naive.index = b_naive.index.tz_localize(None)
 
                 combined = pd.DataFrame({
                     'sector': s_naive,

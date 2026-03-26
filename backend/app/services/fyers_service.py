@@ -129,6 +129,12 @@ class FyersService:
                 # 4. Proxy (Prefix Hash - JSON)
                 p_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
                 attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-PrefHash)", "payload": p_pref})
+
+                # 5. Proxy (No-Suffix appId variant)
+                # Some V3 accounts fail if the "-100" suffix is in the appId field but appIdHash is correct
+                short_id = raw_app_id.split('-')[0] if '-' in raw_app_id else raw_app_id
+                p_short = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": short_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-ShortID)", "payload": p_short})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
