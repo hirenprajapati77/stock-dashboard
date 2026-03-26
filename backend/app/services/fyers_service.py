@@ -115,17 +115,20 @@ class FyersService:
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
-                # 1. Proxy (JSON + redirect_uri) - Common V3 requirement
-                payload_std = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (JSON)", "payload": payload_std})
+                # 1. Proxy (Standard V3 - JSON)
+                p_v3 = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
                 
-                # 2. Proxy (Min + redirect_uri)
-                payload_min = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (Min)", "payload": payload_min})
+                # 2. Proxy (Standard V3 - Form)
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
+
+                # 3. Proxy (NoID - some accounts prefer this)
+                p_noid = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-NoID)", "payload": p_noid})
                 
-                # 3. Proxy (PrefixHash + redirect_uri)
-                payload_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (PrefixHash)", "payload": payload_pref})
+                # 4. Proxy (Prefix Hash - JSON)
+                p_pref = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-PrefHash)", "payload": p_pref})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
@@ -158,6 +161,10 @@ class FyersService:
                 cls._set_auth_debug(f"trying_{lbl}", f"Attempting {url}", f"CT: {ct}")
 
                 try:
+                    # Log the payload before sending, redacting sensitive parts if necessary
+                    p_log = {k: (v[:5] + "..." if k in ["appIdHash", "code"] and isinstance(v, str) and len(v) > 10 else v) for k, v in current_payload.items()}
+                    print(f"FYERS AUTH DEBUG [{lbl}]: Target={url} | CT={ct} | Payload={p_log}", flush=True)
+
                     if ct == "application/json":
                         res = requests.post(url, json=current_payload, headers=clean_headers, timeout=12)
                     else:
