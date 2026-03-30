@@ -17,7 +17,7 @@ class FyersService:
     # Production data endpoint
     DATA_URL = "https://api.fyers.in/data" 
     # Fallback endpoint for token exchange
-    AUTH_FALLBACK_URL = "https://api.fyers.in/api/v3"
+    AUTH_FALLBACK_URL = "https://api-t1.fyers.in/api/v3"
     
     SYMBOL_MASTER_URLS = {
         "NSE_CM": "https://public.fyers.in/sym_details/NSE_CM.csv",
@@ -153,7 +153,7 @@ class FyersService:
                     "Content-Type": ct,
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
                     "X-Fyers-AppId": raw_app_id,
-                    "x-target-host": "api.fyers.in" if "workers.dev" in url else None
+                    "x-target-host": "api-t1.fyers.in" if "workers.dev" in url else None
                 }
                 # Remove None headers
                 clean_headers = {k: v for k, v in clean_headers.items() if v is not None}
