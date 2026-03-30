@@ -115,34 +115,31 @@ class FyersService:
             p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
             
             if p_url:
-                # 1. Proxy (V3-Form) - The most standard V3 approach
-                p_v3 = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form)", "payload": p_v3})
+                # According to official Fyers V3 docs, only 3 fields are required.
+                # Sending extra fields (appId, redirect_uri) causes 'invalid entry'.
                 
-                # 2. Proxy (V3-Form-ClientID) - Some V3 docs use client_id instead of appId
-                p_cli_f = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "client_id": raw_app_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form-CID)", "payload": p_cli_f})
+                # Variant 1: Full appId hash (most common)
+                p_min = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-Minimal)", "payload": p_min})
+                
+                # Variant 2: Prefix-only hash (appId without -100 suffix)
+                p_prefix = {"grant_type": "authorization_code", "appIdHash": hash_prefix, "code": auth_code}
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-PrefixHash)", "payload": p_prefix})
 
-                # 3. Proxy (V3-Form-ShortID) - Removing -100 suffix
-                short_id = raw_app_id.split('-')[0] if '-' in raw_app_id else raw_app_id
-                p_short = {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": short_id, "redirect_uri": resolved_redirect}
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form-SID)", "payload": p_short})
-
-                # 4. Proxy (V3-JSON) - Fallback to JSON
-                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/json", "label": "Proxy (V3-JSON)", "payload": p_v3})
+                # Variant 3: Form-encoded minimal (some older V3 clients)
+                attempts.append({"url": f"{p_url}/api/v3/validate-authcode", "ct": "application/x-www-form-urlencoded", "label": "Proxy (V3-Form-Min)", "payload": p_min})
             else:
                 cls._set_auth_debug("proxy_missing", "FYERS_AUTH_PROXY_URL not set.", "")
 
-            # Production & API-T1 fallback variants (Direct skip proxy if proxy fails)
+            # Production fallback (Direct - only if proxy missing or all proxy attempts consumed code)
             prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
-            
             attempts.extend([
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/json", "label": "Prod (JSON)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
-                {"url": f"{prod_base}/validate-authcode",  "ct": "application/x-www-form-urlencoded", "label": "Prod (Form)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code, "appId": raw_app_id, "redirect_uri": resolved_redirect}},
+                {"url": f"{prod_base}/validate-authcode", "ct": "application/json", "label": "Prod (V3-Minimal)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
             ])
 
             # Track errors from ALL variations for the last_auth_debug
             all_errors: List[str] = []
+            code_is_consumed = False
             
             for att in attempts:
                 url = att["url"]
@@ -198,7 +195,16 @@ class FyersService:
                 except Exception as e:
                     all_errors.append(f"{lbl} Exception: {str(e)}")
                     print(f"FYERS AUTH EXCEPTION [{lbl}]: {str(e)}", flush=True)
-                    continue
+                
+                # Auth codes are SINGLE-USE. Stop retrying if the code has been consumed.
+                # 'invalid entry' means the auth_code was accepted by the API but rejected
+                # (wrong hash or already used). No point trying further variants.
+                last_err = all_errors[-1].lower() if all_errors else ""
+                if any(kw in last_err for kw in ["invalid entry", "invalid auth", "code has expired", "already used"]):
+                    print(f"FYERS AUTH: Auth code consumed or invalid. Stopping retries.", flush=True)
+                    code_is_consumed = True
+                    break
+
 
             # If ALL failed, provide the most descriptive summary
             # IMPORTANT: Prioritize Proxy errors in the message if they were tried and failed.
