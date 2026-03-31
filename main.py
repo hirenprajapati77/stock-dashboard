@@ -871,6 +871,27 @@ async def get_observability_summary():
     except Exception as e:
         return {"status": "error", "data": {}, "message": str(e)}
 
+@app.get("/api/v1/screener/debug")
+async def get_screener_debug():
+    """Returns the internal rejection logs for the last screener run."""
+    try:
+        from app.services.screener import _REJECTION_LOGS
+        return {"status": "success", "data": _REJECTION_LOGS}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v1/screener/force-refresh")
+async def force_screener_refresh():
+    """Triggers a fresh scan of all symbols, bypassing the cache."""
+    try:
+        from app.services.screener import ScreenerService
+        from app.services.constituent_service import ConstituentService
+        symbols = ConstituentService.get_nifty100_symbols()
+        results = ScreenerService.screen_symbols(symbols, force=True)
+        return {"status": "success", "count": len(results), "matches": results}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/v1/market-summary")
 async def get_market_summary(tf: str = "1D"):
     """
@@ -878,6 +899,14 @@ async def get_market_summary(tf: str = "1D"):
     """
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
+        from app.services.screener import ScreenerService as FundaScreener
+        from app.services.constituent_service import ConstituentService
+        
+        # 1. Fundamental Screener (Proxy-Aware)
+        symbols = ConstituentService.get_nifty100_symbols()
+        funda_matches = FundaScreener.screen_symbols(symbols)
+        
+        # 2. Momentum Screener
         data = MomentumScreener.get_market_summary_data(timeframe=tf)
         
         source = "live"
