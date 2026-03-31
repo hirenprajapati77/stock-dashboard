@@ -30,24 +30,51 @@ class ScreenerService:
     def _screen_single(sym: str) -> Optional[Dict]:
         try:
             from app.services.market_data import MarketDataService
-            # We need both OHLCV and Info. MarketDataService currently focusing on OHLCV.
-            # But we can use it to at least get the prioritized ticker object or normalized symbol.
+            import os
+            
+            # --- PHASE 1: Fetch Stats (Proxy-Aware) ---
+            # On Render, yfinance .info/.quarterly_financials is almost always blocked.
+            # Use our proxy-based stats fetcher as primary on Render, or as fallback.
+            stats = None
+            is_render = os.getenv("RENDER") is not None
+            
+            if is_render:
+                stats = MarketDataService.get_yahoo_stats_via_proxy(sym)
+                
             ticker_sym = MarketDataService.normalize_symbol(sym)
             ticker = yf.Ticker(ticker_sym)
+            
+            if not stats:
+                # Fallback to standard yf (works locally usually)
+                try:
+                    info = ticker.info
+                    qf = ticker.quarterly_financials
+                    if not qf.empty:
+                        stats = {'info': info, 'quarterly_financials': qf}
+                except Exception:
+                    pass
+            
+            if not stats:
+                # Final attempt with proxy if not already tried
+                if not is_render:
+                    stats = MarketDataService.get_yahoo_stats_via_proxy(sym)
+            
+            if not stats or stats['quarterly_financials'] is None or stats['quarterly_financials'].empty:
+                return None
+                
+            info = stats['info']
+            qf = stats['quarterly_financials']
 
+            # --- PHASE 2: Data Extraction ---
             # Use prioritized OHLCV for 'currentPrice' if possible
             df, _, _ = MarketDataService.get_ohlcv(ticker_sym, "1D")
             latest_price = 0
             if df is not None and not df.empty:
                 latest_price = float(df['close'].iloc[-1])
 
-            # Use fast_info first (lightweight) — avoids slow .info round-trip on basics
-            info = ticker.info
             if latest_price:
                 info['currentPrice'] = latest_price
             
-            qf = ticker.quarterly_financials
-
             if qf.empty or len(qf.columns) < 3:
                 return None
 
