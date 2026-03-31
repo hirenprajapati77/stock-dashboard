@@ -30,10 +30,10 @@ def ensure_dependencies():
                 print(f"ERROR: Failed to install {pkg}: {e}")
 
 ensure_dependencies()
-from fastapi import FastAPI, Query, Response, Request
+from fastapi import FastAPI, Query, Response, Request, Depends, HTTPException, status, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
@@ -73,6 +73,24 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_warmup())
     yield
 
+
+# Authentication Constants
+AUTH_COOKIE_NAME = "sr_pro_session"
+ADMIN_USER = "Admin"
+ADMIN_PASS = "SPAdmin@123"
+
+def get_current_user(sr_pro_session: Optional[str] = Cookie(None)):
+    if sr_pro_session != "authenticated_admin":
+        return None
+    return ADMIN_USER
+
+def login_required(user: Optional[str] = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return user
 
 app = FastAPI(title="Support & Resistance Dashboard", lifespan=lifespan)
 ai_engine = AIEngine()
@@ -192,7 +210,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/api/v2/ai-insights")
+@app.get("/api/v2/ai-insights", dependencies=[Depends(login_required)])
 async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: Optional[int] = None):
     """
     Returns assistive AI insights for the given symbol.
@@ -205,7 +223,7 @@ async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: O
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v1/search")
+@app.get("/api/v1/search", dependencies=[Depends(login_required)])
 async def search_symbols(q: str = Query(..., min_length=1)):
     """
     Searches for symbols using Fyers symbol master.
@@ -244,7 +262,7 @@ async def search_symbols(q: str = Query(..., min_length=1)):
         return []
 
 
-@app.get("/api/v1/market-status")
+@app.get("/api/v1/market-status", dependencies=[Depends(login_required)])
 async def get_market_status():
     """
     Returns the current market status, phase, and metadata.
@@ -256,7 +274,7 @@ async def get_market_status():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v1/dashboard")
+@app.get("/api/v1/dashboard", dependencies=[Depends(login_required)])
 async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR"):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     print(f"DEBUG: Dashboard Request - {symbol} @ {tf} | Strategy: {strategy}")
@@ -498,7 +516,7 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
 
 # --- Fyers Authentication Endpoints ---
 
-@app.get("/api/v1/fyers/login")
+@app.get("/api/v1/fyers/login", dependencies=[Depends(login_required)])
 async def fyers_login(request: Request):
     """Redirects the user to Fyers login page."""
     try:
@@ -547,7 +565,7 @@ async def fyers_callback(
     except Exception as e:
         return RedirectResponse(url=_build_fyers_redirect(request, "error", str(e)))
 
-@app.get("/api/v1/fyers/status")
+@app.get("/api/v1/fyers/status", dependencies=[Depends(login_required)])
 async def fyers_status(request: Request):
     """Checks if Fyers is logged in and provides diagnostic info."""
     is_logged_in = FyersService.load_token()
@@ -570,7 +588,7 @@ async def fyers_status(request: Request):
     }
 
 
-@app.get("/api/v1/fyers/debug-auth")
+@app.get("/api/v1/fyers/debug-auth", dependencies=[Depends(login_required)])
 async def fyers_debug_auth(request: Request):
     """Diagnostic endpoint to identify exactly which payload field causes auth failure."""
     import hashlib
@@ -638,7 +656,7 @@ async def fyers_debug_auth(request: Request):
 
 
 
-@app.get("/api/v1/screener")
+@app.get("/api/v1/screener", dependencies=[Depends(login_required)])
 async def run_screener():
     # Comprehensive watchlist - 200+ stocks to match Screener.in coverage
     watchlist = [
@@ -699,7 +717,7 @@ async def run_screener():
     matches = ScreenerService.screen_symbols(watchlist)
     return {"status": "success", "count": len(matches), "matches": matches}
 
-@app.get("/api/v1/sector-rotation")
+@app.get("/api/v1/sector-rotation", dependencies=[Depends(login_required)])
 async def get_sector_rotation(tf: str = "1D"):
     """
     Returns RS and RM data for all NSE sectors for the rotation dashboard.
@@ -735,7 +753,7 @@ async def get_sector_rotation(tf: str = "1D"):
             pass
         return {"status": "error", "message": str(e), "source": "error"}
 
-@app.get("/api/v1/momentum-hits")
+@app.get("/api/v1/momentum-hits", dependencies=[Depends(login_required)])
 async def get_momentum_hits(tf: str = "1D"):
     """
     Returns stocks with momentum hits (price and volume acceleration).
@@ -791,7 +809,7 @@ async def get_momentum_hits(tf: str = "1D"):
             "source": "error"
         }
 
-@app.get("/api/v1/early-setups")
+@app.get("/api/v1/early-setups", dependencies=[Depends(login_required)])
 async def get_early_setups(tf: str = "1D", limit: int = 5):
     """
     Returns early accumulation candidates before breakout.
@@ -822,7 +840,7 @@ async def get_early_setups(tf: str = "1D", limit: int = 5):
             "source": "error"
         }
 
-@app.get("/api/v1/next-session-watchlist")
+@app.get("/api/v1/next-session-watchlist", dependencies=[Depends(login_required)])
 async def get_next_session_watchlist(tf: str = "1D"):
     """
     Returns the Next Session Watchlist: key breakout setups, strong and weak sectors.
@@ -834,7 +852,7 @@ async def get_next_session_watchlist(tf: str = "1D"):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v1/trade-performance")
+@app.get("/api/v1/trade-performance", dependencies=[Depends(login_required)])
 async def get_trade_performance():
     """
     Returns execution-layer trade tracking and PnL performance metrics.
@@ -848,7 +866,7 @@ async def get_trade_performance():
         ObservabilityService.record_api_failure("/api/v1/trade-performance", str(e))
         return {"status": "error", "data": {}, "message": str(e)}
 
-@app.get("/api/v1/signal-performance")
+@app.get("/api/v1/signal-performance", dependencies=[Depends(login_required)])
 async def get_signal_performance(tf: str = "1D"):
     """
     Returns daily signal performance metrics and conversions.
@@ -864,7 +882,7 @@ async def get_signal_performance(tf: str = "1D"):
         return {"status": "error", "data": {}, "message": str(e)}
 
 
-@app.get("/api/v1/observability-summary")
+@app.get("/api/v1/observability-summary", dependencies=[Depends(login_required)])
 async def get_observability_summary():
     """
     Returns a lightweight 24h summary of API failures and fail-safe events.
@@ -875,7 +893,7 @@ async def get_observability_summary():
     except Exception as e:
         return {"status": "error", "data": {}, "message": str(e)}
 
-@app.get("/api/v1/screener/debug")
+@app.get("/api/v1/screener/debug", dependencies=[Depends(login_required)])
 async def get_screener_debug():
     """Returns the internal rejection logs for the last screener run."""
     try:
@@ -884,7 +902,7 @@ async def get_screener_debug():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v1/screener/force-refresh")
+@app.get("/api/v1/screener/force-refresh", dependencies=[Depends(login_required)])
 async def force_screener_refresh():
     """Triggers a fresh scan of all symbols, bypassing the cache."""
     try:
@@ -896,7 +914,7 @@ async def force_screener_refresh():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v1/market-summary")
+@app.get("/api/v1/market-summary", dependencies=[Depends(login_required)])
 async def get_market_summary(tf: str = "1D"):
     """
     Returns an aggregated AI market summary.
@@ -932,6 +950,58 @@ async def get_market_summary(tf: str = "1D"):
             "message": str(e),
             "source": "error"
         }
+
+@app.post("/api/v1/login")
+async def login(request: Request, response: Response):
+    try:
+        data = await request.json()
+        username = data.get("username")
+        password = data.get("password")
+        remember = data.get("remember", False)
+
+        if username == ADMIN_USER and password == ADMIN_PASS:
+            max_age = 2592000 if remember else 86400 # 30 days if remember, else 1 day
+            response.set_cookie(
+                key=AUTH_COOKIE_NAME,
+                value="authenticated_admin",
+                httponly=True,
+                max_age=max_age,
+                samesite="lax",
+                secure=False
+            )
+            return {"status": "success", "message": "Authenticated"}
+        else:
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "message": "Invalid credentials"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@app.post("/api/v1/logout")
+async def logout(response: Response):
+    response.delete_cookie(key=AUTH_COOKIE_NAME)
+    return {"status": "success", "message": "Logged out"}
+
+@app.get("/login")
+async def get_login_page():
+    login_path = curr_dir / "login.html"
+    if login_path.exists():
+        return FileResponse(str(login_path))
+    return {"status": "error", "message": "Login page not found"}
+
+@app.get("/")
+async def get_index_page(user: Optional[str] = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/login")
+    
+    index_path = curr_dir / "frontend" / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
+    return {"status": "error", "message": "Dashboard not found"}
 
 # Mount Frontend - Robust Path Finding
 try:

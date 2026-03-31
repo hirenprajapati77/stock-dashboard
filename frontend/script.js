@@ -23,6 +23,16 @@ let fetchController = null; // To abort previous fetches
 window.currentMarketStatus = null;
 window.symbolCache = {}; // Frontend cache for instant switching
 
+// Global Fetch Interceptor for Auth
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401 && !args[0].includes('/api/v1/login')) {
+        window.location.href = '/login';
+    }
+    return response;
+};
+
 function showGlobalLoader() {
     const loader = document.getElementById('global-loader');
     if (loader) {
@@ -833,6 +843,17 @@ async function fetchRotation(isBackground = false) {
 
 // Initialize
 window.onload = function () {
+    // Logout Handler
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch(`${API_BASE}/api/v1/logout`, { method: 'POST' });
+                window.location.href = '/login';
+            } catch (e) { window.location.href = '/login'; }
+        });
+    }
+
     try {
         if (typeof LightweightCharts === 'undefined') {
             throw new Error("Charting library not found. Please check your internet connection.");

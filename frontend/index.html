@@ -243,8 +243,15 @@
             </div>
 
             <!-- Search Box (Relative for Dropdown) -->
-            <div class="relative">
-                <div class="flex items-center space-x-2 bg-gray-900 px-2.5 py-1.5 rounded-xl border border-gray-800">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                    <span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Admin</span>
+                </div>
+                <button id="logout-btn" class="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all">
+                    Logout
+                </button>
+                <div class="tf-selector-group flex bg-gray-900/50 p-1 rounded-lg border border-gray-800">
                     <input type="text" id="symbol-input" value="RELIANCE"
                         class="bg-transparent border-none text-sm font-semibold text-white focus:outline-none w-20 uppercase placeholder-gray-500"
                         placeholder="SYMBOL">
