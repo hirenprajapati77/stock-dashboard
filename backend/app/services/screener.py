@@ -1,10 +1,15 @@
-import yfinance as yf
-import pandas as pd
-import concurrent.futures
+import os
+import json
 import time
 import datetime
 import pytz
+import pandas as pd
+import yfinance as yf
+import concurrent.futures
 from typing import List, Dict, Optional
+
+# Persistent cache file to survive Render restarts
+_SCREENER_CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "screener_cache.json")
 
 # ── Server-side in-memory cache ────────────────────────────────────────────────
 _SCREENER_CACHE: Optional[List[Dict]] = None
@@ -21,7 +26,8 @@ def _is_market_open() -> bool:
     return datetime.time(9, 15) <= t <= datetime.time(15, 30)
 
 def _cache_ttl() -> float:
-    return _SCREENER_TTL_MARKET if _is_market_open() else _SCREENER_TTL_OFFMARKET
+    # 60 min during market, 12 hours off-market
+    return _SCREENER_TTL_MARKET if _is_market_open() else (12 * 60 * 60)
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -147,41 +153,82 @@ class ScreenerService:
         return None
 
     @staticmethod
+    def _load_cache():
+        global _SCREENER_CACHE, _SCREENER_CACHE_TIME
+        if _SCREENER_CACHE is not None:
+            return
+        
+        if os.path.exists(_SCREENER_CACHE_FILE):
+            try:
+                with open(_SCREENER_CACHE_FILE, 'r') as f:
+                    data = json.load(f)
+                    _SCREENER_CACHE = data.get('results', [])
+                    _SCREENER_CACHE_TIME = data.get('time', 0)
+                    print(f"[Screener] Loaded {len(_SCREENER_CACHE)} matches from persistent cache.")
+            except Exception as e:
+                print(f"[Screener] Failed to load cache file: {e}")
+
+    @staticmethod
+    def _save_cache(results):
+        os.makedirs(os.path.dirname(_SCREENER_CACHE_FILE), exist_ok=True)
+        try:
+            with open(_SCREENER_CACHE_FILE, 'w') as f:
+                json.dump({
+                    'results': results,
+                    'time': time.time()
+                }, f)
+        except Exception as e:
+            print(f"[Screener] Failed to save cache file: {e}")
+
+    @staticmethod
     def screen_symbols(symbols: List[str]) -> List[Dict]:
         """
-        Screens a list of symbols concurrently with in-memory caching.
-        Cache TTL: 60 min during market hours, 6 hours off-market.
+        Screens a list of symbols concurrently with in-memory and file-based caching.
+        Cache TTL: 60 min during market hours, 12 hours off-market.
         """
         global _SCREENER_CACHE, _SCREENER_CACHE_TIME
+        
+        ScreenerService._load_cache()
 
         # ── Return cached result if still fresh ──
         age = time.time() - _SCREENER_CACHE_TIME
-        if _SCREENER_CACHE is not None and age < _cache_ttl():
+        if _SCREENER_CACHE is not None and age < _cache_ttl() and len(_SCREENER_CACHE) > 0:
             print(f"[Screener] Returning cached results ({int(age)}s old, TTL={int(_cache_ttl())}s)")
             return _SCREENER_CACHE
 
         print(f"[Screener] Running fresh screen on {len(symbols)} symbols...")
         results = []
 
-        # 15 workers + 6s per-symbol timeout to avoid hanging on Render
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        # Reduce workers on Render to improve proxy reliability (avoid 429/timeouts)
+        is_render = os.getenv("RENDER") is not None
+        max_workers = 5 if is_render else 15
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
                 executor.submit(ScreenerService._screen_single, sym): sym
                 for sym in symbols
             }
-            for future in concurrent.futures.as_completed(future_to_sym, timeout=90):
+            # Total timeout of 3 minutes for 100 symbols via proxy
+            for future in concurrent.futures.as_completed(future_to_sym, timeout=180):
                 sym = future_to_sym[future]
                 try:
-                    data = future.result(timeout=6)
+                    data = future.result(timeout=10)
                     if data:
                         results.append(data)
                 except concurrent.futures.TimeoutError:
-                    print(f"[Screener] Timeout: {sym}")
+                    pass
                 except Exception as exc:
                     print(f"[Screener] Error {sym}: {exc}")
 
         # ── Cache the results ──
-        _SCREENER_CACHE = results
-        _SCREENER_CACHE_TIME = time.time()
-        print(f"[Screener] Done. {len(results)} stocks passed. Cached for {int(_cache_ttl()/60)} min.")
-        return results
+        # Update cache ONLY if we have results, or if we had absolutely nothing before.
+        # This prevents overwriting a good previous session's cache with [] if Yahoo/Proxy fails.
+        if results or _SCREENER_CACHE is None:
+            _SCREENER_CACHE = results
+            _SCREENER_CACHE_TIME = time.time()
+            ScreenerService._save_cache(results)
+            print(f"[Screener] Done. {len(results)} stocks passed. Cached across sessions.")
+        else:
+            print(f"[Screener] Warning: New scan returned 0 matches. Preserving previous cache of {len(_SCREENER_CACHE)}.")
+            
+        return _SCREENER_CACHE or []

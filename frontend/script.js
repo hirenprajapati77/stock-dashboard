@@ -183,7 +183,7 @@ async function runScreener() {
 
             if (data.matches.length === 0) {
                 const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No live data (market closed). Awaiting next session.' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
+                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No matches found (showing last session data).' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
                 return;
             }
 
