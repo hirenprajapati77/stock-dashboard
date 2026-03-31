@@ -26,6 +26,7 @@ window.symbolCache = {}; // Frontend cache for instant switching
 function showGlobalLoader() {
     const loader = document.getElementById('global-loader');
     if (loader) {
+        loader.style.zIndex = '10000'; // Ensure it's on top of EVERYTHING
         loader.style.display = 'flex';
         loader.style.opacity = '1';
     }
@@ -35,7 +36,8 @@ function hideGlobalLoader() {
     const loader = document.getElementById('global-loader');
     if (loader) {
         loader.style.opacity = '0';
-        setTimeout(() => { loader.style.display = 'none'; }, 300);
+        // Delay hiding slightly to prevent flashes and ensure background updates finish
+        setTimeout(() => { loader.style.display = 'none'; }, 500);
     }
 }
 
@@ -270,13 +272,13 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
+        if (!isBackground) showGlobalLoader();
+
         // Frontend Caching: Show old data instantly if available
         const cacheKey = `${symbol}_${tf}_${strategy}`;
-        if (!isBackground && window.symbolCache[cacheKey]) {
+        if (window.symbolCache[cacheKey]) {
             console.log(`[Cache] HIT for ${cacheKey} - Rendering instantly`);
             updateUI(window.symbolCache[cacheKey]);
-        } else if (!isBackground) {
-            showGlobalLoader();
         }
 
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
@@ -876,6 +878,7 @@ window.onload = function () {
                     if (intelTog) intelTog.checked = false;
                     scrTog.checked = false;
                     document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    showGlobalLoader(); // Immediate feedback
                     fetchRotation();
                     if (rotationApp) rotationApp.resize();
                 } else {
@@ -895,6 +898,7 @@ window.onload = function () {
                     if (rotTog) rotTog.checked = false;
                     scrTog.checked = false;
                     document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    showGlobalLoader(); // Immediate feedback
                     fetchIntelligence();
                 } else {
                     intel.classList.add('hidden');
