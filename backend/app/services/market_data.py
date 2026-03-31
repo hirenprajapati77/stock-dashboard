@@ -132,6 +132,71 @@ class MarketDataService:
         return None
 
     @staticmethod
+    def get_yahoo_stats_via_proxy(symbol):
+        """
+        Fetches comprehensive results from Yahoo Finance quoteSummary via proxy.
+        Returns a dict containing 'info' and 'quarterly_financials' mimicking yfinance structures.
+        """
+        symbol = MarketDataService.normalize_symbol(symbol)
+        modules = "defaultKeyStatistics,financialData,assetProfile,incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly"
+        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}"
+        
+        res = MarketDataService._fetch_via_proxy(url)
+        if not res:
+            return None
+            
+        try:
+            data = res.json()
+            result = data.get('quoteSummary', {}).get('result', [{}])[0]
+            if not result: return None
+            
+            # 1. Build 'info' equivalent
+            fin = result.get('financialData', {})
+            stats = result.get('defaultKeyStatistics', {})
+            profile = result.get('assetProfile', {})
+            
+            info = {
+                'longName': symbol, # Default
+                'currentPrice': fin.get('currentPrice', {}).get('raw', 0),
+                'debtToEquity': fin.get('debtToEquity', {}).get('raw'),
+                'pegRatio': stats.get('pegRatio', {}).get('raw'),
+                'revenueQuarterlyGrowth': fin.get('revenueGrowth', {}).get('raw'),
+                'marketCap': stats.get('marketCap', {}).get('raw'),
+                'trailingPE': stats.get('trailingPE', {}).get('raw'),
+                'returnOnEquity': fin.get('returnOnEquity', {}).get('raw'),
+                'returnOnCapitalEmployed': None 
+            }
+            
+            # 2. Build 'quarterly_financials' equivalent (DataFrame-like dict)
+            # We need: Total Revenue, Net Income, Basic EPS
+            income_history = result.get('incomeStatementHistoryQuarterly', {}).get('incomeStatementHistory', [])
+            
+            q_data = {
+                'Total Revenue': {},
+                'Net Income': {},
+                'Basic EPS': {}
+            }
+            
+            for i, entry in enumerate(income_history):
+                date = entry.get('endDate', {}).get('fmt', f'Q{i}')
+                q_data['Total Revenue'][date] = entry.get('totalRevenue', {}).get('raw', 0)
+                q_data['Net Income'][date] = entry.get('netIncome', {}).get('raw', 0)
+                # EPS might be in different fields
+                eps = entry.get('basicAverageShares', {}).get('raw') # Placeholder if missing
+                q_data['Basic EPS'][date] = entry.get('netIncomeApplicableToCommonShares', {}).get('raw', 0) / eps if eps else 0
+
+            # Convert to DataFrame to match yfinance output
+            qf_df = pd.DataFrame(q_data).transpose()
+            
+            return {
+                'info': info,
+                'quarterly_financials': qf_df
+            }
+        except Exception as e:
+            print(f"DEBUG: Proxy stats parsing failed for {symbol}: {e}")
+            return None
+
+    @staticmethod
     def get_ohlcv(symbol="RELIANCE", tf="1D", count=200, use_fast_info=True):
         """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
