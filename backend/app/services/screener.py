@@ -17,6 +17,9 @@ _SCREENER_CACHE_TIME: float = 0.0
 _SCREENER_TTL_MARKET    = 60 * 60       # 60 min during market hours
 _SCREENER_TTL_OFFMARKET = 6 * 60 * 60  # 6 hours off-market / overnight
 
+# Global store for diagnostic rejections (survives in memory)
+_REJECTION_LOGS = {} 
+
 def _is_market_open() -> bool:
     ist = pytz.timezone("Asia/Kolkata")
     now = datetime.datetime.now(ist)
@@ -66,10 +69,16 @@ class ScreenerService:
                     stats = MarketDataService.get_yahoo_stats_via_proxy(sym)
             
             if not stats or stats['quarterly_financials'] is None or stats['quarterly_financials'].empty:
+                _REJECTION_LOGS[sym] = "No quarterly financials found (Proxy/Yahoo failure)"
                 return None
                 
             info = stats['info']
             qf = stats['quarterly_financials']
+
+            # Helpful debug for 0-match issues
+            def reject(reason):
+                _REJECTION_LOGS[sym] = reason
+                return None
 
             # --- PHASE 2: Data Extraction ---
             # Use prioritized OHLCV for 'currentPrice' if possible
@@ -82,12 +91,12 @@ class ScreenerService:
                 info['currentPrice'] = latest_price
             
             if qf.empty or len(qf.columns) < 3:
-                return None
+                return reject(f"Insufficient quarterly data (Cols: {len(qf.columns)})")
 
             sales = qf.loc['Total Revenue'] if 'Total Revenue' in qf.index else None
             profit = qf.loc['Net Income'] if 'Net Income' in qf.index else None
             if sales is None or profit is None:
-                return None
+                return reject("Missing Revenue or Net Income index")
 
             eps_key = 'Basic EPS' if 'Basic EPS' in qf.index else 'Diluted EPS' if 'Diluted EPS' in qf.index else None
             eps = qf.loc[eps_key] if eps_key else pd.Series()
@@ -135,20 +144,26 @@ class ScreenerService:
             elif pe_ratio and pe_ratio < 25:
                 cond_peg = True
 
-            if (cond_mcap and de_check and cond_profit_pos and
-               (cond_roce or cond_high_growth) and
-               (cond_pe or cond_peg) and
-               (cond_sales_growth or cond_profit_growth)):
-                return {
-                    "symbol": sym,
-                    "name": info.get('longName', sym),
-                    "cmp": info.get('currentPrice', 0),
-                    "sales_growth": f"{rev_growth*100:.1f}%",
-                    "peg": round(peg, 2) if peg is not None else "N/A",
-                    "debt_equity": round(de_ratio/100 if de_ratio > 2 else de_ratio, 2)
-                }
+            # Rejection Logic with Logs
+            if not cond_mcap: return reject(f"Market Cap too low: {market_cap}")
+            if not de_check: return reject(f"Debt/Equity too high: {de_ratio}")
+            if not cond_profit_pos: return reject(f"Net Income negative: {profit.iloc[0]}")
+            if not (cond_roce or cond_high_growth): return reject(f"Low ROCE({effective_roce}) and Low Growth({rev_growth})")
+            if not (cond_pe or cond_peg): return reject(f"Valuation high: PE={pe_ratio}, PEG={peg}")
+            if not (cond_sales_growth and cond_profit_growth): return reject("Sequential growth failed (Sales or Profit dipped)")
 
-        except Exception:
+            _REJECTION_LOGS[sym] = "PASSED"
+            return {
+                "symbol": sym,
+                "name": info.get('longName', sym),
+                "cmp": info.get('currentPrice', 0),
+                "sales_growth": f"{rev_growth*100:.1f}%",
+                "peg": round(peg, 2) if peg is not None else "N/A",
+                "debt_equity": round(de_ratio/100 if de_ratio > 2 else de_ratio, 2)
+            }
+
+        except Exception as e:
+            _REJECTION_LOGS[sym] = f"ERROR: {str(e)}"
             pass
         return None
 
@@ -181,7 +196,7 @@ class ScreenerService:
             print(f"[Screener] Failed to save cache file: {e}")
 
     @staticmethod
-    def screen_symbols(symbols: List[str]) -> List[Dict]:
+    def screen_symbols(symbols: List[str], force: bool = False) -> List[Dict]:
         """
         Screens a list of symbols concurrently with in-memory and file-based caching.
         Cache TTL: 60 min during market hours, 12 hours off-market.
@@ -190,9 +205,9 @@ class ScreenerService:
         
         ScreenerService._load_cache()
 
-        # ── Return cached result if still fresh ──
+        # ── Return cached result if still fresh (unless forced) ──
         age = time.time() - _SCREENER_CACHE_TIME
-        if _SCREENER_CACHE is not None and age < _cache_ttl() and len(_SCREENER_CACHE) > 0:
+        if not force and _SCREENER_CACHE is not None and age < _cache_ttl() and len(_SCREENER_CACHE) > 0:
             print(f"[Screener] Returning cached results ({int(age)}s old, TTL={int(_cache_ttl())}s)")
             return _SCREENER_CACHE
 

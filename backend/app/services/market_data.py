@@ -160,8 +160,12 @@ class MarketDataService:
             fin = result.get('financialData', {})
             stats = result.get('defaultKeyStatistics', {})
             
-            if not fin or not stats:
-                print(f"DEBUG: Missing sections in quoteSummary for {symbol}")
+            if not fin:
+                print(f"DEBUG: Missing financialData for {symbol}")
+            if not stats:
+                print(f"DEBUG: Missing defaultKeyStatistics for {symbol}")
+            
+            print(f"DEBUG: Data segments for {symbol}: fin={len(fin)}, stats={len(stats)}")
             
             info = {
                 'longName': symbol, 
@@ -178,20 +182,33 @@ class MarketDataService:
             # 2. Build 'quarterly_financials' equivalent (DataFrame-like dict)
             # We need: Total Revenue, Net Income, Basic EPS
             income_history = result.get('incomeStatementHistoryQuarterly', {}).get('incomeStatementHistory', [])
+            print(f"DEBUG: Income History for {symbol}: {len(income_history)} quarters")
             
             q_data = {
                 'Total Revenue': {},
                 'Net Income': {},
-                'Basic EPS': {}
+                'Basic EPS': {},
+                'Diluted EPS': {}
             }
             
             for i, entry in enumerate(income_history):
-                date = entry.get('endDate', {}).get('fmt', f'Q{i}')
+                # Try multiple date formats
+                date_obj = entry.get('endDate', {})
+                date = date_obj.get('fmt') or str(date_obj.get('raw', f'Q{i}'))
+                
                 q_data['Total Revenue'][date] = entry.get('totalRevenue', {}).get('raw', 0)
                 q_data['Net Income'][date] = entry.get('netIncome', {}).get('raw', 0)
-                # EPS might be in different fields
-                eps = entry.get('basicAverageShares', {}).get('raw') # Placeholder if missing
-                q_data['Basic EPS'][date] = entry.get('netIncomeApplicableToCommonShares', {}).get('raw', 0) / eps if eps else 0
+                
+                # Yahoo Finance v10 keys for EPS
+                basic_eps = entry.get('basicEps', {}).get('raw')
+                if basic_eps is None:
+                    # Fallback to manual calc if basicEps is missing
+                    net_inc = entry.get('netIncomeApplicableToCommonShares', {}).get('raw', 0)
+                    shares = entry.get('basicAverageShares', {}).get('raw')
+                    basic_eps = (net_inc / shares) if shares and shares > 0 else 0
+                
+                q_data['Basic EPS'][date] = basic_eps
+                q_data['Diluted EPS'][date] = entry.get('dilutedEps', {}).get('raw') or basic_eps
 
             # Convert to DataFrame to match yfinance output
             qf_df = pd.DataFrame(q_data).transpose()
