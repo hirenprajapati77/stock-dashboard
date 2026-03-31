@@ -397,10 +397,14 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             r_top = res_sorted[0:4] if len(res_sorted) >= 4 else res_sorted
             rendered_levels = {"supports": s_top, "resistances": r_top}
 
-        # 5. AI Insights (Non-blocking or Short Timeout)
+        # 5. AI Insights (Increased timeout for Render performance)
         try:
-            ai_analysis = await asyncio.wait_for(asyncio.to_thread(ai_engine.get_insights, df), timeout=2.0)
-        except:
+            ai_analysis = await asyncio.wait_for(asyncio.to_thread(ai_engine.get_insights, df), timeout=5.0)
+        except asyncio.TimeoutError:
+            print("WARNING: AI analysis timed out. Using fallback.")
+            ai_analysis = {"priority": {"level": "MEDIUM", "score": 50}, "breakout": {"breakout_quality": "NORMAL", "reason": "AI timeout"}}
+        except Exception as e:
+            print(f"ERROR: AI analysis failed: {e}")
             ai_analysis = {}
         if not ai_analysis: ai_analysis = {}
 
