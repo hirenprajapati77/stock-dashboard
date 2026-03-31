@@ -304,6 +304,21 @@
     </header>
 
     <main id="dashboard-main" class="p-6 w-full mx-auto space-y-6 transition-all duration-500">
+        <!-- Market Status Banner -->
+        <div id="market-status-banner" class="hidden glass rounded-xl p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500">
+            <div class="flex items-center gap-4">
+                <span id="market-status-icon" class="text-2xl drop-shadow-lg">🌙</span>
+                <div>
+                    <h3 id="market-status-title" class="text-xs font-bold uppercase tracking-widest">MARKET CLOSED</h3>
+                    <p id="market-status-desc" class="text-[10px] text-gray-300">Showing last session data</p>
+                </div>
+            </div>
+            <div class="flex flex-col items-end">
+                <span id="market-status-time" class="text-[9px] text-gray-500 font-mono italic"></span>
+                <span id="market-status-next" class="text-[9px] text-gray-400 font-bold uppercase mt-1 hidden"></span>
+            </div>
+        </div>
+
         <!-- Market Regime Warning Banner -->
         <div id="market-regime-banner"
             class="hidden glass rounded-xl border border-yellow-500/50 p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500">
@@ -543,6 +558,41 @@
                         </div>
                         <div id="early-setup-content" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- Next Session Watchlist (NEW) -->
+                    <div id="next-session-watchlist-card"
+                        class="hidden glass rounded-2xl border border-teal-500/30 p-5 mb-6 bg-gradient-to-br from-teal-900/10 to-transparent animate-in slide-in-from-right duration-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🔭</span>
+                                <h2 class="text-xs font-bold uppercase tracking-widest text-teal-300">Next Session Watchlist</h2>
+                            </div>
+                            <span class="text-[9px] text-gray-500 font-mono italic">Preparation & Focus Areas</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <!-- Strong Sectors -->
+                            <div class="space-y-3">
+                                <h3 class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Strong Sectors</h3>
+                                <div id="wl-strong-sectors" class="flex flex-wrap gap-2">
+                                    <span class="text-xs text-gray-500 italic">Evaluating...</span>
+                                </div>
+                            </div>
+                            <!-- Avoid Sectors -->
+                            <div class="space-y-3">
+                                <h3 class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Avoid Sectors</h3>
+                                <div id="wl-avoid-sectors" class="flex flex-wrap gap-2">
+                                    <span class="text-xs text-gray-500 italic">Evaluating...</span>
+                                </div>
+                            </div>
+                            <!-- Breakout Candidates -->
+                            <div class="space-y-3">
+                                <h3 class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Key Breakout Levels</h3>
+                                <div id="wl-breakout-candidates" class="flex flex-col gap-2">
+                                    <span class="text-xs text-gray-500 italic">Scanning setups...</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

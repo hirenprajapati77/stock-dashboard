@@ -321,11 +321,15 @@ class ScreenerService:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
         
         # 0. Check Cache — only serve non-empty results to avoid stale empty lists
+        from app.services.market_status_service import MarketStatusService
+        market_status = MarketStatusService.get_market_status()
+        ttl = cls.CACHE_TTL if market_status["mode"] in ["OPEN", "PRE_MARKET"] else 3600 * 12
+
         current_time = float(time.time())
         if (cls._cache.get("data") is not None and 
             cls._cache.get("data") and   # Must have results
             cls._cache.get("timeframe") == normalized_tf and 
-            (current_time - float(cls._cache.get("timestamp") or 0.0)) < cls.CACHE_TTL):
+            (current_time - float(cls._cache.get("timestamp") or 0.0)) < ttl):
             print(f"DEBUG: Serving screener data from cache for {normalized_tf}")
             return cls._cache["data"] # type: ignore
 
@@ -784,10 +788,42 @@ class ScreenerService:
             except Exception:
                 continue
 
-        # Rank: tighter range first, then higher vol ratio, then nearer resistance (implicitly in signal)
         setups.sort(key=lambda x: (float(x.get("rangePct", 99.0)), -float(x.get("volRatio", 0.0))), reverse=False)
         num_setups = int(max(1, int(limit)))
         return [setups[i] for i in range(min(len(setups), num_setups))]
+
+    @classmethod
+    def get_next_session_watchlist(cls, timeframe: str = "1D") -> Dict:
+        """
+        Compiles the Next Session Watchlist containing:
+        - Strong Sectors to focus on
+        - Weak Sectors to avoid
+        - Key Breakout Levels (Early Setups)
+        """
+        # 1. Get Sectors
+        from app.services.sector_service import SectorService
+        sector_data, _ = SectorService.get_rotation_data(timeframe=timeframe, include_constituents=False)
+        
+        strong_sectors = []
+        avoid_sectors = []
+        
+        for name, info in sector_data.items():
+            state = info.get("metrics", {}).get("state", "NEUTRAL")
+            clean_name = str(name).replace("NIFTY_", "").replace("_", " ")
+            if state in ["LEADING", "IMPROVING"]:
+                strong_sectors.append(clean_name)
+            elif state in ["LAGGING", "WEAKENING"]:
+                avoid_sectors.append(clean_name)
+                
+        # 2. Get Breakout Candidates (Early Setups)
+        breakout_candidates = cls.get_early_breakout_setups(timeframe=timeframe, limit=8)
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "strong_sectors": strong_sectors,
+            "avoid_sectors": avoid_sectors,
+            "breakout_candidates": breakout_candidates
+        }
 
     @classmethod
     def _save_fallback(cls, data: List[Dict], timeframe: str):

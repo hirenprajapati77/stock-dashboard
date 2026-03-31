@@ -231,6 +231,58 @@ class MarketIntelligence {
         this._renderEarlySetups();
     }
 
+    updateWatchlist(data) {
+        this.watchlistData = data || null;
+        this._renderWatchlist();
+    }
+
+    _renderWatchlist() {
+        if (!this.watchlistData) return;
+        const card = document.getElementById('next-session-watchlist-card');
+        if (!card) return;
+
+        // If no data, hide it
+        if (!this.watchlistData.strong_sectors && !this.watchlistData.breakout_candidates) {
+            card.classList.add('hidden');
+            return;
+        }
+        card.classList.remove('hidden');
+
+        // Strong Sectors
+        const strContainer = document.getElementById('wl-strong-sectors');
+        if (strContainer) {
+            const arr = this.watchlistData.strong_sectors || [];
+            if (!arr.length) strContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
+            else strContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-teal-500/10 text-teal-400 border border-teal-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
+        }
+
+        // Avoid Sectors
+        const avContainer = document.getElementById('wl-avoid-sectors');
+        if (avContainer) {
+            const arr = this.watchlistData.weak_sectors || [];
+            if (!arr.length) avContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
+            else avContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
+        }
+
+        // Breakout Candidates
+        const boContainer = document.getElementById('wl-breakout-candidates');
+        if (boContainer) {
+            const arr = this.watchlistData.breakout_candidates || [];
+            if (!arr.length) boContainer.innerHTML = '<span class="text-xs text-gray-500 italic">No clear setups found</span>';
+            else {
+                boContainer.innerHTML = arr.map(c => `
+                    <div class="flex items-center justify-between text-xs border-b border-gray-800 pb-1 cursor-pointer hover:bg-gray-800/50 p-1 rounded" onclick="window.fetchDataForSymbol('${c.symbol}')">
+                        <span class="font-bold text-white">${c.symbol}</span>
+                        <div class="text-right">
+                            <span class="text-teal-400 mono">₹${parseFloat(c.price).toFixed(2)}</span>
+                            <span class="text-[9px] text-gray-500 block">${c.sector.replace('NIFTY_', '')}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
     updateSignalPerformance(data) {
         this.signalPerformance = data || null;
         this._renderSignalPerformance();
