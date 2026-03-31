@@ -95,7 +95,8 @@ class MarketDataService:
         try:
             from app.config import fyers_config
             p_url = fyers_config.auth_proxy_url
-            if not p_url: return None
+            if not p_url: 
+                return None
             
             p_url = p_url.rstrip('/')
             target_host = url.split('//')[1].split('/')[0]
@@ -105,11 +106,14 @@ class MarketDataService:
                 "x-target-host": target_host,
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
             }
-            res = requests.get(proxy_url, headers=headers, timeout=10)
+            # print(f"DEBUG: Proxy Fetching -> {proxy_url} (Target: {target_host})")
+            res = requests.get(proxy_url, headers=headers, timeout=12)
             if res.status_code == 200:
                 return res
+            else:
+                print(f"DEBUG: Proxy Error {res.status_code} for {target_host}: {res.text[:100]}")
         except Exception as e:
-            print(f"DEBUG: Proxy fetch failed: {e}")
+            print(f"DEBUG: Proxy Exception: {e}")
         return None
 
     @staticmethod
@@ -148,15 +152,19 @@ class MarketDataService:
         try:
             data = res.json()
             result = data.get('quoteSummary', {}).get('result', [{}])[0]
-            if not result: return None
+            if not result: 
+                print(f"DEBUG: No quoteSummary.result found for {symbol}")
+                return None
             
             # 1. Build 'info' equivalent
             fin = result.get('financialData', {})
             stats = result.get('defaultKeyStatistics', {})
-            profile = result.get('assetProfile', {})
+            
+            if not fin or not stats:
+                print(f"DEBUG: Missing sections in quoteSummary for {symbol}")
             
             info = {
-                'longName': symbol, # Default
+                'longName': symbol, 
                 'currentPrice': fin.get('currentPrice', {}).get('raw', 0),
                 'debtToEquity': fin.get('debtToEquity', {}).get('raw'),
                 'pegRatio': stats.get('pegRatio', {}).get('raw'),
