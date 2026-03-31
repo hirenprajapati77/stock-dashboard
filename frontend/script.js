@@ -502,30 +502,32 @@ function updateUI(data) {
             const ai = data.ai_analysis;
             const pBadge = document.getElementById('ai-priority-badge');
             if (pBadge) {
-                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
-                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+                const priority = ai.priority?.level || 'MEDIUM';
+                pBadge.textContent = `PRIORITY: ${priority}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${priority === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    priority === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
                     }`;
             }
 
             const bBadge = document.getElementById('ai-breakout-badge');
             if (bBadge) {
-                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
-                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                const quality = ai.breakout?.breakout_quality || 'UNKNOWN';
+                bBadge.textContent = quality.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const bR = document.getElementById('ai-breakout-reason');
-            if (bR) bR.textContent = ai.breakout.reason;
+            if (bR) bR.textContent = ai.breakout?.reason || 'No breakout analysis available.';
 
             const rBadge = document.getElementById('ai-regime-badge');
             if (rBadge) {
-                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
-                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
-                    }`;
+                const regime = ai.regime?.market_regime || 'NEUTRAL';
+                rBadge.textContent = regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'}`;
             }
             const rR = document.getElementById('ai-regime-reason');
-            if (rR) rR.textContent = ai.regime.reason;
+            if (rR) rR.textContent = ai.regime?.reason || 'Market regime stable.';
         }
 
         // 4. Levels
