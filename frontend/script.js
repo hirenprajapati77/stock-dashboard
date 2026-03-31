@@ -21,6 +21,23 @@ let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 window.currentMarketStatus = null;
+window.symbolCache = {}; // Frontend cache for instant switching
+
+function showGlobalLoader() {
+    const loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.style.display = 'flex';
+        loader.style.opacity = '1';
+    }
+}
+
+function hideGlobalLoader() {
+    const loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => { loader.style.display = 'none'; }, 300);
+    }
+}
 
 async function checkMarketStatus() {
     try {
@@ -253,13 +270,27 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
+        // Frontend Caching: Show old data instantly if available
+        const cacheKey = `${symbol}_${tf}_${strategy}`;
+        if (!isBackground && window.symbolCache[cacheKey]) {
+            console.log(`[Cache] HIT for ${cacheKey} - Rendering instantly`);
+            updateUI(window.symbolCache[cacheKey]);
+        } else if (!isBackground) {
+            showGlobalLoader();
+        }
+
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+            if (!isBackground) hideGlobalLoader();
+            throw new Error(`HTTP ${response.status}`);
+        }
 
         const data = await response.json();
+        if (!isBackground) hideGlobalLoader();
 
         if (data && data.meta) {
             window.lastReceivedData = data;
+            window.symbolCache[cacheKey] = data; // Update cache
             
             // Update live indicator based on source
             const liveIndicator = document.getElementById('live-indicator');
@@ -778,16 +809,23 @@ function drawLevelsOnChart(levels, fullData = null) {
 }
 
 // Rotation Data Fetching
-async function fetchRotation() {
+async function fetchRotation(isBackground = false) {
     try {
+        if (!isBackground) showGlobalLoader();
         const tf = document.getElementById('tf-selector').value;
         const res = await fetch(`${ROTATION_URL}?tf=${tf}&t=${Date.now()}`);
+        if (!res.ok) {
+            if (!isBackground) hideGlobalLoader();
+            throw new Error(`HTTP ${res.status}`);
+        }
         const result = await res.json();
         if (result.status === 'success' && rotationApp) {
             rotationApp.setData(result.data, result.alerts);
         }
+        if (!isBackground) hideGlobalLoader();
     } catch (e) {
         console.error("Failed to fetch rotation data", e);
+        if (!isBackground) hideGlobalLoader();
     }
 }
 
@@ -1024,9 +1062,9 @@ window.onload = function () {
             const isIntelligenceActive = isIntelligenceModeActive();
 
             if (isRotationActive) {
-                fetchRotation();
+                fetchRotation(true);
             } else if (isIntelligenceActive) {
-                fetchIntelligence();
+                fetchIntelligence(true);
             } else {
                 fetchData(true);
             }
@@ -1049,8 +1087,9 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence() {
+async function fetchIntelligence(isBackground = false) {
     try {
+        if (!isBackground) showGlobalLoader();
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
@@ -1161,8 +1200,10 @@ async function fetchIntelligence() {
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
             }
         }
+        if (!isBackground) hideGlobalLoader();
     } catch (e) {
         console.error("Critical failure in fetchIntelligence", e);
+        if (!isBackground) hideGlobalLoader();
     }
 }
 window.fetchIntelligence = fetchIntelligence;

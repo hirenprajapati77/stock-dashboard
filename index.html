@@ -183,10 +183,52 @@
             color: #9ca3af;
             font-weight: 600;
         }
+        /* Global Loader Overlay */
+        #global-loader {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(11, 14, 17, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .loader-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid rgba(59, 130, 246, 0.1);
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loader-glow {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 
+            0%, 100% { transform: scale(1); opacity: 0.5; } 
+            50% { transform: scale(1.5); opacity: 0.8; } 
+        }
     </style>
 </head>
 
 <body class="min-h-screen overflow-x-hidden">
+    <!-- Global Loader Overlay -->
+    <div id="global-loader">
+        <div class="loader-glow"></div>
+        <div class="loader-spinner mb-4"></div>
+        <div class="text-blue-400 font-bold uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Data...</div>
+    </div>
     <!-- Header -->
     <header class="h-16 border-b border-gray-800 glass sticky top-0 z-50 px-4 flex items-center justify-between gap-2 overflow-hidden">
         <div class="flex items-center gap-2 flex-shrink-0">
