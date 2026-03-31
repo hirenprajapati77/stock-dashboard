@@ -40,6 +40,7 @@ from app.services.fundamentals import FundamentalService
 from app.services.screener import ScreenerService
 from app.services.sector_service import SectorService
 from app.services.constituent_service import ConstituentService
+from app.services.market_status_service import MarketStatusService
 from app.engine.swing import SwingEngine
 from app.engine.zones import ZoneEngine
 from app.engine.sr import SREngine
@@ -242,6 +243,18 @@ async def search_symbols(q: str = Query(..., min_length=1)):
         print(f"Search error: {e}")
         return []
 
+
+@app.get("/api/v1/market-status")
+async def get_market_status():
+    """
+    Returns the current market status, phase, and metadata.
+    """
+    try:
+        from app.services.market_status_service import MarketStatusService
+        status = MarketStatusService.get_market_status()
+        return {"status": "success", "data": status}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/v1/dashboard")
 async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR"):
@@ -454,8 +467,10 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
         # 6. Trade Decision Add-on
         from app.services.trade_decision_service import TradeDecisionService
         try:
-            decision_data = TradeDecisionService.compute_trade_score(response_data)
+            market_status = MarketStatusService.get_market_status()
+            decision_data = TradeDecisionService.compute_trade_score(response_data, market_phase=market_status["market_phase"])
             response_data.update(decision_data)
+            response_data["market_status"] = market_status
         except Exception as e:
             print(f"TradeDecisionService error: {e}")
 
@@ -735,7 +750,11 @@ async def get_momentum_hits(tf: str = "1D"):
              pass
              
         filtered = SignalFilterService.annotate_many(data)
-        enriched = TradeDecisionService.annotate_many(filtered)
+        
+        from app.services.market_status_service import MarketStatusService
+        market_status = MarketStatusService.get_market_status()
+        enriched = TradeDecisionService.annotate_many(filtered, market_phase=market_status["market_phase"])
+        
         TradeTrackingService.log_trades(enriched)
         
         # Detect if this is fallback data (if all items are old)
@@ -798,6 +817,18 @@ async def get_early_setups(tf: str = "1D", limit: int = 5):
             "message": str(e),
             "source": "error"
         }
+
+@app.get("/api/v1/next-session-watchlist")
+async def get_next_session_watchlist(tf: str = "1D"):
+    """
+    Returns the Next Session Watchlist: key breakout setups, strong and weak sectors.
+    """
+    try:
+        from app.services.screener_service import ScreenerService as MomentumScreener
+        data = MomentumScreener.get_next_session_watchlist(timeframe=tf)
+        return {"status": "success", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/v1/trade-performance")
 async def get_trade_performance():

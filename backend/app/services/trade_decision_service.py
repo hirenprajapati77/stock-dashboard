@@ -11,13 +11,13 @@ class TradeDecisionService:
     """
 
     @classmethod
-    def annotate_many(cls, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def annotate_many(cls, hits: list[dict[str, Any]], market_phase: str = "OPEN") -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for hit in hits or []:
             row = dict(hit)
             
             # 1. Compute Trade Score and Decision
-            decision_data = cls.compute_trade_score(row)
+            decision_data = cls.compute_trade_score(row, market_phase)
             row.update(decision_data)
             
             # 2. Build Execution Plan (Original logic, kept for compatibility)
@@ -29,7 +29,7 @@ class TradeDecisionService:
         return out
 
     @classmethod
-    def compute_trade_score(cls, hit: dict[str, Any]) -> dict[str, Any]:
+    def compute_trade_score(cls, hit: dict[str, Any], market_phase: str = "OPEN") -> dict[str, Any]:
         """
         Decision Engine v2.0
         Computes a 0-100 score based on user-defined weights.
@@ -132,6 +132,18 @@ class TradeDecisionService:
             if vol_score >= 15: tags.append("Volume Strong")
             if trend_score >= 20: tags.append("Strong Trend")
             if rr_score >= 15: tags.append("High RR")
+            
+        # Market Phase Overrides
+        if action in ["STRONG BUY", "BUY"]:
+            if market_phase == "CLOSED":
+                action = "AVOID"
+                tags.append("Market Closed")
+            elif market_phase == "POST_MARKET":
+                action = "ANALYSIS ONLY"
+                tags.append("Post-Market")
+            elif market_phase == "PRE_MARKET":
+                action = "WATCHLIST"
+                tags.append("Pre-Market")
         
         # Factors for UI
         factors = [

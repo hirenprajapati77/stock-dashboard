@@ -111,10 +111,14 @@ class SectorService:
         }
         
         # 0. Check Cache
+        from app.services.market_status_service import MarketStatusService
+        market_status = MarketStatusService.get_market_status()
+        ttl = cls.CACHE_TTL if market_status["mode"] in ["OPEN", "PRE_MARKET"] else 3600 * 12
+
         current_time = float(time.time())
         if (cls._cache["data"] is not None and 
             cls._cache["timeframe"] == timeframe and 
-            (current_time - float(cls._cache["timestamp"] or 0.0)) < cls.CACHE_TTL):
+            (current_time - float(cls._cache["timestamp"] or 0.0)) < ttl):
             return cls._cache["data"], cls._cache["alerts"]
 
         normalized_timeframe = "1D" if timeframe == "Daily" else timeframe

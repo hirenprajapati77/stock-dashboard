@@ -1,8 +1,5 @@
 const IS_LOCAL_FILE = window.location.protocol === 'file:';
-// Use relative paths for API calls to avoid CORS/hostname issues when served from the same origin
-const API_BASE = ""; 
-const hostname = window.location.hostname;
-const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+const API_BASE = IS_LOCAL_FILE ? "http://localhost:8000" : ""; // Use relative path if hosted, else localhost
 const API_URL = `${API_BASE}/api/v1/dashboard`;
 const AI_API_URL = `${API_BASE}/api/v2/ai-insights`;
 const SCREENER_URL = `${API_BASE}/api/v1/screener`;
@@ -23,9 +20,59 @@ let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
+window.currentMarketStatus = null;
+
+async function checkMarketStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/market-status`);
+        const result = await res.json();
+        if (result.status === 'success') {
+            window.currentMarketStatus = result.data;
+            applyMarketStatusState(result.data);
+        }
+    } catch (e) { console.error('Market status fetch failed', e); }
+}
+
+function applyMarketStatusState(ms) {
+    const banner = document.getElementById('market-status-banner');
+    if (!banner) return;
+    
+    if (ms.mode !== 'OPEN') {
+        banner.classList.remove('hidden');
+        const title = document.getElementById('market-status-title');
+        const desc = document.getElementById('market-status-desc');
+        const icon = document.getElementById('market-status-icon');
+        const time = document.getElementById('market-status-time');
+        
+        if (ms.mode === 'CLOSED') {
+            banner.className = 'glass rounded-xl border border-orange-500/50 bg-orange-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-orange-400';
+            title.textContent = 'MARKET CLOSED';
+            icon.textContent = '🌙';
+        } else if (ms.mode === 'PRE_MARKET') {
+            banner.className = 'glass rounded-xl border border-blue-500/50 bg-blue-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-blue-400';
+            title.textContent = 'PRE-MARKET';
+            icon.textContent = '🌅';
+        } else if (ms.mode === 'POST_MARKET') {
+            banner.className = 'glass rounded-xl border border-purple-500/50 bg-purple-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-purple-400';
+            title.textContent = 'POST-MARKET';
+            icon.textContent = '🌆';
+        }
+        
+        desc.textContent = ms.message + ' - Showing last session data';
+        time.textContent = 'Status as of: ' + new Date(ms.last_updated).toLocaleTimeString();
+    } else {
+        banner.classList.add('hidden');
+    }
+}
 
 
 function isIntelligenceModeActive() {
+    const intelToggle = document.getElementById('intelligence-toggle');
+    if (intelToggle) return !!intelToggle.checked;
+
     const intelligenceSection = document.getElementById('intelligence-section');
     return !!(intelligenceSection && !intelligenceSection.classList.contains('hidden'));
 }
@@ -135,7 +182,8 @@ async function runScreener() {
             list.innerHTML = '';
 
             if (data.matches.length === 0) {
-                list.innerHTML = '<p class="text-xs text-gray-500">No stocks currently match all 9 strict growth criteria.</p>';
+                const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
+                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No live data (market closed). Awaiting next session.' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
                 return;
             }
 
@@ -228,6 +276,10 @@ async function fetchData(isBackground = false) {
             }
 
             updateUI(data);
+            if (data.market_status) {
+                window.currentMarketStatus = data.market_status;
+                applyMarketStatusState(data.market_status);
+            }
         } else {
             throw new Error(data.message || "Malformed API response");
         }
@@ -446,37 +498,34 @@ function updateUI(data) {
         }
 
         // 3. AI Insights
-        if (data.ai_analysis && data.ai_analysis.status === "success" && data.ai_analysis.priority) {
+        if (data.ai_analysis && data.ai_analysis.status === "success") {
             const ai = data.ai_analysis;
             const pBadge = document.getElementById('ai-priority-badge');
-            if (pBadge && ai.priority) {
-                const level = ai.priority.level || 'NONE';
-                pBadge.textContent = `PRIORITY: ${level}`;
-                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-                    level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+            if (pBadge) {
+                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
                     }`;
             }
 
             const bBadge = document.getElementById('ai-breakout-badge');
-            if (bBadge && ai.breakout && ai.breakout.breakout_quality) {
-                const qual = ai.breakout.breakout_quality;
-                bBadge.textContent = qual.replace('_', ' ');
-                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${qual === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-                    qual === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+            if (bBadge) {
+                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const bR = document.getElementById('ai-breakout-reason');
-            if (bR && ai.breakout) bR.textContent = ai.breakout.reason || '';
+            if (bR) bR.textContent = ai.breakout.reason;
 
             const rBadge = document.getElementById('ai-regime-badge');
-            if (rBadge && ai.regime && ai.regime.market_regime) {
-                const regime = ai.regime.market_regime;
-                rBadge.textContent = regime.replace('_', ' ');
-                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
+            if (rBadge) {
+                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const rR = document.getElementById('ai-regime-reason');
-            if (rR && ai.regime) rR.textContent = ai.regime.reason || '';
+            if (rR) rR.textContent = ai.regime.reason;
         }
 
         // 4. Levels
@@ -559,34 +608,14 @@ function updateDecisionStrip(data) {
     const entryEl = document.getElementById('strip-entry');
     const slEl = document.getElementById('strip-sl');
     const tgtEl = document.getElementById('strip-target');
-    const rrEl = document.getElementById('strip-rr');
-    const setupEl = document.getElementById('strip-setup');
     const reasonsEl = document.getElementById('decision-reasons');
-    
-    // New: Positives and Risks lists
-    const posList = document.getElementById('positives-list');
-    const riskList = document.getElementById('risks-list');
 
     if (!strip || !data.action) return;
 
     // 1. Action & Confidence
     actionEl.textContent = data.action;
     actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
-    
-    // Pulse for STRONG actions
-    if (data.action.includes('STRONG')) {
-        actionEl.classList.add('animate-pulse', 'border-2');
-        if (data.action.includes('BUY')) actionEl.classList.add('border-green-400');
-        else actionEl.classList.add('border-red-400');
-    }
-
-    const score = data.score || data.confidence || 0;
-    confEl.textContent = `${score}%`;
-    
-    // Dynamic color for confidence
-    if (score >= 80) confEl.className = 'text-2xl font-black text-green-400 tracking-tighter shadow-green-500/20';
-    else if (score >= 60) confEl.className = 'text-2xl font-black text-blue-400 tracking-tighter';
-    else confEl.className = 'text-2xl font-black text-yellow-500 tracking-tighter';
+    confEl.textContent = `${data.score}%`;
 
     // 2. Execution Levels
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
@@ -595,91 +624,22 @@ function updateDecisionStrip(data) {
     entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
     slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
     tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
-    
-    if (rrEl) rrEl.textContent = `${(data.rr || data.summary.risk_reward || 0).toFixed(2)}x`;
-    if (setupEl) setupEl.textContent = data.setupType || data.summary.setup_type || '---';
 
-    // 3. Reason Tags (Main Strip)
-    if (reasonsEl) {
-        reasonsEl.innerHTML = (data.reasonTags || []).slice(0, 4).map(tag => 
-            `<span class="reason-tag">${tag}</span>`
-        ).join('');
-    }
+    // 3. Reason Tags
+    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
+        `<span class="reason-tag">${tag}</span>`
+    ).join('');
 
-    // 4. Positives & Risks Detailed Lists (Decision Logic v2.0)
-    const factors = data.confidenceFactors || [];
-    if (posList && riskList) {
-        const positives = factors.filter(f => f.positive);
-        const risks = factors.filter(f => !f.positive);
-
-        posList.innerHTML = positives.length > 0 
-            ? positives.map(f => `
-                <li class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-300 font-medium">${f.label}</span>
-                    <span class="text-green-400 font-bold font-mono">${f.value}</span>
-                </li>
-            `).join('')
-            : '<li class="text-[10px] text-gray-500 italic">No major positives identified.</li>';
-
-        riskList.innerHTML = risks.length > 0
-            ? risks.map(f => `
-                <li class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-400 font-medium">${f.label}</span>
-                    <span class="text-red-400 font-bold font-mono">${f.value}</span>
-                </li>
-            `).join('')
-            : '<li class="text-[10px] text-gray-500 italic">No critical risks flagged.</li>';
+    // 4. Hide Execution Panel in CLOSED mode
+    const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
+    if (entryEl && entryEl.parentElement && entryEl.parentElement.parentElement) {
+        if (isClosed) {
+            entryEl.parentElement.parentElement.classList.add('hidden');
+        } else {
+            entryEl.parentElement.parentElement.classList.remove('hidden');
+        }
     }
 }
-
-window.renderTopPicks = function(hits) {
-    const section = document.getElementById('top-picks-section');
-    const container = document.getElementById('top-picks-container');
-    if (!section || !container) return;
-
-    // Filter: Score > 70 AND RR >= 2 (as per requirements)
-    const topPicks = hits.filter(h => {
-        const score = h.score || h.confidence || 0;
-        const rr = h.rr || h.risk_reward || 0;
-        return score >= 70 && rr >= 2.0;
-    }).sort((a,b) => (b.score || b.confidence || 0) - (a.score || a.confidence || 0))
-      .slice(0, 3);
-
-    if (topPicks.length === 0) {
-        section.classList.add('hidden');
-        return;
-    }
-
-    section.classList.remove('hidden');
-    container.innerHTML = topPicks.map(p => {
-        const score = p.score || p.confidence || 0;
-        const rr = p.rr || p.risk_reward || 0;
-        return `
-            <div class="glass p-4 rounded-2xl border border-indigo-500/30 hover:border-indigo-500 transition-all cursor-pointer"
-                 onclick="window.fetchDataForSymbol('${p.symbol}', { fromIntelligence: true })">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h4 class="text-sm font-bold text-white">${p.symbol}</h4>
-                        <p class="text-[9px] text-gray-400 font-mono uppercase">${p.sector || 'Sector'}</p>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-[10px] font-black text-indigo-400">${score}% CONF</span>
-                    </div>
-                </div>
-                <div class="mt-3 flex justify-between items-end">
-                    <div class="flex flex-col">
-                        <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Risk Reward</span>
-                        <span class="text-lg font-black text-white mono">${rr.toFixed(2)}x</span>
-                    </div>
-                    <div class="flex flex-col text-right">
-                         <span class="text-[8px] text-gray-500 uppercase font-black tracking-widest">Action</span>
-                         <span class="text-[10px] font-bold text-green-400 uppercase">${p.action || 'BUY'}</span>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-};
 
 function renderLevelList(containerId, levels, color, isMTF) {
     const list = document.getElementById(containerId);
@@ -726,32 +686,28 @@ function drawLevelsOnChart(levels, fullData = null) {
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Dashed,
             axisLabelVisible: true,
-            title: 'ENTRY (CMP)',
+            title: 'ENTRY',
         }));
 
         // Stop Loss (Red)
-        if (s.stop_loss) {
-            levelsLayer.push(candlestickSeries.createPriceLine({
-                price: s.stop_loss,
-                color: '#f6465d',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: 'STOP LOSS',
-            }));
-        }
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.stop_loss,
+            color: '#f6465d',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'SL',
+        }));
 
         // Target (Green)
-        if (s.target) {
-            levelsLayer.push(candlestickSeries.createPriceLine({
-                price: s.target,
-                color: '#00c076',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: 'TARGET (T1)',
-            }));
-        }
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: s.target,
+            color: '#00c076',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: 'TGT',
+        }));
     }
 
     if (!levels) return;
@@ -839,6 +795,7 @@ window.onload = function () {
         if (typeof LightweightCharts === 'undefined') {
             throw new Error("Charting library not found. Please check your internet connection.");
         }
+        checkMarketStatus();
         initChart();
         fetchData();
 
@@ -859,7 +816,6 @@ window.onload = function () {
         if (typeof MarketIntelligence !== 'undefined') {
             intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
             window.intelligenceApp = intelligenceApp;
-            window.marketIntelligence = intelligenceApp;
         }
 
         // Toggle Handlers
@@ -867,8 +823,7 @@ window.onload = function () {
         const rot = document.getElementById('rotation-section');
         const intel = document.getElementById('intelligence-section');
         const rotTog = document.getElementById('rotation-toggle');
-        const intelTog = document.getElementById('view-intelligence');
-        const dashTog = document.getElementById('view-dashboard');
+        const intelTog = document.getElementById('intelligence-toggle');
         const scrTog = document.getElementById('screener-toggle');
 
         // Rotation Toggle Logic
@@ -878,68 +833,33 @@ window.onload = function () {
                     rot.classList.remove('hidden');
                     std.classList.add('hidden');
                     intel.classList.add('hidden');
+                    if (intelTog) intelTog.checked = false;
                     scrTog.checked = false;
                     document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
                     fetchRotation();
                     if (rotationApp) rotationApp.resize();
-                    updateViewToggleButtons('rotation');
                 } else {
                     rot.classList.add('hidden');
-                    // Default back to dashboard
-                    std.classList.remove('hidden');
-                    updateViewToggleButtons('dashboard');
+                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
                 }
             });
         }
 
-        // View Mode Toggle Helper
-        function updateViewToggleButtons(mode) {
-            if (dashTog && intelTog) {
-                if (mode === 'intelligence') {
-                    dashTog.classList.replace('bg-blue-600', 'text-gray-400');
-                    dashTog.classList.replace('text-white', 'hover:bg-gray-800');
-                    intelTog.classList.replace('text-gray-400', 'bg-blue-600');
-                    intelTog.classList.replace('hover:bg-gray-800', 'text-white');
-                } else if (mode === 'dashboard') {
-                    intelTog.classList.replace('bg-blue-600', 'text-gray-400');
-                    intelTog.classList.replace('text-white', 'hover:bg-gray-800');
-                    dashTog.classList.replace('text-gray-400', 'bg-blue-600');
-                    dashTog.classList.replace('hover:bg-gray-800', 'text-white');
-                } else {
-                    // Both off for rotation if needed, but keeping them as is visually
-                    intelTog.classList.replace('bg-blue-600', 'text-gray-400');
-                    intelTog.classList.replace('text-white', 'hover:bg-gray-800');
-                    dashTog.classList.replace('bg-blue-600', 'text-gray-400');
-                    dashTog.classList.replace('text-white', 'hover:bg-gray-800');
-                }
-            }
-        }
-
-        // Dashboard Button Logic
-        if (dashTog) {
-            dashTog.addEventListener('click', () => {
-                std.classList.remove('hidden');
-                intel.classList.add('hidden');
-                rot.classList.add('hidden');
-                if (rotTog) rotTog.checked = false;
-                scrTog.checked = false;
-                updateViewToggleButtons('dashboard');
-                // document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                fetchData(true);
-            });
-        }
-
-        // Intelligence Button Logic
+        // Intelligence Toggle Logic
         if (intelTog) {
-            intelTog.addEventListener('click', () => {
-                intel.classList.remove('hidden');
-                std.classList.add('hidden');
-                rot.classList.add('hidden');
-                if (rotTog) rotTog.checked = false;
-                scrTog.checked = false;
-                // document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                updateViewToggleButtons('intelligence');
-                fetchIntelligence();
+            intelTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    intel.classList.remove('hidden');
+                    std.classList.add('hidden');
+                    rot.classList.add('hidden');
+                    if (rotTog) rotTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                    fetchIntelligence();
+                } else {
+                    intel.classList.add('hidden');
+                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
+                }
             });
         }
 
@@ -949,10 +869,6 @@ window.onload = function () {
         let searchTimeout;
         let selectedIndex = -1;
 
-        searchInput.addEventListener('focus', () => {
-            searchInput.select();
-        });
-
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
             clearTimeout(searchTimeout);
@@ -960,32 +876,29 @@ window.onload = function () {
 
             if (query.length < 1) {
                 resultsDiv.classList.add('hidden');
-                resultsDiv.innerHTML = '';
                 return;
             }
 
             searchTimeout = setTimeout(async () => {
                 try {
-                    const res = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(query)}`);
-                    if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+                    const res = await fetch(`${SEARCH_URL}?q=${query}`);
                     const results = await res.json();
 
                     resultsDiv.innerHTML = '';
-                    if (results && results.length > 0) {
+                    if (results.length > 0) {
                         resultsDiv.classList.remove('hidden');
                         results.forEach((item, index) => {
                             const div = document.createElement('div');
-                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0 search-item transition-colors";
+                            div.className = "px-4 py-2 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800 last:border-0 search-item";
                             div.dataset.index = index;
                             div.innerHTML = `
                                 <div>
                                     <span class="font-bold text-sm text-white">${item.symbol}</span>
-                                    <p class="text-[10px] text-gray-500 truncate w-40">${item.shortname}</p>
+                                    <p class="text-[10px] text-gray-500 truncate w-32">${item.shortname}</p>
                                 </div>
-                                <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">${item.exchange}</span>
+                                <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${item.exchange}</span>
                             `;
-                            div.onclick = (event) => {
-                                event.stopPropagation();
+                            div.onclick = () => {
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
                                 fetchData();
@@ -996,17 +909,9 @@ window.onload = function () {
                         resultsDiv.classList.add('hidden');
                     }
                 } catch (err) {
-                    console.error("[Search] error:", err);
-                    resultsDiv.classList.add('hidden');
+                    console.error("Search error:", err);
                 }
             }, 300);
-        });
-
-        // Hide search results when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
-                resultsDiv.classList.add('hidden');
-            }
         });
 
         searchInput.addEventListener('keydown', function (e) {
@@ -1042,7 +947,12 @@ window.onload = function () {
             }
         }
 
-        // No-op for redundant listener cleanup
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function (e) {
+            if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+                resultsDiv.classList.add('hidden');
+            }
+        });
 
         document.getElementById('tf-selector').addEventListener('change', () => {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
@@ -1054,63 +964,45 @@ window.onload = function () {
                 fetchData();
             }
         });
-        // Timeframe Dropdown (TradingView-style)
-        const tfDropBtn = document.getElementById('tf-dropdown-btn');
-        const tfDropMenu = document.getElementById('tf-dropdown-menu');
-        const tfDropLabel = document.getElementById('tf-dropdown-label');
-        const tfSelectorHidden = document.getElementById('tf-selector');
-
-        if (tfDropBtn && tfDropMenu) {
-            // Toggle open/close
-            tfDropBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                tfDropMenu.classList.toggle('open');
-            });
-
-            // Close when clicking outside
-            document.addEventListener('click', () => tfDropMenu.classList.remove('open'));
-            tfDropMenu.addEventListener('click', (e) => e.stopPropagation());
-
-            // Handle option click
-            const tfOptions = tfDropMenu.querySelectorAll('.tf-option');
-            const setActiveTfOption = (tf) => {
-                tfOptions.forEach(opt => {
-                    if (opt.dataset.tf === tf) {
-                        opt.classList.add('active');
+        // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
+        const intradayGroup = document.getElementById('intraday-tf-toggle');
+        if (intradayGroup) {
+            const tfSelector = document.getElementById('tf-selector');
+            const buttons = intradayGroup.querySelectorAll('button[data-tf]');
+            const setActive = (activeTf) => {
+                buttons.forEach(btn => {
+                    if (btn.dataset.tf === activeTf) {
+                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
                     } else {
-                        opt.classList.remove('active');
+                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
+                        btn.classList.add('text-gray-300', 'hover:bg-gray-800');
                     }
                 });
-                if (tfDropLabel) tfDropLabel.textContent = tf;
             };
-
-            tfOptions.forEach(opt => {
-                opt.addEventListener('click', () => {
-                    const tf = opt.dataset.tf;
-                    // Sync hidden selector and fire change
-                    if (tfSelectorHidden) {
-                        tfSelectorHidden.value = tf;
-                        tfSelectorHidden.dispatchEvent(new Event('change'));
+            buttons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tf = btn.dataset.tf;
+                    if (tfSelector) {
+                        tfSelector.value = tf;
+                        tfSelector.dispatchEvent(new Event('change'));
                     }
-                    setActiveTfOption(tf);
-                    tfDropMenu.classList.remove('open');
-                    // Refresh intelligence if active
+                    setActive(tf);
+                    // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
                     if (isIntelligenceModeActive()) {
                         fetchIntelligence();
                     }
                 });
             });
-
-            // Initialise from selector's default value
-            if (tfSelectorHidden) {
-                setActiveTfOption(tfSelectorHidden.value || '15m');
+            // Initialise chip state from selector's default
+            if (tfSelector) {
+                setActive(tfSelector.value);
             }
         }
-        // Legacy intraday-tf-toggle kept as empty div for backwards compat, no-op
         document.getElementById('mtf-toggle').addEventListener('change', () => {
             // Re-render chart levels without re-fetching
             if (window.lastReceivedData) {
-                drawLevelsOnChart(window.lastReceivedData.levels, window.lastReceivedData);
+                drawLevelsOnChart(window.lastReceivedData.levels);
             }
         });
         document.getElementById('search-btn').addEventListener('click', () => {
@@ -1136,7 +1028,7 @@ window.onload = function () {
             } else {
                 fetchData(true);
             }
-        }, 30000); // reduced frequency to 30s to avoid rate limits on free-tier hosting
+        }, 10000); // reduced frequency for expensive intelligence calls (10s)
 
         document.getElementById('strategy-selector').addEventListener('change', () => {
             fetchData();
@@ -1155,41 +1047,21 @@ window.onload = function () {
     }
 };
 
-let marketStatus = { open: true, lastCheck: 0 };
-
-async function fetchIntelligence(overrideTf = null) {
+async function fetchIntelligence() {
     try {
         const tfSelector = document.getElementById('tf-selector');
-        const defaultTf = tfSelector ? tfSelector.value : '1D';
-        const tf = overrideTf || defaultTf;
+        const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
 
-        // 0. Cache Check
-        const cacheKey = `intel_cache_${tf}`;
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-            const cacheObj = JSON.parse(cached);
-            const age = now - cacheObj.timestamp;
-            // Market closed: cache lasts 1 hour. Market open: cache lasts 20 seconds.
-            const ttl = marketStatus.open ? 20000 : 3600000;
-            
-            if (age < ttl) {
-                console.log(`%c[Intelligence] Serving ${tf} from cache (age: ${Math.round(age/1000)}s)`, "color: #10b981; font-weight: bold;");
-                applyIntelligenceData(cacheObj.data);
-                return;
-            }
-        }
-
-        console.log(`%c[Intelligence] Fetching live data for ${tf}...`, "color: #3b82f6; font-weight: bold;");
-
         // 1. Fetch data in parallel
-        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
             fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; }),
-            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; })
+            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/next-session-watchlist?tf=${tf}&t=${now}`).catch(e => { console.error("Watchlist fetch error", e); return null; })
         ]);
 
         // 2. Parse responses carefully
@@ -1200,6 +1072,7 @@ async function fetchIntelligence(overrideTf = null) {
         let earlyData = { data: [], source: 'live' };
         let perfData = null;
         let tradePerfData = null;
+        let watchlistData = null;
 
         if (hitsRes && hitsRes.ok) {
             hitsData = await hitsRes.json();
@@ -1242,36 +1115,18 @@ async function fetchIntelligence(overrideTf = null) {
         if (tradePerfRes && tradePerfRes.ok) {
             const tradePerfJson = await tradePerfRes.json();
             if (tradePerfJson.status === 'success') tradePerfData = tradePerfJson.data;
+        } else if (tradePerfRes) {
+            console.error(`Trade Performance API error: ${tradePerfRes.status}`);
         }
 
-        const allData = {
-            hitsData,
-            sectorData,
-            summaryData,
-            summarySource,
-            earlyData,
-            perfData,
-            tradePerfData
-        };
+        if (watchlistRes && watchlistRes.ok) {
+            const wlJson = await watchlistRes.json();
+            if (wlJson.status === 'success') watchlistData = wlJson.data;
+        } else if (watchlistRes) {
+            console.error(`Watchlist API error: ${watchlistRes.status}`);
+        }
 
-        // 3. Save to Cache
-        localStorage.setItem(`intel_cache_${tf}`, JSON.stringify({
-            timestamp: now,
-            data: allData
-        }));
-
-        // 4. Update Intelligence Dashboard
-        applyIntelligenceData(allData);
-
-    } catch (e) {
-        console.error("Critical failure in fetchIntelligence", e);
-    }
-}
-
-function applyIntelligenceData(allData) {
-    try {
-        const { hitsData, sectorData, summaryData, summarySource, earlyData, perfData, tradePerfData } = allData;
-        
+        // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
                 intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
@@ -1284,6 +1139,9 @@ function applyIntelligenceData(allData) {
             }
             if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
                 intelligenceApp.updateTradePerformance(tradePerfData);
+            }
+            if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
+                intelligenceApp.updateWatchlist(watchlistData);
             }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
@@ -1302,116 +1160,17 @@ function applyIntelligenceData(allData) {
             }
         }
     } catch (e) {
-        console.error("Critical failure in applyIntelligenceData", e);
+        console.error("Critical failure in fetchIntelligence", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
 
 // --- Fyers Integration ---
-let fyersCallbackState = null;
-
-function captureFyersCallbackState() {
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get('fyers_login');
-    const message = params.get('fyers_message');
-
-    if (!status) return;
-
-    fyersCallbackState = {
-        status,
-        message: message || ''
-    };
-
-    const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
-    window.history.replaceState({}, document.title, cleanUrl);
-}
-
-function renderFyersCallbackState(isLoggedIn = false) {
-    if (!fyersCallbackState) return;
-
-    const dot = document.getElementById('fyers-status-dot');
-    const text = document.getElementById('fyers-status-text');
-    const btn = document.getElementById('fyers-login-btn');
-    const messageEl = document.getElementById('fyers-auth-message');
-
-    if (fyersCallbackState.status === 'success' && isLoggedIn) {
-        if (messageEl) {
-            messageEl.textContent = 'FYERS connected successfully.';
-            messageEl.title = 'FYERS connected successfully.';
-            messageEl.className = "max-w-[260px] truncate text-[10px] font-medium text-green-400";
-        }
-        fyersCallbackState = null;
-        return;
-    }
-
-    if (fyersCallbackState.status === 'success' && !isLoggedIn) {
-        if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]";
-        if (text) {
-            text.textContent = "Session mismatch";
-            text.className = "text-[10px] font-bold text-amber-400 uppercase tracking-widest hidden lg:inline";
-        }
-        if (btn) btn.classList.remove('hidden');
-        if (messageEl) {
-            messageEl.textContent = 'Token not on this server. Use FYERS_TOKEN_FILE + Render Disk, or one instance.';
-            messageEl.title = 'Fyers returned success but this app instance has no token file. On Render, use a persistent disk and set FYERS_TOKEN_FILE to a path on that disk, or run a single instance.';
-            messageEl.className = "max-w-[280px] truncate text-[10px] font-medium text-amber-400 lg:inline-block";
-        }
-        console.warn("FYERS callback success but logged_in=false — likely multi-instance or ephemeral disk on Render.");
-        fyersCallbackState = null;
-        return;
-    }
-
-    if (fyersCallbackState.status === 'error') {
-        if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]";
-        if (text) {
-            text.textContent = "Auth Failed";
-            text.className = "text-[10px] font-bold text-amber-400 uppercase tracking-widest hidden lg:inline";
-        }
-        if (btn) btn.classList.remove('hidden');
-
-        const message = fyersCallbackState.message || 'FYERS authentication failed. Please verify your FYERS redirect URL and app credentials.';
-        const compactMessage = summarizeFyersMessage(message);
-        if (messageEl) {
-            messageEl.textContent = compactMessage;
-            messageEl.title = message;
-            messageEl.className = "max-w-[180px] truncate text-[10px] font-medium text-amber-400 lg:inline-block";
-        }
-        console.error("FYERS auth failed:", message);
-    }
-}
-
-function summarizeFyersMessage(message) {
-    const normalized = String(message || '').replace(/\s+/g, ' ').trim();
-    if (!normalized) return 'FYERS authentication failed.';
-    
-    // If it's the new multi-attempt format, try to find the most useful part
-    if (normalized.includes('|')) {
-        const parts = normalized.split('|').map(p => p.trim());
-        // If any part succeeded or has a specific error, prioritize it. 
-        // But if all are "Invalid Request", just show one.
-        if (parts.every(p => p.includes('Invalid Request') || p.includes('method'))) {
-            return 'FYERS: Invalid Request (Check Redirect URI/Method)';
-        }
-        // Otherwise show the last one which is usually the most relevant "Production" attempt
-        return parts[parts.length - 1];
-    }
-
-    if (normalized.includes('Missing auth_code')) return 'FYERS: No auth code returned';
-    if (normalized.includes('403') || normalized.includes('Invalid Request')) return 'FYERS: Invalid Request / 403 (Check Redirect URI)';
-    if (normalized.toLowerCase().includes('method')) return 'FYERS: Invalid Method (Check API Version)';
-    if (normalized.toLowerCase().includes('empty response')) return 'FYERS: No token returned';
-    
-    return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized;
-}
-
 async function checkFyersStatus() {
     try {
         const res = await fetch('/api/v1/fyers/status');
         const data = await res.json();
         
-        marketStatus.open = !!data.market_open;
-        marketStatus.lastCheck = Date.now();
-
         const dot = document.getElementById('fyers-status-dot');
         const text = document.getElementById('fyers-status-text');
         const btn = document.getElementById('fyers-login-btn');
@@ -1427,28 +1186,6 @@ async function checkFyersStatus() {
             if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
             if (btn) btn.classList.remove('hidden');
         }
-
-        if (fyersCallbackState?.status === 'error' || (fyersCallbackState?.status === 'success' && !data.logged_in)) {
-            console.info("FYERS auth URL (full string — DevTools may wrap/truncate long lines):", data.auth_url);
-            try {
-                const au = new URL(data.auth_url);
-                const ru = au.searchParams.get('redirect_uri');
-                console.info("FYERS outbound OAuth redirect_uri (decoded):", ru ? decodeURIComponent(ru) : '(missing)');
-            } catch (e) {
-                console.warn("Could not parse FYERS auth URL:", e);
-            }
-            console.info("FYERS effective redirect URL:", data.redirect_url);
-            console.info("FYERS redirect URL source:", data.redirect_url_source);
-            console.info("FYERS callback path:", data.callback_path);
-            console.info("FYERS config ready:", data.config_ready);
-            console.info("FYERS app id prefix:", data.app_id);
-            console.info("FYERS app id source:", data.app_id_source);
-            console.info("FYERS token file from env:", data.fyers_token_file_from_env);
-            console.info("FYERS token file name:", data.fyers_token_file_name);
-            console.info("FYERS auth debug:", data.last_auth_debug);
-        }
-
-        renderFyersCallbackState(!!data.logged_in);
     } catch (e) {
         console.error("Failed to check Fyers status", e);
     }
@@ -1462,7 +1199,6 @@ window.loginToFyers = loginToFyers;
 
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
-    captureFyersCallbackState();
     checkFyersStatus();
     // Poll every 30 seconds for faster updates after login
     setInterval(checkFyersStatus, 30000);

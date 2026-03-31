@@ -20,6 +20,53 @@ let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
+window.currentMarketStatus = null;
+
+async function checkMarketStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/market-status`);
+        const result = await res.json();
+        if (result.status === 'success') {
+            window.currentMarketStatus = result.data;
+            applyMarketStatusState(result.data);
+        }
+    } catch (e) { console.error('Market status fetch failed', e); }
+}
+
+function applyMarketStatusState(ms) {
+    const banner = document.getElementById('market-status-banner');
+    if (!banner) return;
+    
+    if (ms.mode !== 'OPEN') {
+        banner.classList.remove('hidden');
+        const title = document.getElementById('market-status-title');
+        const desc = document.getElementById('market-status-desc');
+        const icon = document.getElementById('market-status-icon');
+        const time = document.getElementById('market-status-time');
+        
+        if (ms.mode === 'CLOSED') {
+            banner.className = 'glass rounded-xl border border-orange-500/50 bg-orange-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-orange-400';
+            title.textContent = 'MARKET CLOSED';
+            icon.textContent = '🌙';
+        } else if (ms.mode === 'PRE_MARKET') {
+            banner.className = 'glass rounded-xl border border-blue-500/50 bg-blue-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-blue-400';
+            title.textContent = 'PRE-MARKET';
+            icon.textContent = '🌅';
+        } else if (ms.mode === 'POST_MARKET') {
+            banner.className = 'glass rounded-xl border border-purple-500/50 bg-purple-950/20 p-3 mb-4 flex items-center justify-between animate-in fade-in duration-500';
+            title.className = 'text-xs font-bold uppercase tracking-widest text-purple-400';
+            title.textContent = 'POST-MARKET';
+            icon.textContent = '🌆';
+        }
+        
+        desc.textContent = ms.message + ' - Showing last session data';
+        time.textContent = 'Status as of: ' + new Date(ms.last_updated).toLocaleTimeString();
+    } else {
+        banner.classList.add('hidden');
+    }
+}
 
 
 function isIntelligenceModeActive() {
@@ -135,7 +182,8 @@ async function runScreener() {
             list.innerHTML = '';
 
             if (data.matches.length === 0) {
-                list.innerHTML = '<p class="text-xs text-gray-500">No stocks currently match all 9 strict growth criteria.</p>';
+                const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
+                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No live data (market closed). Awaiting next session.' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
                 return;
             }
 
@@ -228,6 +276,10 @@ async function fetchData(isBackground = false) {
             }
 
             updateUI(data);
+            if (data.market_status) {
+                window.currentMarketStatus = data.market_status;
+                applyMarketStatusState(data.market_status);
+            }
         } else {
             throw new Error(data.message || "Malformed API response");
         }
@@ -577,6 +629,16 @@ function updateDecisionStrip(data) {
     reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
         `<span class="reason-tag">${tag}</span>`
     ).join('');
+
+    // 4. Hide Execution Panel in CLOSED mode
+    const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
+    if (entryEl && entryEl.parentElement && entryEl.parentElement.parentElement) {
+        if (isClosed) {
+            entryEl.parentElement.parentElement.classList.add('hidden');
+        } else {
+            entryEl.parentElement.parentElement.classList.remove('hidden');
+        }
+    }
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
@@ -733,6 +795,7 @@ window.onload = function () {
         if (typeof LightweightCharts === 'undefined') {
             throw new Error("Charting library not found. Please check your internet connection.");
         }
+        checkMarketStatus();
         initChart();
         fetchData();
 
@@ -991,13 +1054,14 @@ async function fetchIntelligence() {
         const now = Date.now();
 
         // 1. Fetch data in parallel
-        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes] = await Promise.all([
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
             fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; }),
-            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; })
+            fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/next-session-watchlist?tf=${tf}&t=${now}`).catch(e => { console.error("Watchlist fetch error", e); return null; })
         ]);
 
         // 2. Parse responses carefully
@@ -1008,6 +1072,7 @@ async function fetchIntelligence() {
         let earlyData = { data: [], source: 'live' };
         let perfData = null;
         let tradePerfData = null;
+        let watchlistData = null;
 
         if (hitsRes && hitsRes.ok) {
             hitsData = await hitsRes.json();
@@ -1054,6 +1119,13 @@ async function fetchIntelligence() {
             console.error(`Trade Performance API error: ${tradePerfRes.status}`);
         }
 
+        if (watchlistRes && watchlistRes.ok) {
+            const wlJson = await watchlistRes.json();
+            if (wlJson.status === 'success') watchlistData = wlJson.data;
+        } else if (watchlistRes) {
+            console.error(`Watchlist API error: ${watchlistRes.status}`);
+        }
+
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
@@ -1067,6 +1139,9 @@ async function fetchIntelligence() {
             }
             if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
                 intelligenceApp.updateTradePerformance(tradePerfData);
+            }
+            if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
+                intelligenceApp.updateWatchlist(watchlistData);
             }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
