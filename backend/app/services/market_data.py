@@ -90,8 +90,8 @@ class MarketDataService:
             print(f"DEBUG: Failed to save {symbol} to disk: {e}")
 
     @staticmethod
-    def _fetch_via_proxy(url):
-        """Fetches a URL via the Cloudflare Worker proxy."""
+    def _fetch_via_proxy(url, max_retries=2, timeout=15):
+        """Fetches a URL via the Cloudflare Worker proxy with retries."""
         try:
             from app.config import fyers_config
             p_url = fyers_config.auth_proxy_url
@@ -106,14 +106,25 @@ class MarketDataService:
                 "x-target-host": target_host,
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
             }
-            # print(f"DEBUG: Proxy Fetching -> {proxy_url} (Target: {target_host})")
-            res = requests.get(proxy_url, headers=headers, timeout=12)
-            if res.status_code == 200:
-                return res
-            else:
-                print(f"DEBUG: Proxy Error {res.status_code} for {target_host}: {res.text[:100]}")
+
+            for attempt in range(max_retries + 1):
+                try:
+                    res = requests.get(proxy_url, headers=headers, timeout=timeout)
+                    if res.status_code == 200:
+                        return res
+                    elif res.status_code == 401:
+                        print(f"DEBUG: Proxy Crumb Error (401) for {target_host} (Attempt {attempt+1})")
+                    else:
+                        print(f"DEBUG: Proxy Error {res.status_code} for {target_host}: {res.text[:100]}")
+                except requests.exceptions.Timeout:
+                    print(f"DEBUG: Proxy Timeout ({timeout}s) for {target_host} (Attempt {attempt+1})")
+                except Exception as e:
+                    print(f"DEBUG: Proxy Exception: {e} (Attempt {attempt+1})")
+                
+                if attempt < max_retries:
+                    time.sleep(1) # Small delay before retry
         except Exception as e:
-            print(f"DEBUG: Proxy Exception: {e}")
+            print(f"DEBUG: Proxy Setup Exception: {e}")
         return None
 
     @staticmethod
@@ -143,9 +154,16 @@ class MarketDataService:
         """
         symbol = MarketDataService.normalize_symbol(symbol)
         modules = "defaultKeyStatistics,financialData,assetProfile,incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly"
-        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}"
         
-        res = MarketDataService._fetch_via_proxy(url)
+        # Attempt query2 first (often bypasses crumb requirement)
+        url_q2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}"
+        res = MarketDataService._fetch_via_proxy(url_q2)
+        
+        if not res:
+            # Fallback to query1 if query2 fails completely or times out
+            url_q1 = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}"
+            res = MarketDataService._fetch_via_proxy(url_q1)
+
         if not res:
             return None
             

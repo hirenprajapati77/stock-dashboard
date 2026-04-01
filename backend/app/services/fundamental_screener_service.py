@@ -66,8 +66,12 @@ class FundamentalScreener:
                 if not is_render:
                     stats = MarketDataService.get_yahoo_stats_via_proxy(sym)
             
-            if not stats or stats['quarterly_financials'] is None or stats['quarterly_financials'].empty:
-                _REJECTION_LOGS[sym] = "No quarterly financials found (Proxy/Yahoo failure)"
+            if not stats:
+                _REJECTION_LOGS[sym] = "Data retrieval failed (Yahoo/Proxy)"
+                return None
+            
+            if stats.get('quarterly_financials') is None or stats['quarterly_financials'].empty:
+                _REJECTION_LOGS[sym] = "Incomplete data: No quarterly financials found"
                 return None
                 
             info = stats['info']
@@ -216,7 +220,7 @@ class FundamentalScreener:
         results = []
 
         is_render = os.getenv("RENDER") is not None
-        max_workers = 5 if is_render else 15
+        max_workers = 3 if is_render else 10
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
