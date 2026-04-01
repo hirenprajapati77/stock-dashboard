@@ -974,7 +974,7 @@
                             </div>
                         </div>
                         <div id="tv-chart" class="flex-grow"></div>
-                        <div id="loading-overlay" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-center justify-center hidden">
+                        <div id="chart-loader" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-center justify-center hidden">
                             <div class="flex flex-col items-center gap-3">
                                 <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                 <span class="text-xs font-bold text-white tracking-widest uppercase">Syncing Live Data...</span>
@@ -1137,7 +1137,7 @@
     </main>
 
     <!-- Global Loading Overlay (Body level for persistence) -->
-    <div id="loading-overlay"
+    <div id="global-loader"
         class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex-col items-center justify-center pointer-events-none">
         <div class="flex flex-col items-center">
             <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>

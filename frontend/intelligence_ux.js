@@ -231,7 +231,14 @@ function setupViewModeToggle() {
         dashboardSection?.classList.remove('hidden');
         intelligenceSection?.classList.add('hidden');
         rotationSection?.classList.add('hidden');
-        screenerPanel?.classList.add('hidden');
+        
+        // Only hide screener if explicitly toggled off
+        const screenerToggle = document.getElementById('screener-toggle');
+        if (screenerToggle && !screenerToggle.checked) {
+            screenerPanel?.classList.add('hidden');
+        } else if (screenerToggle && screenerToggle.checked) {
+            screenerPanel?.classList.remove('hidden');
+        }
 
         // Update button states
         this.classList.add('bg-blue-600', 'text-white');
