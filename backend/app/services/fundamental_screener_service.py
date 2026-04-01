@@ -9,13 +9,13 @@ import concurrent.futures
 from typing import List, Dict, Optional
 
 # Persistent cache file to survive Render restarts
-_SCREENER_CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "screener_cache.json")
+_FUNDA_SCREENER_CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "fundamental_screener_cache.json")
 
 # ── Server-side in-memory cache ────────────────────────────────────────────────
-_SCREENER_CACHE: Optional[List[Dict]] = None
-_SCREENER_CACHE_TIME: float = 0.0
-_SCREENER_TTL_MARKET    = 60 * 60       # 60 min during market hours
-_SCREENER_TTL_OFFMARKET = 6 * 60 * 60  # 6 hours off-market / overnight
+_FUNDA_CACHE: Optional[List[Dict]] = None
+_FUNDA_CACHE_TIME: float = 0.0
+_TTL_MARKET    = 60 * 60       # 60 min during market hours
+_TTL_OFFMARKET = 6 * 60 * 60  # 6 hours off-market / overnight
 
 # Global store for diagnostic rejections (survives in memory)
 _REJECTION_LOGS = {} 
@@ -30,11 +30,11 @@ def _is_market_open() -> bool:
 
 def _cache_ttl() -> float:
     # 60 min during market, 12 hours off-market
-    return _SCREENER_TTL_MARKET if _is_market_open() else (12 * 60 * 60)
+    return _TTL_MARKET if _is_market_open() else (12 * 60 * 60)
 
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ScreenerService:
+class FundamentalScreener:
     @staticmethod
     def _screen_single(sym: str) -> Optional[Dict]:
         try:
@@ -42,8 +42,6 @@ class ScreenerService:
             import os
             
             # --- PHASE 1: Fetch Stats (Proxy-Aware) ---
-            # On Render, yfinance .info/.quarterly_financials is almost always blocked.
-            # Use our proxy-based stats fetcher as primary on Render, or as fallback.
             stats = None
             is_render = os.getenv("RENDER") is not None
             
@@ -81,7 +79,6 @@ class ScreenerService:
                 return None
 
             # --- PHASE 2: Data Extraction ---
-            # Use prioritized OHLCV for 'currentPrice' if possible
             df, _, _ = MarketDataService.get_ohlcv(ticker_sym, "1D")
             latest_price = 0
             if df is not None and not df.empty:
@@ -167,83 +164,81 @@ class ScreenerService:
             pass
         return None
 
-    @staticmethod
-    def _load_cache():
-        global _SCREENER_CACHE, _SCREENER_CACHE_TIME
-        if _SCREENER_CACHE is not None:
+    @classmethod
+    def _load_cache(cls):
+        global _FUNDA_CACHE, _FUNDA_CACHE_TIME
+        if _FUNDA_CACHE is not None:
             return
         
-        if os.path.exists(_SCREENER_CACHE_FILE):
+        if os.path.exists(_FUNDA_SCREENER_CACHE_FILE):
             try:
-                with open(_SCREENER_CACHE_FILE, 'r') as f:
+                with open(_FUNDA_SCREENER_CACHE_FILE, 'r') as f:
                     data = json.load(f)
-                    _SCREENER_CACHE = data.get('results', [])
-                    _SCREENER_CACHE_TIME = data.get('time', 0)
-                    print(f"[Screener] Loaded {len(_SCREENER_CACHE)} matches from persistent cache.")
+                    _FUNDA_CACHE = data.get('results', [])
+                    _FUNDA_CACHE_TIME = data.get('time', 0)
+                    print(f"[FundamentalScreener] Loaded {len(_FUNDA_CACHE)} matches from persistent cache.")
             except Exception as e:
-                print(f"[Screener] Failed to load cache file: {e}")
+                print(f"[FundamentalScreener] Failed to load cache file: {e}")
 
-    @staticmethod
-    def _save_cache(results):
-        os.makedirs(os.path.dirname(_SCREENER_CACHE_FILE), exist_ok=True)
+    @classmethod
+    def _save_cache(cls, results):
+        os.makedirs(os.path.dirname(_FUNDA_SCREENER_CACHE_FILE), exist_ok=True)
         try:
-            with open(_SCREENER_CACHE_FILE, 'w') as f:
+            with open(_FUNDA_SCREENER_CACHE_FILE, 'w') as f:
                 json.dump({
                     'results': results,
                     'time': time.time()
                 }, f)
         except Exception as e:
-            print(f"[Screener] Failed to save cache file: {e}")
+            print(f"[FundamentalScreener] Failed to save cache file: {e}")
 
-    @staticmethod
-    def screen_symbols(symbols: List[str], force: bool = False) -> List[Dict]:
+    @classmethod
+    def get_rejection_logs(cls):
+        return _REJECTION_LOGS
+
+    @classmethod
+    def screen_symbols(cls, symbols: List[str], force: bool = False) -> List[Dict]:
         """
         Screens a list of symbols concurrently with in-memory and file-based caching.
         Cache TTL: 60 min during market hours, 12 hours off-market.
         """
-        global _SCREENER_CACHE, _SCREENER_CACHE_TIME
+        global _FUNDA_CACHE, _FUNDA_CACHE_TIME
         
-        ScreenerService._load_cache()
+        cls._load_cache()
 
         # ── Return cached result if still fresh (unless forced) ──
-        age = time.time() - _SCREENER_CACHE_TIME
-        if not force and _SCREENER_CACHE is not None and age < _cache_ttl() and len(_SCREENER_CACHE) > 0:
-            print(f"[Screener] Returning cached results ({int(age)}s old, TTL={int(_cache_ttl())}s)")
-            return _SCREENER_CACHE
+        age = time.time() - _FUNDA_CACHE_TIME
+        if not force and _FUNDA_CACHE is not None and age < _cache_ttl() and len(_FUNDA_CACHE) > 0:
+            print(f"[FundamentalScreener] Returning cached results ({int(age)}s old, TTL={int(_cache_ttl())}s)")
+            return _FUNDA_CACHE
 
-        print(f"[Screener] Running fresh screen on {len(symbols)} symbols...")
+        print(f"[FundamentalScreener] Running fresh screen on {len(symbols)} symbols...")
         results = []
 
-        # Reduce workers on Render to improve proxy reliability (avoid 429/timeouts)
         is_render = os.getenv("RENDER") is not None
         max_workers = 5 if is_render else 15
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
-                executor.submit(ScreenerService._screen_single, sym): sym
+                executor.submit(cls._screen_single, sym): sym
                 for sym in symbols
             }
-            # Total timeout of 3 minutes for 100 symbols via proxy
             for future in concurrent.futures.as_completed(future_to_sym, timeout=180):
                 sym = future_to_sym[future]
                 try:
                     data = future.result(timeout=10)
                     if data:
                         results.append(data)
-                except concurrent.futures.TimeoutError:
-                    pass
                 except Exception as exc:
-                    print(f"[Screener] Error {sym}: {exc}")
+                    print(f"[FundamentalScreener] Error {sym}: {exc}")
 
         # ── Cache the results ──
-        # Update cache ONLY if we have results, or if we had absolutely nothing before.
-        # This prevents overwriting a good previous session's cache with [] if Yahoo/Proxy fails.
-        if results or _SCREENER_CACHE is None:
-            _SCREENER_CACHE = results
-            _SCREENER_CACHE_TIME = time.time()
-            ScreenerService._save_cache(results)
-            print(f"[Screener] Done. {len(results)} stocks passed. Cached across sessions.")
+        if results or _FUNDA_CACHE is None:
+            _FUNDA_CACHE = results
+            _FUNDA_CACHE_TIME = time.time()
+            cls._save_cache(results)
+            print(f"[FundamentalScreener] Done. {len(results)} stocks passed.")
         else:
-            print(f"[Screener] Warning: New scan returned 0 matches. Preserving previous cache of {len(_SCREENER_CACHE)}.")
+            print(f"[FundamentalScreener] Warning: New scan returned 0 matches. Preserving previous cache.")
             
-        return _SCREENER_CACHE or []
+        return _FUNDA_CACHE or []

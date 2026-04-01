@@ -391,18 +391,32 @@ function renderTopPicks(hits) {
     container.innerHTML = topPicks.map(h => {
         const scoreVal = h.score || h.confidence || (h.technical?.qualityScore) || 0;
         const action = h.action || h.tradeDecisionTag || 'BUY';
-        const actionClass = action === 'STRONG BUY' ? 'text-up' : 'text-blue-400';
-        const reason = h.reasonTags?.[0] || 'High Conviction Setup';
+        const setupType = h.technical?.setupType || 'MOMENTUM';
+        const setupIcons = { 'BREAKOUT': '🚀', 'RSI_PULLBACK': '📉', 'VOLUME_SURGE': '📈', 'MOMENTUM_HIT': '🔥' };
+        const setupIcon = setupIcons[setupType] || '🔥';
+        
+        const actionClass = action === 'STRONG BUY' ? 'text-green-400 bg-green-500/10' : 'text-blue-400 bg-blue-500/10';
+        const reason = h.aiCommentary || h.reasonTags?.[0] || 'High Conviction Setup';
         
         return `
             <div onclick="window.fetchDataForSymbol('${h.symbol}')" 
-                 class="min-w-[200px] bg-gray-900 border border-green-500/20 p-4 rounded-2xl cursor-pointer hover:border-green-500/50 transition-all group">
-                <div class="flex justify-between items-start mb-2">
-                    <span class="text-lg font-bold text-white">${h.symbol}</span>
-                    <span class="text-xs font-black mono text-green-400">${Math.round(scoreVal)}%</span>
+                 class="min-w-[220px] bg-gray-900/60 border border-green-500/20 p-4 rounded-2xl cursor-pointer hover:border-green-500/50 transition-all group relative overflow-hidden backdrop-blur-md">
+                <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <span class="text-4xl uppercase font-black">${h.symbol[0]}</span>
                 </div>
-                <div class="${actionClass} text-[10px] font-black uppercase tracking-widest mb-1">${action}</div>
-                <div class="text-[9px] text-gray-400 italic">${reason}</div>
+                <div class="flex justify-between items-start mb-2 relative z-10">
+                    <div class="flex flex-col">
+                        <span class="text-lg font-bold text-white group-hover:text-green-400 transition-colors">${h.symbol}</span>
+                        <span class="text-[8px] font-black text-gray-500 uppercase tracking-widest">${setupIcon} ${setupType.replace('_', ' ')}</span>
+                    </div>
+                    <div class="bg-green-500/20 px-2 py-1 rounded-lg border border-green-500/30">
+                        <span class="text-xs font-black mono text-green-400">${Math.round(scoreVal)}%</span>
+                    </div>
+                </div>
+                <div class="inline-block ${actionClass} text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border border-current mb-2 relative z-10">${action}</div>
+                <div class="text-[10px] text-gray-400 leading-tight italic line-clamp-2 min-h-[2.5em] group-hover:text-gray-300 transition-colors" title="${reason}">
+                    ${reason}
+                </div>
             </div>
         `;
     }).join('');
@@ -434,6 +448,99 @@ window.renderActionableSectors = renderActionableSectors;
 window.selectActionableSector = selectActionableSector;
 window.clearFilter = clearFilter;
 window.getCurrentIntelTimeframe = getCurrentIntelTimeframe;
+
+// ========================================
+// 11. SECTOR CONCENTRATION BAR (v3.0)
+// ========================================
+
+/**
+ * Renders a "Trending Sectors" pill bar above the momentum hits table.
+ * Each pill shows sector + hit count, with intensity-based color coding.
+ * Clicking a pill filters the hits table to that sector.
+ * @param {Array<{sector: string, count: number}>} sectorData - sorted by count desc
+ * @param {number} totalHits - total number of momentum hits
+ */
+function renderSectorConcentration(sectorData, totalHits) {
+    const bar = document.getElementById('trending-sectors-bar');
+    const pillsContainer = document.getElementById('trending-sectors-pills');
+    const totalLabel = document.getElementById('trending-sectors-total');
+
+    if (!bar || !pillsContainer) return;
+
+    if (!sectorData || sectorData.length === 0) {
+        bar.classList.add('hidden');
+        return;
+    }
+
+    bar.classList.remove('hidden');
+
+    // Color palette for top sectors (rank 0=hottest)
+    const colorMap = [
+        'bg-green-500/20 border-green-500/50 text-green-300 hover:bg-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.15)]',
+        'bg-blue-500/20 border-blue-500/40 text-blue-300 hover:bg-blue-500/30 shadow-[0_0_12px_rgba(59,130,246,0.1)]',
+        'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]',
+        'bg-purple-500/20 border-purple-500/40 text-purple-300 hover:bg-purple-500/30',
+        'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30',
+    ];
+    const defaultColor = 'bg-gray-700/40 border-gray-600/40 text-gray-400 hover:bg-gray-700/60';
+
+    const maxCount = sectorData[0]?.count || 1;
+
+    pillsContainer.innerHTML = sectorData.map((item, idx) => {
+        const colorClass = colorMap[idx] || defaultColor;
+        const barWidth = Math.round((item.count / maxCount) * 100);
+        // Intensity dot: full glow for top sector
+        const dot = idx === 0
+            ? '<span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0"></span>'
+            : '';
+
+        return `
+            <button
+                onclick="window._filterIntelBySector('${item.sector}')"
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${colorClass}"
+                title="Filter hits to ${item.sector} (${item.count} hit${item.count !== 1 ? 's' : ''})"
+            >
+                ${dot}
+                <span>${item.sector}</span>
+                <span class="opacity-70 font-mono">${item.count}</span>
+            </button>
+        `;
+    }).join('');
+
+    if (totalLabel) {
+        totalLabel.textContent = `${totalHits} total hit${totalHits !== 1 ? 's' : ''}`;
+    }
+}
+
+// Sector pill click → filter the hits table by sector name
+window._filterIntelBySector = function(sectorName) {
+    if (!window.marketIntelligence) return;
+
+    const isAlreadyFiltered = window.marketIntelligence._activeSectorFilter === sectorName;
+
+    if (isAlreadyFiltered) {
+        // Toggle off
+        window.marketIntelligence._activeSectorFilter = null;
+        // Reset pill styles
+        document.querySelectorAll('#trending-sectors-pills button').forEach(b => {
+            b.classList.remove('ring-2', 'ring-white/30');
+        });
+    } else {
+        window.marketIntelligence._activeSectorFilter = sectorName;
+        // Highlight the clicked pill
+        document.querySelectorAll('#trending-sectors-pills button').forEach(b => {
+            b.classList.remove('ring-2', 'ring-white/30');
+        });
+        event?.currentTarget?.classList.add('ring-2', 'ring-white/30');
+    }
+
+    if (typeof window.marketIntelligence._renderHitsTable === 'function') {
+        window.marketIntelligence._renderHitsTable();
+    }
+};
+
+window.renderSectorConcentration = renderSectorConcentration;
+
 
 // SCANNERS FILTERS (v2.1) - WIRE UP UI CONTROLS
 const initScannerFilters = () => {

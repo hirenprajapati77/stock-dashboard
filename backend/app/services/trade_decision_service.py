@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 import math
+from app.ai.commentary import AICommentaryService
 
 
 class TradeDecisionService:
@@ -20,10 +21,17 @@ class TradeDecisionService:
             decision_data = cls.compute_trade_score(row, market_phase)
             row.update(decision_data)
             
-            # 2. Build Execution Plan (Original logic, kept for compatibility)
-            plan = cls.build_plan(row)
-            row["executionPlan"] = plan
-            row["tradeDecisionTag"] = decision_data.get("action", plan.get("tradeTag", "WATCHLIST"))
+            # 3. AI Insights & Commentary (Phase 2 Enhancement)
+            ai_context = {
+                "entityType": "stock",
+                "symbol": row.get("symbol"),
+                "currentQuadrant": row.get("sectorState", "NEUTRAL"),
+                "RS": row.get("volRatio", 1.0), # Temporary placeholder for RS in stock context
+                "RM": 0.05 if row.get("momentumStrength") == "STRONG" else 0.0,
+                "setupType": row.get("technical", {}).get("setupType", "MOMENTUM_HIT"),
+                "qualityScore": row.get("score", 50)
+            }
+            row["aiCommentary"] = AICommentaryService.generate_commentary(ai_context)
             
             out.append(row)
         return out

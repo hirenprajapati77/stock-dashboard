@@ -37,17 +37,29 @@ function showGlobalLoader() {
     const loader = document.getElementById('global-loader');
     if (loader) {
         loader.style.zIndex = '10000'; // Ensure it's on top of EVERYTHING
+        loader.classList.remove('hidden');
         loader.style.display = 'flex';
         loader.style.opacity = '1';
+
+        // Safeguard: Hide loader after 20s if it hangs
+        if (window._globalLoaderTimeout) clearTimeout(window._globalLoaderTimeout);
+        window._globalLoaderTimeout = setTimeout(() => {
+            hideGlobalLoader();
+            console.warn("[UI] Global loader safeguard triggered after 20s.");
+        }, 20000);
     }
 }
 
 function hideGlobalLoader() {
     const loader = document.getElementById('global-loader');
     if (loader) {
+        if (window._globalLoaderTimeout) clearTimeout(window._globalLoaderTimeout);
         loader.style.opacity = '0';
         // Delay hiding slightly to prevent flashes and ensure background updates finish
-        setTimeout(() => { loader.style.display = 'none'; }, 500);
+        setTimeout(() => { 
+            loader.classList.add('hidden');
+            loader.style.display = 'none'; 
+        }, 500);
     }
 }
 
@@ -187,6 +199,7 @@ function initChart() {
 // 5. Screener Logic
 document.getElementById('screener-toggle').addEventListener('change', function (e) {
     const panel = document.getElementById('screener-panel');
+    localStorage.setItem('screener-active', e.target.checked);
     if (e.target.checked) {
         panel.classList.remove('hidden');
         runScreener();
@@ -199,7 +212,7 @@ async function runScreener(force = false) {
     const list = document.getElementById('screener-list');
     const count = document.getElementById('screener-count');
 
-    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point fundamental check on Nifty 200...</p>';
+    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point Fundamental Quality Check (Strict Growth Context)...</p>';
     count.textContent = 'SCANNING...';
 
     try {
@@ -305,12 +318,10 @@ async function fetchData(isBackground = false) {
 
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
         if (!response.ok) {
-            if (!isBackground) hideGlobalLoader();
             throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
-        if (!isBackground) hideGlobalLoader();
 
         if (data && data.meta) {
             window.lastReceivedData = data;
@@ -373,7 +384,8 @@ async function fetchData(isBackground = false) {
             }
         }
     } finally {
-        // ALWAYS try to hide loader in finally if it was showing
+        if (!isBackground) hideGlobalLoader();
+        // ALWAYS try to hide chart-loader in finally if it was showing
         if (loader) {
             loader.classList.add('hidden');
             loader.style.display = 'none';
@@ -429,6 +441,17 @@ function updateStrategyUI(data) {
         const regime = summary.market_regime || 'UNKNOWN';
         document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
         document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
+
+        // Fibonacci Specific Overlay (Optional metrics)
+        if (data.meta.strategy === 'FIBONACCI' && metrics.retracementDepth) {
+            const setupEl = document.getElementById('metric-setup');
+            setupEl.textContent = metrics.goldenPocket ? 'Golden Pocket' : 'Fib Retracement';
+            setupEl.className = `text-sm font-bold ${metrics.goldenPocket ? 'text-yellow-400' : 'text-up'}`;
+            
+            const srEl = document.getElementById('metric-sr');
+            srEl.textContent = `${metrics.retracementDepth} Retrace`;
+            srEl.className = 'text-sm font-bold text-blue-400';
+        }
 
     } catch (err) {
         console.error("Strategy UI update error:", err);
@@ -771,13 +794,25 @@ function drawLevelsOnChart(levels, fullData = null) {
 
     // Helper to draw
     const addLine = (lv, color, isResistance) => {
-        // 1. ZONE Logic
+        // 1. FIBONACCI Logic
+        if (lv.type === 'FIBONACCI') {
+            const line = candlestickSeries.createPriceLine({
+                price: lv.price,
+                color: lv.ratio === 0.618 || lv.ratio === 0.5 ? '#fbbf24' : '#a855f7', // Gold for Golden Pocket, Purple for others
+                lineWidth: lv.ratio === 0.618 || lv.ratio === 0.5 ? 2 : 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: lv.label || 'FIB',
+            });
+            levelsLayer.push(line);
+            return;
+        }
+
+        // 2. ZONE Logic
         if (lv.timeframe === 'ZONE') {
-            // Draw simple boundary lines
-            // Top
             const l1 = candlestickSeries.createPriceLine({
                 price: lv.price_high || lv.price,
-                color: color, // Green/Red
+                color: color,
                 lineWidth: 2,
                 lineStyle: LightweightCharts.LineStyle.Solid,
                 axisLabelVisible: true,
@@ -785,14 +820,13 @@ function drawLevelsOnChart(levels, fullData = null) {
             });
             levelsLayer.push(l1);
 
-            // Bottom
             if (lv.price_low && lv.price_low !== lv.price_high) {
                 const l2 = candlestickSeries.createPriceLine({
                     price: lv.price_low,
                     color: color,
                     lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Solid,
-                    axisLabelVisible: false, // Only label one side to reduce clutter
+                    axisLabelVisible: false,
                     title: '',
                 });
                 levelsLayer.push(l2);
@@ -846,9 +880,7 @@ async function fetchRotation(isBackground = false) {
         if (result.status === 'success' && rotationApp) {
             rotationApp.setData(result.data, result.alerts);
         }
-        if (!isBackground) hideGlobalLoader();
-    } catch (e) {
-        console.error("Failed to fetch rotation data", e);
+    } finally {
         if (!isBackground) hideGlobalLoader();
     }
 }
@@ -878,7 +910,9 @@ window.onload = function () {
         setTimeout(() => {
             if (chart) {
                 const chartContainer = document.getElementById('tv-chart');
-                chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+                if (chartContainer) {
+                    chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+                }
             }
         }, 100);
 
@@ -887,57 +921,133 @@ window.onload = function () {
             rotationApp = new RotationDashboard('rotation-canvas');
         }
 
-        // Initialize Intelligence App
-        if (typeof MarketIntelligence !== 'undefined') {
             intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
             window.intelligenceApp = intelligenceApp;
-        }
+            window.marketIntelligence = intelligenceApp;
 
         // Toggle Handlers
         const std = document.getElementById('standard-dashboard');
         const rot = document.getElementById('rotation-section');
         const intel = document.getElementById('intelligence-section');
-        const rotTog = document.getElementById('rotation-toggle');
-        const intelTog = document.getElementById('intelligence-toggle');
         const scrTog = document.getElementById('screener-toggle');
+        const rotTog = document.getElementById('rotation-toggle');
+        const viewDashBtn = document.getElementById('view-dashboard');
+        const viewIntelBtn = document.getElementById('view-intelligence');
 
-        // Rotation Toggle Logic
-        if (rotTog) {
-            rotTog.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    rot.classList.remove('hidden');
+        // Restore States from localStorage
+        const isRotationActive = localStorage.getItem('rotation-active') === 'true';
+        const isIntelligenceActive = localStorage.getItem('intelligence-active') === 'true';
+
+        if (isRotationActive && rotTog) {
+            rotTog.checked = true;
+            rot.classList.remove('hidden');
+            std.classList.add('hidden');
+            intel.classList.add('hidden');
+            if (viewDashBtn) viewDashBtn.className = 'nav-btn-secondary';
+            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
+            fetchRotation();
+        } else if (isIntelligenceActive) {
+            intel.classList.remove('hidden');
+            std.classList.add('hidden');
+            rot.classList.add('hidden');
+            if (rotTog) rotTog.checked = false;
+            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+            if (viewDashBtn) viewDashBtn.className = 'nav-btn-secondary';
+            fetchIntelligence();
+        } else {
+            // Standard Dashboard is default
+            if (viewDashBtn) viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
+        }
+
+        if (localStorage.getItem('screener-active') === 'true' && scrTog) {
+            scrTog.checked = true;
+            document.getElementById('screener-panel')?.classList.remove('hidden');
+            runScreener();
+        }
+
+        // View Mode Switcher Logic
+        const switchView = (mode) => {
+            // Update button styles
+            if (viewDashBtn && viewIntelBtn) {
+                if (mode === 'dashboard') {
+                    viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+                    viewIntelBtn.className = 'nav-btn-secondary';
+                } else if (mode === 'intelligence') {
+                    viewIntelBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+                    viewDashBtn.className = 'nav-btn-secondary';
+                } else {
+                    viewDashBtn.className = 'nav-btn-secondary';
+                    viewIntelBtn.className = 'nav-btn-secondary';
+                }
+            }
+
+            if (mode === 'dashboard') {
+                localStorage.setItem('rotation-active', 'false');
+                localStorage.setItem('intelligence-active', 'false');
+                std.classList.remove('hidden');
+                rot.classList.add('hidden');
+                intel.classList.add('hidden');
+                if (rotTog) rotTog.checked = false;
+                
+                // Force chart resize when returning to dashboard
+                setTimeout(() => {
+                    if (chart) {
+                        const chartContainer = document.getElementById('tv-chart');
+                        if (chartContainer) chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+                    }
+                }, 50);
+            } else if (mode === 'intelligence') {
+                localStorage.setItem('rotation-active', 'false');
+                localStorage.setItem('intelligence-active', 'true');
+                std.classList.add('hidden');
+                rot.classList.add('hidden');
+                intel.classList.remove('hidden');
+                if (rotTog) rotTog.checked = false;
+                fetchIntelligence();
+            } else if (mode === 'rotation') {
+                const isActive = rotTog && rotTog.checked;
+                localStorage.setItem('rotation-active', isActive);
+                if (isActive) {
+                    localStorage.setItem('intelligence-active', 'false');
                     std.classList.add('hidden');
+                    rot.classList.remove('hidden');
                     intel.classList.add('hidden');
-                    if (intelTog) intelTog.checked = false;
-                    scrTog.checked = false;
-                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                    showGlobalLoader(); // Immediate feedback
                     fetchRotation();
                     if (rotationApp) rotationApp.resize();
                 } else {
+                    std.classList.remove('hidden');
                     rot.classList.add('hidden');
-                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
+                    if (viewDashBtn) viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+                }
+            }
+        };
+
+        // More Actions Dropdown Toggle
+        const moreActionsBtn = document.getElementById('more-actions-btn');
+        const moreActionsDropdown = document.getElementById('more-actions-dropdown');
+        if (moreActionsBtn && moreActionsDropdown) {
+            moreActionsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                moreActionsDropdown.classList.toggle('show');
+            });
+            document.addEventListener('click', (e) => {
+                if (!moreActionsDropdown.contains(e.target)) {
+                    moreActionsDropdown.classList.remove('show');
                 }
             });
         }
 
-        // Intelligence Toggle Logic
-        if (intelTog) {
-            intelTog.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    intel.classList.remove('hidden');
-                    std.classList.add('hidden');
-                    rot.classList.add('hidden');
-                    if (rotTog) rotTog.checked = false;
-                    scrTog.checked = false;
-                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                    showGlobalLoader(); // Immediate feedback
-                    fetchIntelligence();
-                } else {
-                    intel.classList.add('hidden');
-                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
-                }
-            });
+        if (viewDashBtn) {
+            viewDashBtn.addEventListener('click', () => switchView('dashboard'));
+        }
+
+        if (viewIntelBtn) {
+            viewIntelBtn.addEventListener('click', () => switchView('intelligence'));
+        }
+
+        if (rotTog) {
+            rotTog.addEventListener('change', () => switchView('rotation'));
         }
 
         // Autocomplete Logic
@@ -1124,7 +1234,7 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence(isBackground = false) {
+async function fetchIntelligence(isBackground = false, force = false) {
     try {
         if (!isBackground) showGlobalLoader();
         const tfSelector = document.getElementById('tf-selector');
@@ -1133,7 +1243,7 @@ async function fetchIntelligence(isBackground = false) {
 
         // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&force=${force}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
@@ -1209,6 +1319,10 @@ async function fetchIntelligence(isBackground = false) {
             if (hitsData && hitsData.data) {
                 intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
             }
+            // Render Trending Sectors header from sector concentration data
+            if (hitsData && hitsData.sectorConcentration && window.renderSectorConcentration) {
+                window.renderSectorConcentration(hitsData.sectorConcentration, hitsData.count || 0);
+            }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
                 intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
             }
@@ -1237,9 +1351,7 @@ async function fetchIntelligence(isBackground = false) {
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
             }
         }
-        if (!isBackground) hideGlobalLoader();
-    } catch (e) {
-        console.error("Critical failure in fetchIntelligence", e);
+    } finally {
         if (!isBackground) hideGlobalLoader();
     }
 }
