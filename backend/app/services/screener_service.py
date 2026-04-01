@@ -413,6 +413,9 @@ class ScreenerService:
             # Mapping timeframe to interval for yf.download
             yf_interval = normalized_tf # normalized_tf is already mapped to interval like '1d', '1h'
             
+            # Use 'max' or a large enough period for technical indicators (e.g., 200 days)
+            period = "200d" if "d" in yf_interval.lower() else "60d"
+            
             # Filter symbols for Yahoo (remove Fyers-specific if any)
             yahoo_symbols = [s for s in all_symbols if ":" not in s]
             
@@ -447,6 +450,7 @@ class ScreenerService:
         sector_batch_data = {}
         if sector_indices:
             try:
+                # Reuse yf_interval and period from stock batch above
                 sec_batch_df = yf.download(
                     tickers=" ".join(sector_indices),
                     period=period,

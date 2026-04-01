@@ -164,9 +164,9 @@ class FyersService:
 
                     if ct == "application/json":
                         # Use data=json.dumps to have full control over the payload string
-                        res = requests.post(url, data=json.dumps(current_payload), headers=clean_headers, timeout=12)
+                        res = requests.post(url, data=json.dumps(current_payload), headers=clean_headers, timeout=15)
                     else:
-                        res = requests.post(url, data=current_payload, headers=clean_headers, timeout=12)
+                        res = requests.post(url, data=current_payload, headers=clean_headers, timeout=15)
                     
                     print(f"FYERS AUTH DEBUG [{lbl}]: URL={url} Status={res.status_code} Resp={res.text[:500]}", flush=True)
                     
