@@ -657,7 +657,7 @@ async def fyers_debug_auth(request: Request):
 
 
 @app.get("/api/v1/screener", dependencies=[Depends(login_required)])
-async def run_screener():
+async def run_screener(force: bool = False):
     # Comprehensive watchlist - 200+ stocks to match Screener.in coverage
     watchlist = [
         # Nifty 50
@@ -714,7 +714,7 @@ async def run_screener():
         "INDOTHAI", "IGIL", "BORANA", "ALUFLUORIDE", "EMERALD", "KAYNES", "SYRMA", "DATAPATTNS", "ERIS",
         "FINEORG", "CLEAN", "ROUTE", "HAPPSTMNDS", "NEWGEN", "SONATSOFTW", "AMBER", "NETWORK18"
     ]
-    matches = ScreenerService.screen_symbols(watchlist)
+    matches = ScreenerService.screen_symbols(watchlist, force=force)
     return {"status": "success", "count": len(matches), "matches": matches}
 
 @app.get("/api/v1/sector-rotation", dependencies=[Depends(login_required)])

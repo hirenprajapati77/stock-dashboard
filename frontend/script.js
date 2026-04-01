@@ -195,15 +195,15 @@ document.getElementById('screener-toggle').addEventListener('change', function (
     }
 });
 
-async function runScreener() {
+async function runScreener(force = false) {
     const list = document.getElementById('screener-list');
     const count = document.getElementById('screener-count');
 
-    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point fundamental check on Nifty 10...</p>';
+    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point fundamental check on Nifty 200...</p>';
     count.textContent = 'SCANNING...';
 
     try {
-        const response = await fetch(`${SCREENER_URL}?_=${Date.now()}`);
+        const response = await fetch(`${SCREENER_URL}?force=${force}&_=${Date.now()}`);
         const data = await response.json();
 
         if (data.status === 'success') {
@@ -212,10 +212,16 @@ async function runScreener() {
 
             if (data.matches.length === 0) {
                 const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No matches found (showing last session data).' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
+                list.innerHTML = `
+                    <div class="flex flex-col items-center gap-2 py-4 text-center px-4">
+                        <p class="text-xs text-gray-500">${isClosed ? 'No matches found (showing last session data).' : 'No stocks currently match all 9 strict growth criteria.'}</p>
+                        <button onclick="window.runScreener(true)" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-widest border border-indigo-500/30 px-3 py-1.5 rounded-xl transition-all hover:bg-indigo-500/10">FORCE RE-SCAN</button>
+                        <p class="text-[9px] text-gray-600 italic">This will bypass cache and check live proxies.</p>
+                    </div>
+                `;
                 return;
             }
-
+            // ... (rest of the loop)
             data.matches.forEach(stock => {
                 const card = document.createElement('div');
                 card.className = "min-w-[180px] bg-gray-900 border border-indigo-500/30 p-3 rounded-xl hover:border-indigo-400 transition-all cursor-pointer";
@@ -250,11 +256,17 @@ async function runScreener() {
     } catch (error) {
         console.error("Screener error:", error);
         count.textContent = 'ERROR';
-        list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
+        list.innerHTML = `
+            <div class="flex flex-col items-center gap-2 py-4">
+                <p class="text-xs text-down">Failed to connect to screener service.</p>
+                <button onclick="window.runScreener()" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-widest border border-indigo-500/30 px-3 py-1 rounded-lg">RETRY</button>
+            </div>
+        `;
     }
 }
+window.runScreener = runScreener;
 async function fetchData(isBackground = false) {
-    const loader = document.getElementById('loading-overlay');
+    const loader = document.getElementById('chart-loader');
     const showLoader = isBackground !== true;
 
     try {
