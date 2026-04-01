@@ -12,8 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/app ./app
 
-# Copy root entry point
-COPY main.py .
+# Copy root entry point and login page
+COPY main.py login.html ./
 
 # Copy frontend code
 COPY frontend ./frontend
