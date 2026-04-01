@@ -8,48 +8,67 @@ class AICommentaryService:
 
     @classmethod
     def generate_commentary(cls, context: Dict) -> str:
+        entity_type = context.get('entityType', 'stock')
         symbol = context.get('symbol', 'Unknown')
-        curr_q = context.get('currentQuadrant', 'UNKNOWN').capitalize()
-        prev_q = context.get('previousQuadrant', 'UNKNOWN').capitalize()
+        curr_q = context.get('currentQuadrant', 'UNKNOWN').upper()
         rs = context.get('RS', 1.0)
         rm = context.get('RM', 0.0)
         rs_trend = context.get('rsTrend', 'flat')
         rm_trend = context.get('rmTrend', 'flat')
-        rank = context.get('rank')
-        contributors = context.get('topContributors', [])
+        setup_type = context.get('setupType', 'MOMENTUM_HIT')
+        quality_score = context.get('qualityScore', 50)
         
-        # 1. Base Narrative based on Quadrant/State
-        if curr_q == "Leading":
-            narrative = f"{symbol} is rising and outperforming the broader market."
-        elif curr_q == "Weakening":
-            narrative = f"{symbol} is still up but its relative momentum is slowing."
-        elif curr_q == "Improving":
-            narrative = f"{symbol} is down in absolute terms but showing relative improvement versus the market."
-        elif curr_q == "Lagging":
-            narrative = f"{symbol} is underperforming the market with declining momentum."
-        else:
-            narrative = f"{symbol} performance is mixed and lacks a clear relative-strength trend."
+        # 1. Determine "Mode" (Phase of Trend)
+        mode = "STEADY"
+        if rs > 1.05 and rm > 0.02:
+            mode = "CLIMAX"
+        elif rs > 1.0 and rm > 0:
+            mode = "STEADY"
+        elif rs < 1.0 and rm > 0:
+            mode = "EARLY"
+        elif rs < 1.0 and rm < 0:
+            mode = "LAGGING"
 
-        # 2. Add Trend Analysis
-        trend_msg = f" The relative strength is {rs_trend} ({rs:.2f})"
-        if rm_trend == "accelerating":
-            trend_msg += " with accelerating momentum."
-        elif rm_trend == "decelerating":
-            trend_msg += " but momentum is decelerating."
+        # 2. Base Narrative logic
+        if entity_type == "sector":
+            if curr_q == "LEADING":
+                narrative = f"{symbol} is the dominant market theme, showing significant outperformance."
+            elif curr_q == "IMPROVING":
+                narrative = f"{symbol} is emerging as a potential leader, showing early relative strength signs."
+            elif curr_q == "WEAKENING":
+                narrative = f"{symbol} leadership is cooling off; momentum is starting to fade."
+            else:
+                narrative = f"{symbol} continues to underperform the broader market."
         else:
-            trend_msg += "."
+            if mode == "CLIMAX":
+                narrative = f"{symbol} is in a high-velocity extension phase."
+            elif mode == "EARLY":
+                narrative = f"{symbol} is showing an early-stage trend reversal/improvement."
+            else:
+                narrative = f"{symbol} is maintaining a steady uptrend relative to its sector."
 
-        # 3. Add Context (Rank & Contributors)
-        context_msg = ""
-        if rank and rank <= 3:
-            context_msg = f" It currently ranks #{rank} in overall relative strength."
-        
-        contributor_msg = ""
-        if contributors:
-            contributor_msg = f" Leadership within the sector is primarily driven by {', '.join(contributors)}."
+        # 3. Setup Specific Insights
+        setup_msg = ""
+        if setup_type == "BREAKOUT":
+            setup_msg = " Confirmed price breakout with high technical alignment."
+        elif setup_type == "RSI_PULLBACK":
+            setup_msg = " Low-risk entry opportunity following a healthy pullback."
+        elif setup_type == "VOLUME_SURGE":
+            setup_msg = " Unusual institutional accumulation detected via volume spike."
+
+        # 4. Actionable Guidance (The "So What?")
+        guidance = ""
+        if mode == "CLIMAX":
+            guidance = " Avoid chasing at these levels; look to book partial profits or trail stops tightly."
+        elif mode == "EARLY" and quality_score > 60:
+            guidance = " High potential for trend follow-through. Aggressive entries can be considered."
+        elif mode == "STEADY" and setup_type == "RSI_PULLBACK":
+            guidance = " Ideal 'Buy the Dip' scenario within a confirmed uptrend."
+        else:
+            guidance = " Monitor for better risk-reward alignment before committing fresh capital."
 
         # Combine
-        full_text = f"{narrative}{trend_msg}{context_msg}{contributor_msg}"
+        full_text = f"{narrative}{setup_msg}{guidance}"
         
         # Cache key
         cache_key = f"{symbol}_{curr_q}_{context.get('timeframe', 'Daily')}"

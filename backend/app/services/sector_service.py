@@ -54,6 +54,7 @@ class SectorService:
     }
     LEADING_RS_MIN = 1.02
     LAGGING_RS_MAX = 0.98
+    RS_THRESHOLD = 0.002 # 0.2% minimum outperformance for LEADING state
 
     # Class-level cache
     _cache = {
@@ -74,11 +75,12 @@ class SectorService:
         
         state = "NEUTRAL"
 
-        if sector_return > 0 and rs > 0 and rm > 0:
+        # Tighter LEADING criteria: Absolute UP + Relative OUTPERFORMANCE (0.2%+) + Gaining Momentum
+        if sector_return > 0 and rs > cls.RS_THRESHOLD and rm > 0:
             state = "LEADING"
         elif sector_return > 0 and rs > 0 and rm <= 0:
             state = "WEAKENING"
-        elif sector_return < 0 and rs > 0 and rm > 0:
+        elif rs > 0 and rm > 0:
             state = "IMPROVING"
         elif sector_return < 0 and rs <= 0 and rm < 0:
             state = "LAGGING"
@@ -136,22 +138,42 @@ class SectorService:
         unique_symbols = list(set(all_sector_symbols + all_cons_symbols))
         
         try:
-            print(f"DEBUG: Downloading {len(unique_symbols)} symbols for Sector Intelligence (MarketDataService)...")
+            print(f"DEBUG: Batch Downloading {len(unique_symbols)} symbols for Sector Intelligence...")
+            
+            # Use yf.download for high-speed batch fetching
+            # Mapping timeframe to interval for yf.download
+            yf_interval = interval
+            # Note: yf.download does not support '75m' natively, MarketDataService usually resamples it
+            # But for sector data, we'll stick to 1h/1d standard intervals for speed
+            
+            # Filter symbols for Yahoo (remove Fyers-specific if any)
+            yahoo_symbols = [s for s in unique_symbols if ":" not in s]
+            
+            batch_df = yf.download(
+                tickers=" ".join(yahoo_symbols),
+                period=period,
+                interval=yf_interval,
+                group_by='ticker',
+                auto_adjust=True,
+                threads=True,
+                progress=False
+            )
+            
             batch_data = {}
-            from app.services.market_data import MarketDataService
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                future_to_symbol = {
-                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_timeframe): sym 
-                    for sym in unique_symbols
-                }
-                for future in concurrent.futures.as_completed(future_to_symbol):
-                    sym = future_to_symbol[future]
+            if not batch_df.empty:
+                for sym in yahoo_symbols:
                     try:
-                        df, _, _ = future.result()
-                        if df is not None and not df.empty:
-                            batch_data[sym] = df
+                        if isinstance(batch_df.columns, pd.MultiIndex):
+                            s_df = batch_df[sym].dropna(how='all')
+                        else:
+                            s_df = batch_df.dropna(how='all')
+                            
+                        if not s_df.empty:
+                            # Standardize column names to lowercase to match MarketDataService style
+                            s_df.columns = [c.lower() for c in s_df.columns]
+                            batch_data[sym] = s_df
                     except Exception as e:
-                        print(f"ERROR: Failed to fetch {sym} for sectors: {e}")
+                        continue
 
             if not batch_data:
                 print(f"Warning: No data fetched for sectors. Trying fallback.")

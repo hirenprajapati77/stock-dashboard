@@ -183,130 +183,196 @@
             color: #9ca3af;
             font-weight: 600;
         }
+
+        /* --- NEW NAVBAR REFACTOR STYLES --- */
+        .glass-navbar {
+            background: rgba(13, 17, 23, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .nav-section {
+            display: flex;
+            align-items: center;
+        }
+
+        .symbol-box {
+            max-width: 140px;
+            transition: all 0.2s ease;
+        }
+
+        .symbol-box:focus-within {
+            max-width: 180px;
+            background: rgba(37, 99, 235, 0.1);
+            border-color: rgba(37, 99, 235, 0.5);
+        }
+
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 220px;
+            background: #1e222d;
+            border: 1px solid #363c4e;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            border-radius: 12px;
+            padding: 8px;
+            z-index: 1000;
+            animation: dropdownFade 0.2s ease-out;
+        }
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
+        @keyframes dropdownFade {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .nav-btn-primary {
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .nav-btn-secondary {
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #9ca3af;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .nav-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+        }
     </style>
 </head>
 
 <body class="min-h-screen overflow-x-hidden">
-    <!-- Header -->
-    <header class="h-16 border-b border-gray-800 glass sticky top-0 z-50 px-4 flex items-center justify-between gap-2 overflow-hidden">
-        <div class="flex items-center gap-2 flex-shrink-0">
-            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white flex-shrink-0">S</div>
-            <div class="flex flex-col -space-y-1">
-                <div class="flex items-baseline gap-2">
-                    <h1 class="text-xl font-bold tracking-tight whitespace-nowrap">S&R <span class="text-blue-500">PRO</span></h1>
+    <!-- Header / Navbar Refactor -->
+    <header class="h-14 glass-navbar sticky top-0 z-50 w-full px-6 flex items-center justify-between gap-4">
+        <!-- 1. LEFT: Branding & Main Nav -->
+        <div class="nav-section gap-6">
+            <div class="flex items-center gap-2 cursor-pointer group" onclick="window.location.reload()">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-lg shadow-blue-600/20 group-hover:scale-105 transition-transform">S</div>
+                <div class="flex flex-col -space-y-1 hidden lg:flex">
+                    <h1 class="text-base font-black tracking-tighter text-white">S&R <span class="text-blue-500">PRO</span></h1>
+                    <p id="sync-time" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">LIVE SYNC</p>
                 </div>
-                <p id="sync-time" class="text-[9px] text-gray-500 font-mono italic whitespace-nowrap">Market Data: --:--:--</p>
+            </div>
+
+            <!-- View Toggles -->
+            <div class="flex items-center gap-1 bg-gray-900/40 p-1 rounded-lg border border-gray-800">
+                <button id="view-dashboard" class="nav-btn-primary bg-blue-600 text-white shadow-sm">Dashboard</button>
+                <button id="view-intelligence" class="nav-btn-secondary">Intelligence</button>
             </div>
         </div>
 
-        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            <!-- Fyers Connection -->
-            <div id="fyers-connection" class="flex items-center gap-2 px-2 py-1.5 bg-gray-900 rounded-xl border border-gray-800 flex-shrink-0">
-                <div id="fyers-status-dot" class="w-2 h-2 rounded-full bg-gray-600"></div>
-                <span id="fyers-status-text" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden sm:inline">Offline</span>
-                <button id="fyers-login-btn" onclick="loginToFyers()" class="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-bold transition-all flex-shrink-0">CONNECT</button>
+        <!-- 2. CENTER: Status (Hidden on small screens) -->
+        <div class="nav-section hidden xl:flex gap-4">
+            <div id="fyers-connection" class="flex items-center gap-2 px-3 py-1 bg-gray-900/50 rounded-full border border-gray-800">
+                <div id="fyers-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-600"></div>
+                <span id="fyers-status-text" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Broker: Offline</span>
+                <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-500 hover:text-blue-400 ml-1">CONNECT</button>
+            </div>
+        </div>
+
+        <!-- 3. RIGHT: Controls & Search -->
+        <div class="nav-section gap-3">
+            <!-- Symbol Search -->
+            <div class="symbol-box relative flex items-center bg-gray-900/60 border border-gray-800 rounded-lg px-2 h-9">
+                <input type="text" id="symbol-input" value="RELIANCE" 
+                    class="bg-transparent border-none text-xs font-bold text-white focus:outline-none w-full uppercase placeholder-gray-500"
+                    placeholder="SEARCH">
+                <button id="search-btn" class="text-gray-500 hover:text-white p-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </button>
+                <div id="search-results" class="absolute top-full left-0 mt-2 w-64 glass border border-gray-700 rounded-xl hidden z-50 shadow-2xl max-h-80 overflow-y-auto"></div>
             </div>
 
-            <div class="flex items-center gap-2 flex-shrink-0">
-            <!-- Screener Toggle -->
-            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded-xl border border-gray-800">
-                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:inline">Screener</span>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="screener-toggle" class="sr-only peer">
-                    <div
-                        class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600">
+            <!-- Timeframe & Strategy -->
+            <div class="flex items-center gap-1.5 h-9">
+                <select id="tf-selector" 
+                    class="bg-gray-900/60 border border-gray-800 rounded-lg px-2 py-1.5 text-[10px] font-black text-gray-300 focus:border-blue-500/50 outline-none cursor-pointer uppercase transition-all">
+                    <option value="5m">5 MIN</option>
+                    <option value="15m">15 MIN</option>
+                    <option value="75m">75 MIN</option>
+                    <option value="1H">1 HOUR</option>
+                    <option value="2H">2 HOUR</option>
+                    <option value="4H">4 HOUR</option>
+                    <option value="1D" selected>DAILY</option>
+                    <option value="1W">WEEKLY</option>
+                    <option value="1M">MONTHLY</option>
+                </select>
+
+                <select id="strategy-selector"
+                    class="bg-blue-900/30 border border-blue-500/30 rounded-lg px-2 py-1.5 text-[10px] font-black text-blue-400 focus:border-blue-500 outline-none cursor-pointer uppercase transition-all">
+                    <option value="SR">S / R</option>
+                    <option value="SWING">SWING</option>
+                    <option value="DEMAND_SUPPLY">ZONES</option>
+                    <option value="FIBONACCI">FIBO</option>
+                </select>
+            </div>
+
+            <div class="h-6 w-px bg-gray-800 mx-1 hidden md:block"></div>
+
+            <!-- More Actions Dropdown -->
+            <div class="relative">
+                <button id="more-actions-btn" 
+                    class="flex items-center gap-2 px-3 py-1.5 bg-gray-800/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all">
+                    More <span class="text-gray-600">▾</span>
+                </button>
+                
+                <div id="more-actions-dropdown" class="dropdown-menu">
+                    <!-- MTF Toggle -->
+                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Multi-Timeframe</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="mtf-toggle" class="sr-only peer" checked>
+                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
                     </div>
-                </label>
-            </div>
 
-            <!-- Rotation Toggle -->
-            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded-xl border border-gray-800">
-                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:inline">Rotation</span>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="rotation-toggle" class="sr-only peer">
-                    <div
-                        class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600">
+                    <!-- Screener Toggle -->
+                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Screener</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="screener-toggle" class="sr-only peer">
+                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
                     </div>
-                </label>
-            </div>
 
-            <!-- View Mode Toggle -->
-            <div class="flex items-center space-x-1 bg-gray-900 px-1.5 py-1 rounded-xl border border-gray-700">
-                <button id="view-dashboard"
-                    class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white transition-colors">
-                    Dashboard
-                </button>
-                <button id="view-intelligence"
-                    class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-400 hover:bg-gray-800 transition-colors">
-                    Intelligence
-                </button>
-            </div>
+                    <!-- Rotation Toggle -->
+                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rotation</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="rotation-toggle" class="sr-only peer">
+                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
 
-            <!-- Search Box (Relative for Dropdown) -->
-            <div class="flex items-center gap-4">
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                    <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                    <span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Admin</span>
-                </div>
-                <button id="logout-btn" class="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all">
-                    Logout
-                </button>
-                <div class="tf-selector-group flex bg-gray-900/50 p-1 rounded-lg border border-gray-800">
-                    <input type="text" id="symbol-input" value="RELIANCE"
-                        class="bg-transparent border-none text-sm font-semibold text-white focus:outline-none w-20 uppercase placeholder-gray-500"
-                        placeholder="SYMBOL">
-                    <button id="search-btn" class="text-gray-400 hover:text-white transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                        </svg>
+                    <div class="h-px bg-gray-800 my-1 mx-2"></div>
+
+                    <!-- Admin Actions -->
+                    <div class="px-3 py-2 flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Admin</span>
+                        <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                    </div>
+                    
+                    <button id="logout-btn" 
+                        class="w-full text-left px-3 py-2 text-[10px] font-bold text-red-500 hover:bg-red-500/10 rounded-lg uppercase tracking-widest transition-colors mb-1">
+                        Logout System
                     </button>
                 </div>
-                <!-- Autocomplete Results -->
-                <div id="search-results"
-                    class="absolute top-full left-0 mt-2 w-64 glass rounded-xl border border-gray-700 hidden overflow-hidden z-50 shadow-xl max-h-60 overflow-y-auto">
-                    <!-- Dynamic Items -->
-                </div>
             </div>
-            <div class="flex items-center gap-1.5 bg-[#1e2329] border border-gray-700 rounded-lg px-2 py-1">
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="mtf-toggle" class="sr-only peer" checked>
-                    <div
-                        class="w-7 h-4 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600">
-                    </div>
-                    <span class="ml-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">MTF</span>
-                </label>
-            </div>
-            <!-- Intraday Intelligence Timeframe Chips -->
-            <div id="intraday-tf-toggle"
-                class="hidden xl:flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-lg px-1 py-0.5">
-                <button data-tf="5m"
-                    class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.7)]">
-                    5 MIN
-                </button>
-                <button data-tf="15m"
-                    class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-md text-gray-300 hover:bg-gray-800 transition-colors">
-                    15 MIN
-                </button>
-            </div>
-            <select id="strategy-selector"
-                class="bg-blue-900/40 border border-blue-500/50 rounded-lg px-2 py-1 text-xs font-bold focus:ring-1 focus:ring-blue-500 cursor-pointer text-blue-100 uppercase tracking-tighter max-w-[160px]">
-                <option value="SR">Support/Resistance (SR)</option>
-                <option value="SWING">Swing Trading</option>
-                <option value="DEMAND_SUPPLY">Demand/Supply Zones</option>
-            </select>
-            <!-- tf-selector hidden but retained for JS compatibility -->
-            <select id="tf-selector" class="hidden">
-                <option value="5m">5 min</option>
-                <option value="15m">15 min</option>
-                <option value="75m">75 min</option>
-                <option value="1H">1 hour</option>
-                <option value="2H">2 hour</option>
-                <option value="4H">4 hour</option>
-                <option value="1D" selected>Daily</option>
-                <option value="1W">Weekly</option>
-                <option value="1M">Monthly</option>
-            </select>
         </div>
     </header>
 
@@ -628,12 +694,28 @@
                                     High Probability Only
                                 </label>
                                 <div id="hits-sync-status"
-                                    class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
-                                    <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
-                                    LIVE SYNC
+                                    class="flex items-center gap-3 text-[9px] text-gray-500 font-mono">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                                        LIVE SYNC
+                                    </div>
+                                    <button onclick="window.fetchIntelligence(false, true)" 
+                                        class="px-2 py-0.5 rounded-lg border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition-all font-bold uppercase tracking-widest text-[8px]">
+                                        Force Refresh
+                                    </button>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Trending Sectors Concentration Bar (populated by renderSectorConcentration) -->
+                        <div id="trending-sectors-bar" class="hidden px-4 py-2.5 border-b border-gray-800/60 bg-gray-900/30">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-[9px] font-bold uppercase tracking-widest text-gray-500 shrink-0">Trending:</span>
+                                <div id="trending-sectors-pills" class="flex items-center gap-2 flex-wrap"></div>
+                                <span id="trending-sectors-total" class="ml-auto text-[9px] text-gray-600 font-mono shrink-0"></span>
+                            </div>
+                        </div>
+
                         <div class="overflow-x-auto min-h-[600px]">
                             <table class="w-full text-left text-[11px]">
                                 <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">

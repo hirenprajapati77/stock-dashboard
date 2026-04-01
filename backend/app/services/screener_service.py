@@ -166,6 +166,40 @@ class ScreenerService:
         return bool(curr_high > prev_highs.max())
 
     @classmethod
+    def _calculate_rsi(cls, prices: pd.Series, period: int = 14) -> pd.Series:
+        """Lightweight RSI calculation."""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        return 100 - (100 / (1 + rs))
+
+    @classmethod
+    def _identify_setup_type(cls, df: pd.DataFrame, vol_ratio: float) -> str:
+        """Categorizes the momentum hit into a specific technical setup."""
+        if len(df) < 20: return "MOMENTUM_HIT"
+        
+        # 1. Breakout Check
+        if cls._is_breakout(df, window=10):
+            return "BREAKOUT"
+            
+        # 2. RSI Pullback Check
+        close = df['close'] if 'close' in df.columns else df['Close']
+        rsi = cls._calculate_rsi(close)
+        if not rsi.empty:
+            curr_rsi = rsi.iloc[-1]
+            prev_rsis = rsi.iloc[-5:-1]
+            # If RSI was oversold/neutral recently and now turning up
+            if any(prev_rsis < 45) and curr_rsi > prev_rsis.max():
+                return "RSI_PULLBACK"
+                
+        # 3. Volume Surge
+        if vol_ratio >= 2.5:
+            return "VOLUME_SURGE"
+            
+        return "MOMENTUM_HIT"
+
+    @classmethod
     def calculate_quality_score(cls, rs_sector: float, stock_acc: float, vol_ratio: float, 
                                structure_bias: str, rr: float, atr_expansion: float) -> float:
         """Phase 4: Stock Quality Score Calculation (0-100)"""
@@ -176,11 +210,14 @@ class ScreenerService:
         # 2. Stock Acceleration (20%) - Normalized -0.1 to +0.1 -> 0-100
         acc_score = float(max(0.0, float(min(100.0, float(stock_acc) * 500.0 + 50.0))))
         
-        # 3. Volume Ratio (15%) - 0.8 to 1.2+ -> 0-100
-        # Normalization: < 0.8 (Weak), 0.8-1.2 (Neutral), > 1.2 (Strong)
+        # 3. Volume Ratio (15%) - Smoother gradient
         vol_ratio_f = float(vol_ratio)
-        if vol_ratio_f > 1.2:
+        if vol_ratio_f >= 1.5:
             vol_score = 100
+        elif vol_ratio_f >= 1.2:
+            vol_score = 90
+        elif vol_ratio_f >= 1.0:
+            vol_score = 75
         elif vol_ratio_f >= 0.8:
             vol_score = 50
         else:
@@ -196,15 +233,31 @@ class ScreenerService:
         atr_score = float(max(0.0, float(min(100.0, (float(atr_expansion) - 1.0) * 200.0))))
         
         final_score = (
-            0.3 * rs_score +
-            0.2 * bias_score +
-            0.2 * acc_score +
-            0.1 * vol_score +
-            0.1 * atr_score +
-            0.1 * rr_bonus
+            0.30 * rs_score +
+            0.25 * bias_score +
+            0.15 * acc_score +
+            0.15 * vol_score +
+            0.10 * atr_score +
+            0.05 * rr_bonus
         )
         
         return float(final_score)
+
+    @classmethod
+    def _calculate_sector_concentration(cls, hits: List[Dict]) -> List[Dict]:
+        """Aggregates hits by sector to find trending market themes."""
+        counts = {}
+        for h in hits:
+            s = h.get("sector", "Unknown")
+            counts[s] = counts.get(s, 0) + 1
+        
+        # Sort by count descending
+        sorted_counts = sorted(
+            [{"sector": s, "count": c} for s, c in counts.items()],
+            key=lambda x: x["count"],
+            reverse=True
+        )
+        return sorted_counts
 
     @classmethod
     def get_entry_tag(cls, quality_score: float, sector_state: str, stock_active: bool) -> str:
@@ -317,7 +370,7 @@ class ScreenerService:
             return float(fallback_price), float(fallback_change)
 
     @classmethod
-    def get_screener_data(cls, timeframe: str = "1D") -> List[Dict]:
+    def get_screener_data(cls, timeframe: str = "1D", force: bool = False) -> List[Dict]:
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
         
         # 0. Check Cache — only serve non-empty results to avoid stale empty lists
@@ -326,7 +379,7 @@ class ScreenerService:
         ttl = cls.CACHE_TTL if market_status["mode"] in ["OPEN", "PRE_MARKET"] else 3600 * 12
 
         current_time = float(time.time())
-        if (cls._cache.get("data") is not None and 
+        if not force and (cls._cache.get("data") is not None and 
             cls._cache.get("data") and   # Must have results
             cls._cache.get("timeframe") == normalized_tf and 
             (current_time - float(cls._cache.get("timestamp") or 0.0)) < ttl):
@@ -351,41 +404,74 @@ class ScreenerService:
             if str(sector) in cls.SECTOR_INDEX_BY_KEY
         ]
 
-        # 1. Fetch data for all symbols using MarketDataService (which prioritizes Fyers)
-        print(f"DEBUG: Fetching data for {len(all_symbols)} symbols using MarketDataService with Fyers priority...")
+        # 1. Fetch data for all symbols using batch download (10x faster than ThreadPool)
+        print(f"DEBUG: Batch Downloading {len(all_symbols)} symbols for Momentum Screener...")
         stock_batch_data = {}
         
-        from app.services.market_data import MarketDataService
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_symbol = {
-                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
-                for symbol in all_symbols
-            }
-            for future in concurrent.futures.as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    df, currency, err = future.result()
-                    if df is not None and not df.empty:
-                        stock_batch_data[symbol] = df
-                except Exception as e:
-                    print(f"ERROR: Failed to fetch {symbol} in screener: {e}")
+        try:
+            # Use yf.download for high-speed batch fetching
+            # Mapping timeframe to interval for yf.download
+            yf_interval = normalized_tf # normalized_tf is already mapped to interval like '1d', '1h'
+            
+            # Filter symbols for Yahoo (remove Fyers-specific if any)
+            yahoo_symbols = [s for s in all_symbols if ":" not in s]
+            
+            batch_df = yf.download(
+                tickers=" ".join(yahoo_symbols),
+                period=period,
+                interval=yf_interval,
+                group_by='ticker',
+                auto_adjust=True,
+                threads=True,
+                progress=False
+            )
+            
+            if not batch_df.empty:
+                for sym in yahoo_symbols:
+                    try:
+                        if isinstance(batch_df.columns, pd.MultiIndex):
+                            s_df = batch_df[sym].dropna(how='all')
+                        else:
+                            s_df = batch_df.dropna(how='all')
+                            
+                        if not s_df.empty:
+                            # Standardize column names to lowercase to match MarketDataService style
+                            s_df.columns = [c.lower() for c in s_df.columns]
+                            stock_batch_data[sym] = s_df
+                    except Exception as e:
+                        continue
+        except Exception as e:
+            print(f"ERROR: Batch download failed in screener: {e}")
 
-        # Also fetch sector indices
+        # Also fetch sector indices in batch
         sector_batch_data = {}
         if sector_indices:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_sector = {
-                    executor.submit(MarketDataService.get_ohlcv, sec_sym, normalized_tf): sec_sym 
-                    for sec_sym in sector_indices
-                }
-                for future in concurrent.futures.as_completed(future_to_sector):
-                    sec_sym = future_to_sector[future]
-                    try:
-                        df, currency, err = future.result()
-                        if df is not None and not df.empty:
-                            sector_batch_data[sec_sym] = df
-                    except Exception as e:
-                        print(f"ERROR: Failed to fetch sector {sec_sym} in screener: {e}")
+            try:
+                sec_batch_df = yf.download(
+                    tickers=" ".join(sector_indices),
+                    period=period,
+                    interval=yf_interval,
+                    group_by='ticker',
+                    auto_adjust=True,
+                    threads=True,
+                    progress=False
+                )
+                
+                if not sec_batch_df.empty:
+                    for sec_sym in sector_indices:
+                        try:
+                            if isinstance(sec_batch_df.columns, pd.MultiIndex):
+                                sec_df = sec_batch_df[sec_sym].dropna(how='all')
+                            else:
+                                sec_df = sec_batch_df.dropna(how='all')
+                                
+                            if not sec_df.empty:
+                                sec_df.columns = [c.lower() for c in sec_df.columns]
+                                sector_batch_data[sec_sym] = sec_df
+                        except Exception:
+                            continue
+            except Exception as e:
+                print(f"ERROR: Failed to fetch sectors in batch: {e}")
 
         if not stock_batch_data:
             print("WARNING: No stock data fetched for screener. Using fallback.")
@@ -412,36 +498,36 @@ class ScreenerService:
         for symbol in all_symbols:
             try:
                 # 1. Fetch & Standardize DF
-                raw_df = stock_batch_df[symbol] if isinstance(stock_batch_df.columns, pd.MultiIndex) else stock_batch_df
+                raw_df = stock_batch_data.get(symbol)
                 if raw_df is None or raw_df.empty:
                     continue
                 
                 symbol_df = raw_df.copy()
                 symbol_df.columns = [c.lower() for c in symbol_df.columns]
                 
-                close = symbol_df['close'].dropna()
-                volume = symbol_df['volume'].dropna()
+                close = pd.to_numeric(symbol_df['close'], errors='coerce').dropna()
+                volume = pd.to_numeric(symbol_df['volume'], errors='coerce').dropna()
                 
                 if close.empty or volume.empty:
                     continue
 
                 # Handle after-hours (latest volume 0)
-                # Find the latest index with non-zero volume
                 latest_valid_idx = len(volume) - 1
                 while latest_valid_idx >= 0 and volume.iloc[latest_valid_idx] == 0:
                     latest_valid_idx -= 1
                 
-                # If no valid volume bar found, skip
                 if latest_valid_idx < 0:
                     continue
                 
-                # Ensure we have enough data points for calculations
-                if latest_valid_idx < 5: # Need at least 6 bars for pct_change and rolling means
+                if latest_valid_idx < 5:
                     continue
 
+                latest_price = float(close.iloc[latest_valid_idx])
                 pct = close.pct_change() * 100
+                latest_change = float(pct.iloc[latest_valid_idx]) if not pd.isna(pct.iloc[latest_valid_idx]) else 0.0
+                
                 avg_vol = volume.rolling(20, min_periods=5).mean()
-                vol_ratio = (volume / avg_vol).replace([pd.NA, pd.NaT], 0).fillna(0)
+                vol_ratio = (volume / avg_vol).replace([pd.NA, pd.NaT, np.inf, -np.inf], 0).fillna(0)
                 volume_expansion = vol_ratio > rule.volume_threshold
 
                 cond = (pct > rule.change_threshold) & volume_expansion
@@ -450,29 +536,41 @@ class ScreenerService:
                     continue
 
                 hits1d, hits2d, hits3d = cls._compute_streak_flags(cond, hit_idx)
-                # Removed strict 'if not hits1d: continue' to allow recent hits to show
                 
                 sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
-                
-                # --- HARD SECTOR GATE (LOCKED v1.0) ---
                 sector_info = sector_data.get(sector_key, {})
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
                 
                 if sector_state not in gate_states:
-                    # print(f"DEBUG SCREENER: {symbol} FAILED Sector Gate. State: {sector_state}")
                     continue
 
+                # Calculate RS and Sector Return
                 sector_return = 0.0
-                if str(sector_key) in cls.SECTOR_INDEX_BY_KEY and not sector_batch_df.empty:
+                rs_sector = 0.0
+                s_acc_raw = 0.0
+                stock_return = float(pct.iloc[hit_idx])
+                
+                if str(sector_key) in cls.SECTOR_INDEX_BY_KEY:
                     sector_symbol = str(cls.SECTOR_INDEX_BY_KEY.get(str(sector_key), ""))
-                    # Cast to Any to satisfy broken stubs
-                    sector_batch_any: Any = sector_batch_df
-                    sector_df = sector_batch_any[sector_symbol] if isinstance(sector_batch_any.columns, pd.MultiIndex) else sector_batch_any
+                    sector_df = sector_batch_data.get(sector_symbol)
                     if sector_df is not None and not sector_df.empty:
                         sec_close_col = "Close" if "Close" in sector_df.columns else "close"
-                        sector_close = sector_df[sec_close_col].dropna()
-                        if len(sector_close) > hit_idx:
-                            sector_return = float((sector_close.pct_change() * 100).iloc[hit_idx])
+                        sector_close = pd.to_numeric(sector_df[sec_close_col], errors='coerce').dropna()
+                        if len(sector_close) >= len(close):
+                            # Align indices if possible or use simple positioning
+                            sec_pct = sector_close.pct_change() * 100
+                            sector_return = float(sec_pct.iloc[hit_idx]) if hit_idx < len(sec_pct) else 0.0
+                            rs_sector = stock_return - sector_return
+                            
+                            # Series calculation for acceleration
+                            s_rs = pct - sec_pct
+                            if hit_idx < len(s_rs):
+                                s_rs_diff = s_rs.diff()
+                                s_acc_raw = float(s_rs_diff.iloc[hit_idx]) if not pd.isna(s_rs_diff.iloc[hit_idx]) else 0.0
+                
+                # --- STOCK RS GATE (LOCKED v1.0) ---
+                if rs_sector <= 0:
+                    continue
 
                 # --- Forward 3-Day Performance (Daily TF Only) ---
                 forward_return = None
@@ -482,23 +580,13 @@ class ScreenerService:
                         future_price = float(close.iloc[hit_idx + 3])
                         forward_return = ((future_price - entry_price) / entry_price) * 100
 
-                s_rs = pct - sector_pct
-                s_acc_raw = s_rs.diff().iloc[hit_idx]
-                if pd.isna(s_acc_raw):
-                    s_acc_raw = 0.0
-                
-                # --- STOCK RS GATE (LOCKED v1.0) ---
-                if rs_sector <= 0:
-                    continue
-
                 # Technical Analysis Metrics
                 vwap = cls._calculate_vwap(symbol_df)
                 is_breakout = cls._is_breakout(symbol_df)
                 price_above_vwap = latest_price > vwap
                 vol_ratio_val = float(vol_ratio.iloc[hit_idx])
 
-                # --- INTELLIGENCE LAYER: EARLY BREAKOUT DETECTION (ADDITIVE) ---
-                # This does NOT alter Quality Score formulas or existing signal generation.
+                # --- INTELLIGENCE LAYER: EARLY BREAKOUT DETECTION ---
                 early_tag = None
                 early_tooltip = None
                 early_details = {}
@@ -512,10 +600,9 @@ class ScreenerService:
                 except Exception:
                     pass
                 
-                # Assume active if standard momentum criteria met (which they are if we reached here)
                 stock_active = True 
                 
-                # Volatility check (High if current range > 2x average range)
+                # Volatility check
                 high_col = "High" if "High" in symbol_df.columns else "high"
                 low_col = "Low" if "Low" in symbol_df.columns else "low"
                 ranges = (symbol_df[high_col] - symbol_df[low_col])
@@ -526,10 +613,7 @@ class ScreenerService:
                 # Phase 4 Metrics
                 structure_bias = InsightEngine.get_structure_bias(symbol_df)
                 atr_expansion = min(3.0, curr_range / avg_range) if avg_range > 0 else 1.0
-                
-                # Simple RR heuristic since we don't have strategy levels here
-                # We assume target is 2x ATR and stop is 1x ATR
-                rr_heuristic = 2.0 # Default to 2.0 if we can't calculate better
+                rr_heuristic = 2.0 
                 
                 quality_score = cls.calculate_quality_score(
                     rs_sector=rs_sector,
@@ -540,41 +624,25 @@ class ScreenerService:
                     atr_expansion=atr_expansion
                 )
                 
-                # Compute Tags (Base)
+                # Compute Tags
                 entry_tag = cls.get_entry_tag(quality_score, sector_state, stock_active)
                 
-                # --- INTELLIGENCE LAYER: FALSE BREAKOUT FILTER (NEW) ---
-                # breakout = price > highestHigh(20)
                 h20 = symbol_df[high_col].rolling(20).max().iloc[-2] if len(symbol_df) >= 21 else symbol_df[high_col].iloc[0]
                 is_breakout_actual = latest_price > h20
-                
-                # volumeRatio > 1.5 AND close > VWAP
                 false_breakout = is_breakout_actual and (vol_ratio_val < 1.5 or not price_above_vwap)
                 
                 if false_breakout:
-                    # Downgrade signal to WATCHLIST if it was ENTRY_READY or STRONG_ENTRY
                     if entry_tag in ["ENTRY_READY", "STRONG_ENTRY"]:
                         entry_tag = "WATCHLIST"
                 
-                # --- INTELLIGENCE LAYER: INSTITUTIONAL DETECTION (NEW) ---
-                # institutionalActivity = volumeRatio >= 2
-                institutional_activity = vol_ratio_val >= 2.0
-                
-                # --- MOMENTUM STRENGTH (NEW) ---
                 momentum_strength = cls.get_momentum_strength(quality_score, vol_ratio_val, s_acc_raw)
-
                 exit_tag = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
                 risk_level = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
 
-                # Safety Rule: Avoid ENTRY_READY on sharp red candles
                 if latest_change <= -2 and sector_state != "LEADING":
                     if entry_tag == "ENTRY_READY":
                         entry_tag = "WATCHLIST"
 
-                # Improvement 1: Market Regime Filter Adjustment
-                # We need the market return to determine regime
-                # Since get_market_summary_data is expensive, we'll use a simplified check or assume it's passed/cached
-                # For this implementation, we'll calculate NIFTY return inline for the regime
                 market_regime = "NEUTRAL"
                 if market_regime == "WEAK":
                     if entry_tag == "STRONG_ENTRY":
@@ -582,20 +650,10 @@ class ScreenerService:
                     elif entry_tag == "ENTRY_READY":
                         entry_tag = "WATCHLIST"
 
-                if market_regime == "WEAK":
-                    if entry_tag == "STRONG_ENTRY":
-                        entry_tag = "ENTRY_READY"
-                    elif entry_tag == "ENTRY_READY":
-                        entry_tag = "WATCHLIST"
-                
-                # POSITION SIZING & SESSION (LOCKED v1.0)
                 phase, session_quality = cls.get_session_tag()
-                
-                # For stop distance, we use nearest support if available, else a mock 1.5%
-                stop_distance_pct = 1.5 # Default conservative
+                stop_distance_pct = 1.5 
                 ru = cls.get_risk_units(sector_state, entry_tag, risk_level, stop_distance_pct)
                 
-                # Hard Timing Gate
                 if session_quality == "AVOID":
                     ru = 0
 
@@ -648,10 +706,11 @@ class ScreenerService:
                             "earlyTag": early_tag,
                             "earlyTooltip": early_tooltip,
                             "earlyDetails": early_details,
+                            "setupType": cls._identify_setup_type(symbol_df, vol_ratio_val),
                         },
-                        "asOf": str(close.index[latest_idx]),
+                        "asOf": str(close.index[latest_valid_idx]),
                         "hitAsOf": str(hit_ts),
-                        "isLatestSession": bool(hit_idx == len(close) - 1),
+                        "isLatestSession": bool(hit_idx == latest_valid_idx),
                     }
                 )
             except Exception as e:
@@ -675,7 +734,8 @@ class ScreenerService:
             cls._cache = {
                 "data": hits,
                 "timestamp": time.time(),
-                "timeframe": normalized_tf
+                "timeframe": normalized_tf,
+                "sector_concentration": cls._calculate_sector_concentration(hits)
             }
             # Archive Signals (V6: Persistent historical signals)
             if normalized_tf == "1D":
@@ -690,7 +750,10 @@ class ScreenerService:
                 print(f"DEBUG: 0 hits found live, returning fallback EOD data for {normalized_tf}")
                 return fallback_data
         
-        return hits
+        return {
+            "hits": hits,
+            "sector_concentration": cls._calculate_sector_concentration(hits) if hits else []
+        }
 
     @classmethod
     def get_early_breakout_setups(cls, timeframe: str = "1D", limit: int = 5) -> List[Dict]:
@@ -923,7 +986,8 @@ class ScreenerService:
             gift_nifty_positive = market_return > 0  # Simplified proxy
 
             # 4. Top Stocks
-            hits = cls.get_screener_data(timeframe=timeframe)
+            screener_res = cls.get_screener_data(timeframe=timeframe)
+            hits = screener_res.get("hits", []) if isinstance(screener_res, dict) else screener_res
             performance = cls.calculate_performance_stats(hits)
             top_stocks = []
             for h in hits:

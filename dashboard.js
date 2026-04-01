@@ -136,7 +136,7 @@ class MarketIntelligence {
 
         // SANITY CHECK: Too many leading sectors
         const leadingCount = sectors.filter(s => s.metrics.state === 'LEADING').length;
-        if (leadingCount > 3) console.warn(`Too many LEADING sectors (${leadingCount}) — check RS logic scaling`);
+        if (leadingCount > 5) console.warn(`Too many LEADING sectors (${leadingCount}) — check RS logic scaling`);
 
         this.sectorList.innerHTML = sectors.map(sector => {
             const metrics = sector.metrics || {};
@@ -1078,7 +1078,17 @@ class MarketIntelligence {
             else if (currentTag === 'ENTRY_READY') statusColor = 'bg-green-600/20 text-green-400 border border-green-500/30';
             else if (currentTag === 'WATCHLIST' || currentTag === 'WAIT') statusColor = 'bg-yellow-600/20 text-yellow-500 border border-yellow-500/30';
             if (hit.exitTag === 'EXIT') statusColor = 'bg-red-600/20 text-red-400 border border-red-500/30';
-            if (isEarlySetup) statusColor = 'bg-purple-600/20 text-purple-300 border border-purple-500/40';
+            if (isEarlySetup) statusColor = 'bg-purple-600/20 text-purple-300 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.3)] animate-pulse';
+
+            // Setup Type Styling
+            const setupType = hit.technical?.setupType || 'MOMENTUM';
+            const setupIcons = {
+                'BREAKOUT': '🚀',
+                'RSI_PULLBACK': '📉',
+                'VOLUME_SURGE': '📈',
+                'MOMENTUM_HIT': '🔥'
+            };
+            const setupIcon = setupIcons[setupType] || '🔥';
 
             // Grade Content Mapping
             const grade = hit.confidence || hit.grade || 'C';
@@ -1152,6 +1162,9 @@ class MarketIntelligence {
                                 ${isLeadingSector ? '<span class="text-[7px] bg-green-500/20 text-green-400 px-1 rounded border border-green-500/20 uppercase tracking-tighter">LEADER</span>' : ''}
                                 <span class="text-[7px] px-1 rounded uppercase tracking-tighter ${probabilityClass}">${probabilityCategory}</span>
                             </span>
+                            <span class="text-[8px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                                ${setupIcon} ${setupType.replace('_', ' ')}
+                            </span>
                             ${hit.technical?.isFalseBreakout ? '<span class="text-[7px] font-bold text-red-400 uppercase tracking-tighter flex items-center gap-0.5">⚠️ FALSE</span>' : ''}
                         </div>
                         ${tradeLabel}
@@ -1188,10 +1201,13 @@ class MarketIntelligence {
                         ? '🟣 EARLY'
                         : (hit.tradeDecisionTag || hit.entryStatus || hit.entryTag || 'AVOID').replace('_', ' '))}
                              </span>
-                             <button class="text-[7px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer" 
+                             <div class="text-[9px] text-gray-400 leading-tight italic max-w-[120px] line-clamp-2 mt-1" title="${hit.aiCommentary || ''}">
+                                 ${hit.aiCommentary || 'Analyzing setup...'}
+                             </div>
+                             <button class="text-[7px] text-indigo-400 font-bold uppercase hover:underline cursor-pointer mt-1" 
                                      title="Click for full signal explanation"
                                      onclick="event.stopPropagation(); window.showExplanation('${hit.symbol}')">
-                                 Explain
+                                 Details
                              </button>
                          </div>
                     </td>

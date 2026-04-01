@@ -37,13 +37,14 @@ from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
-from app.services.screener import ScreenerService
+from app.services.fundamental_screener_service import FundamentalScreener
 from app.services.sector_service import SectorService
 from app.services.constituent_service import ConstituentService
 from app.services.market_status_service import MarketStatusService
 from app.engine.swing import SwingEngine
 from app.engine.zones import ZoneEngine
 from app.engine.sr import SREngine
+from app.engine.fibonacci import FibonacciEngine
 from app.engine.insights import InsightEngine
 from app.engine.confidence import ConfidenceEngine
 from app.ai.engine import AIEngine
@@ -62,6 +63,8 @@ async def lifespan(app: FastAPI):
             t0 = time.time()
 
             def _sync_warmup():
+                from app.services.screener_service import ScreenerService
+                from app.services.constituent_service import ConstituentService
                 symbols = ConstituentService.get_nifty100_symbols()
                 ScreenerService.screen_symbols(symbols)
 
@@ -414,6 +417,13 @@ async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = 
             s_top = supp_sorted[0:4] if len(supp_sorted) >= 4 else supp_sorted
             r_top = res_sorted[0:4] if len(res_sorted) >= 4 else res_sorted
             rendered_levels = {"supports": s_top, "resistances": r_top}
+        elif strategy == "FIBONACCI":
+            fib_results = await asyncio.to_thread(FibonacciEngine.calculate_fib_levels, df)
+            strategy_result = await asyncio.to_thread(FibonacciEngine.runFibonacciStrategy, df, sector_state, fib_results)
+            
+            supports = fib_results.get("supports", [])
+            resistances = fib_results.get("resistances", [])
+            rendered_levels = {"supports": supports, "resistances": resistances}
 
         # 5. AI Insights (Increased timeout for Render performance)
         try:
@@ -714,7 +724,7 @@ async def run_screener(force: bool = False):
         "INDOTHAI", "IGIL", "BORANA", "ALUFLUORIDE", "EMERALD", "KAYNES", "SYRMA", "DATAPATTNS", "ERIS",
         "FINEORG", "CLEAN", "ROUTE", "HAPPSTMNDS", "NEWGEN", "SONATSOFTW", "AMBER", "NETWORK18"
     ]
-    matches = ScreenerService.screen_symbols(watchlist, force=force)
+    matches = FundamentalScreener.screen_symbols(watchlist, force=force)
     return {"status": "success", "count": len(matches), "matches": matches}
 
 @app.get("/api/v1/sector-rotation", dependencies=[Depends(login_required)])
@@ -754,7 +764,7 @@ async def get_sector_rotation(tf: str = "1D"):
         return {"status": "error", "message": str(e), "source": "error"}
 
 @app.get("/api/v1/momentum-hits", dependencies=[Depends(login_required)])
-async def get_momentum_hits(tf: str = "1D"):
+async def get_momentum_hits(tf: str = "1D", force: bool = False):
     """
     Returns stocks with momentum hits (price and volume acceleration).
     """
@@ -764,14 +774,14 @@ async def get_momentum_hits(tf: str = "1D"):
         from app.services.trade_decision_service import TradeDecisionService
         from app.services.trade_tracking_service import TradeTrackingService
 
-        data = MomentumScreener.get_screener_data(timeframe=tf)
-        if not data:
-             # Fallback if service returns empty list (e.g. rate limit caught but no file?)
-             # ScreenerService.get_screener_data already tries to load fallback, 
-             # but we can be extra sure here.
+        screener_res = MomentumScreener.get_screener_data(timeframe=tf, force=force)
+        raw_hits = screener_res.get("hits", []) if isinstance(screener_res, dict) else screener_res
+        
+        if not raw_hits:
+             # Fallback if service returns empty list
              pass
              
-        filtered = SignalFilterService.annotate_many(data)
+        filtered = SignalFilterService.annotate_many(raw_hits)
         
         from app.services.market_status_service import MarketStatusService
         market_status = MarketStatusService.get_market_status()
@@ -784,11 +794,27 @@ async def get_momentum_hits(tf: str = "1D"):
         if enriched and not any(h.get("isLatestSession", False) for h in enriched):
             source = "fallback"
 
+        # Extract Sector Concentration from service if available, else compute locally
+        sector_concentration = []
+        if isinstance(screener_res, dict) and "sector_concentration" in screener_res:
+            sector_concentration = screener_res["sector_concentration"]
+        else:
+            sector_counts: dict = {}
+            for h in enriched:
+                sk = h.get("sector", "OTHER")
+                sector_counts[sk] = sector_counts.get(sk, 0) + 1
+            sector_concentration = sorted(
+                [{"sector": k, "count": v} for k, v in sector_counts.items()],
+                key=lambda x: x["count"], reverse=True
+            )
+
         return {
             "status": "success",
             "count": len(enriched),
             "data": enriched,
-            "source": source
+            "sectorConcentration": sector_concentration,
+            "source": source,
+            "timestamp": datetime.now().strftime("%H:%M:%S")
         }
     except Exception as e:
         print(f"ERROR in get_momentum_hits: {e}")
@@ -892,13 +918,13 @@ async def get_observability_summary():
         return {"status": "success", "data": ObservabilityService.summarize_last_24h()}
     except Exception as e:
         return {"status": "error", "data": {}, "message": str(e)}
-
 @app.get("/api/v1/screener/debug", dependencies=[Depends(login_required)])
 async def get_screener_debug():
     """Returns the internal rejection logs for the last screener run."""
     try:
-        from app.services.screener import _REJECTION_LOGS
-        return {"status": "success", "data": _REJECTION_LOGS}
+        from app.services.fundamental_screener_service import FundamentalScreener
+        rejection_logs = FundamentalScreener.get_rejection_logs()
+        return {"status": "success", "data": rejection_logs}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -906,10 +932,10 @@ async def get_screener_debug():
 async def force_screener_refresh():
     """Triggers a fresh scan of all symbols, bypassing the cache."""
     try:
-        from app.services.screener import ScreenerService
+        from app.services.fundamental_screener_service import FundamentalScreener
         from app.services.constituent_service import ConstituentService
         symbols = ConstituentService.get_nifty100_symbols()
-        results = ScreenerService.screen_symbols(symbols, force=True)
+        results = FundamentalScreener.screen_symbols(symbols, force=True)
         return {"status": "success", "count": len(results), "matches": results}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -921,12 +947,12 @@ async def get_market_summary(tf: str = "1D"):
     """
     try:
         from app.services.screener_service import ScreenerService as MomentumScreener
-        from app.services.screener import ScreenerService as FundaScreener
+        from app.services.fundamental_screener_service import FundamentalScreener
         from app.services.constituent_service import ConstituentService
         
         # 1. Fundamental Screener (Proxy-Aware)
         symbols = ConstituentService.get_nifty100_symbols()
-        funda_matches = FundaScreener.screen_symbols(symbols)
+        funda_matches = FundamentalScreener.screen_symbols(symbols)
         
         # 2. Momentum Screener
         data = MomentumScreener.get_market_summary_data(timeframe=tf)
