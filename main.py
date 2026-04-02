@@ -18,33 +18,48 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 # Simple Memory Logger for Auditing (Auto-clears every 1 hour)
+_original_stdout = sys.stdout  # Capture BEFORE any override
+
 class TailLogHandler:
     def __init__(self, maxlen=1000):
         self.logs = collections.deque(maxlen=maxlen)
         self.last_clear = datetime.now()
+        self._orig = _original_stdout
         
     def write(self, message):
-        now = datetime.now()
-        if (now - self.last_clear).total_seconds() > 3600:
-            self.logs.clear()
-            self.last_clear = now
-            
-        if message.strip():
-            timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-            self.logs.append(f"[{timestamp}] {message.strip()}")
-            
-        # Write to original stdout so console still works
-        sys.__stdout__.write(message)
+        try:
+            now = datetime.now()
+            if (now - self.last_clear).total_seconds() > 3600:
+                self.logs.clear()
+                self.last_clear = now
+                
+            if message and message.strip():
+                timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+                self.logs.append(f"[{timestamp}] {message.strip()}")
+        except Exception:
+            pass
+        
+        # Always write to original stdout
+        try:
+            self._orig.write(message)
+        except Exception:
+            pass
     
     def flush(self):
-        sys.__stdout__.flush()
+        try:
+            self._orig.flush()
+        except Exception:
+            pass
 
     def isatty(self):
-        # Prevent uvicorn logging crash
-        return getattr(sys.__stdout__, 'isatty', lambda: False)()
+        return getattr(self._orig, 'isatty', lambda: False)()
         
     def fileno(self):
-        return getattr(sys.__stdout__, 'fileno', lambda: 1)()
+        return self._orig.fileno()
+    
+    # Delegate any unknown attribute to the original stdout
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
 
 # Inject the audit logger into global stdout
 audit_tail = TailLogHandler(maxlen=2000)
