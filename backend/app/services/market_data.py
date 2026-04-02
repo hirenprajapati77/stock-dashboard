@@ -373,13 +373,16 @@ class MarketDataService:
             # 401 / Invalid Crumb Bypass via Proxy
             if df.empty:
                 print(f"DEBUG: Yahoo Direct failed for {symbol}, trying Proxy...")
-                # Map yf intervals to yahoo query params
-                y_range = period # e.g. '1y'
-                y_interval = interval # e.g. '1d'
-                # Construction: https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?range=1y&interval=1d
-                y_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={y_range}&interval={y_interval}"
+                y_range = period
+                y_interval = interval
                 
-                res = MarketDataService._fetch_via_proxy(y_url)
+                # Try query2 first (often bypasses crumb), then query1
+                res = None
+                for q_host in ["query2.finance.yahoo.com", "query1.finance.yahoo.com"]:
+                    y_url = f"https://{q_host}/v8/finance/chart/{symbol}?range={y_range}&interval={y_interval}"
+                    res = MarketDataService._fetch_via_proxy(y_url, max_retries=1, timeout=10)
+                    if res:
+                        break
                 if res:
                     data = res.json()
                     result = data.get('chart', {}).get('result', [{}])[0]
