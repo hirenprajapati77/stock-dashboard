@@ -240,7 +240,7 @@ class MarketDataService:
             return None
 
     @staticmethod
-    def get_ohlcv(symbol="RELIANCE", tf="1D", count=200, use_fast_info=True):
+    def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
         """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
         Returns (df, currency, error_message)
@@ -285,24 +285,50 @@ class MarketDataService:
         
         # 1.5 Try Fyers first if logged in
         try:
-            # If symbol has a colon, it's already a Fyers-style symbol
-            fyers_sym = symbol if ":" in symbol else f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
+            # Map Yahoo/internal symbols to Fyers-specific symbol formats
+            fyers_sym = symbol
+            if ":" not in symbol:
+                # 1. Index Symbol Mapping
+                INDEX_MAP = {
+                    "^NSEI": "NSE:NIFTY50-INDEX",
+                    "^NSEBANK": "NSE:NIFTYBANK-INDEX",
+                    "^CNXIT": "NSE:NIFTYIT-INDEX",
+                    "^CNXPHARMA": "NSE:NIFTYPHARMA-INDEX",
+                    "^CNXFMCG": "NSE:NIFTYFMCG-INDEX",
+                    "^CNXAUTO": "NSE:NIFTYAUTO-INDEX",
+                    "^CNXENERGY": "NSE:NIFTYENERGY-INDEX",
+                    "^CNXMETAL": "NSE:NIFTYMETAL-INDEX",
+                    "^CNXREALTY": "NSE:NIFTYREALTY-INDEX",
+                    "^CNXPSUBANK": "NSE:NIFTYPSUBANK-INDEX",
+                    "^CNXMDCP50": "NSE:NIFTYMIDCAP50-INDEX",
+                    "^BSESN": "BSE:SENSEX-INDEX"
+                }
+                
+                if symbol in INDEX_MAP:
+                    fyers_sym = INDEX_MAP[symbol]
+                else:
+                    # 2. Standard Stock Mapping
+                    fyers_sym = f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
             
-            print(f"DEBUG: Trying Fyers for {fyers_sym} (Timeout: 3s)")
-            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=3)
+            # Increase timeout to 8s to give Fyers (and its proxy) a fair chance on slow networks/Render
+            print(f"DEBUG: Trying Fyers for {fyers_sym} (Timeout: 8s)")
+            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
             
             if fyers_df is not None and not fyers_df.empty:
-                print(f"DEBUG: Successfully fetched {symbol} from Fyers")
+                print(f"DEBUG: Successfully fetched {symbol} from Fyers", flush=True)
                 fyers_df = fyers_df.tail(count)
                 MarketDataService._save_to_disk(symbol, tf, fyers_df)
                 return fyers_df, "INR", None
             elif fyers_err == "Fyers request timed out":
-                print(f"DEBUG: Fyers timed out for {symbol}, falling back to Yahoo")
-            elif "not logged in" not in str(fyers_err).lower():
-                print(f"DEBUG: Fyers fetch failed for {symbol}: {fyers_err}. Falling back to Yahoo.")
+                print(f"WARNING: Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
+            elif "not logged in" in str(fyers_err).lower():
+                # Silently fall back if not logged in (standard behavior)
+                pass
+            else:
+                print(f"DEBUG: Fyers fetch failed for {symbol}: {fyers_err}. Falling back to Yahoo.", flush=True)
                 
         except Exception as fe:
-            print(f"DEBUG: Fyers integration error: {fe}. Falling back to Yahoo.")
+            print(f"DEBUG: Fyers integration error: {fe}. Falling back to Yahoo.", flush=True)
 
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---

@@ -302,47 +302,87 @@ class FyersService:
 
     @classmethod
     def update_symbol_master(cls, force=False):
-        symbols_file = os.path.join(os.path.dirname(fyers_config.token_file), "fyers_symbols.json")
+        """
+        Syncs symbol metadata from Fyers.
+        Now uses proxy and increased robustness for unreliable environments.
+        """
+        # Ensure we have a persistent data directory
+        data_dir = os.path.dirname(fyers_config.token_file)
+        os.makedirs(data_dir, exist_ok=True)
+        symbols_file = os.path.join(data_dir, "fyers_symbols.json")
+        
         now = time.time()
+        # 1. Use memory cache if available and not forced
+        if not force and cls._symbols_cache:
+            return True, f"Using memory cache ({len(cls._symbols_cache)} symbols)"
+
+        # 2. Try loading from disk if not expired (86400s = 24h)
         if not force and os.path.exists(symbols_file):
             file_time = os.path.getmtime(symbols_file)
             if now - file_time < 86400:
-                if not cls._symbols_cache:
-                    try:
-                        with open(symbols_file, "r") as f:
-                            cls._symbols_cache = json.load(f)
-                    except: pass
-                if cls._symbols_cache: return True, "Loaded from cache"
+                try:
+                    with open(symbols_file, "r") as f:
+                        cls._symbols_cache = json.load(f)
+                    if cls._symbols_cache:
+                        return True, f"Loaded {len(cls._symbols_cache)} symbols from disk"
+                except Exception as e:
+                    print(f"Error loading symbols from disk: {e}")
 
+        # 3. Synchronize from Fyers (Sequential to avoid memory spikes on small servers)
+        print("[Fyers] Starting symbol master synchronization...", flush=True)
         all_symbols = []
+        p_url = fyers_config.auth_proxy_url.rstrip('/') if fyers_config.auth_proxy_url else None
+        
         for key, url in cls.SYMBOL_MASTER_URLS.items():
             try:
-                # Use proxy if configured
                 target_url = url
-                if fyers_config.auth_proxy_url:
-                    # Generic proxy handles api.fyers.in. Public symbols are on public.fyers.in.
-                    # We might need to handle public.fyers.in too if it's blocked.
-                    # For now, let's leave it as is or add public support to proxy if needed.
-                    pass 
-                res = requests.get(target_url, timeout=30)
+                headers = {}
+                
+                # Use proxy for public CSVs too if available (avoids IP blocks)
+                if p_url:
+                    # public.fyers.in doesn't need auth, but needs IP bypass
+                    target_host = url.split('//')[1].split('/')[0]
+                    target_url = f"{p_url}{url.replace('https://' + target_host, '')}"
+                    headers = {"x-target-host": target_host}
+                
+                print(f"[Fyers] Fetching {key} master via {target_url[:50]}...", flush=True)
+                res = requests.get(target_url, headers=headers, timeout=45)
+                
                 if res.status_code == 200:
                     lines = res.text.splitlines()
+                    count = 0
                     for line in lines:
+                        # Format is extremely specific (CSV)
+                        # Ticker is usually column 10 (index 9), Name is 2, ShortName is 14
                         parts = line.split(',')
                         if len(parts) > 13:
-                            ticker, name, short_name = parts[9], parts[1], parts[13]
+                            ticker = parts[9].strip('"')
+                            name = parts[1].strip('"')
+                            short_name = parts[13].strip('"')
+                            
+                            # Determine exchange if not in ticker (e.g. "NSE:RELIANCE-EQ")
                             exch = ticker.split(':')[0] if ':' in ticker else key.split('_')[0]
-                            all_symbols.append({"s": ticker, "n": name.strip('"'), "sn": short_name.strip('"'), "e": exch})
-            except: pass
+                            all_symbols.append({"s": ticker, "n": name, "sn": short_name, "e": exch})
+                            count += 1
+                    print(f"[Fyers] Parsed {count} symbols from {key}", flush=True)
+                else:
+                    print(f"[Fyers] Failed to fetch {key}: Status {res.status_code}", flush=True)
+            except Exception as e:
+                print(f"[Fyers] Error fetching {key}: {e}", flush=True)
         
         if all_symbols:
+            # Atomic update
             cls._symbols_cache = all_symbols
             cls._last_sync = now
             try:
-                with open(symbols_file, "w") as f: json.dump(all_symbols, f)
-            except: pass
-            return True, f"Synced {len(all_symbols)} symbols"
-        return False, "Failed to sync any symbols"
+                with open(symbols_file, "w") as f:
+                    json.dump(all_symbols, f)
+                return True, f"Synced {len(all_symbols)} symbols"
+            except Exception as e:
+                print(f"Error saving symbols to disk: {e}")
+                return True, f"Synced {len(all_symbols)} (Memory only)"
+                
+        return False, "Failed to sync any symbol master files"
 
     @classmethod
     def search_symbols(cls, query):

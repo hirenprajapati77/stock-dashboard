@@ -299,7 +299,7 @@ async function fetchData(isBackground = false) {
         }
 
         const symbolInput = document.getElementById('symbol-input');
-        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "RELIANCE";
+        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const stratSelector = document.getElementById('strategy-selector');
