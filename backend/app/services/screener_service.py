@@ -727,6 +727,14 @@ class ScreenerService:
         This does NOT modify existing screener signals; it's a separate output.
         """
         normalized_tf = "1D" if timeframe == "Daily" else timeframe
+        
+        # 0. Check Cache
+        current_time = float(time.time())
+        if hasattr(cls, '_early_cache') and cls._early_cache.get("data") is not None:
+            if cls._early_cache.get("timeframe") == normalized_tf and (current_time - float(cls._early_cache.get("timestamp", 0.0))) < 300: # 5 min cache
+                print(f"DEBUG: Serving {len(cls._early_cache['data'])} early setups from memory cache.")
+                return cls._early_cache["data"]
+
         config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
 
         sector_map = {
@@ -736,27 +744,6 @@ class ScreenerService:
         }
         all_symbols = sorted({symbol for symbols in sector_map.values() for symbol in symbols})
         if not all_symbols:
-            return []
-
-        # 1. Fetch data for all symbols using MarketDataService (which prioritizes Fyers)
-        print(f"DEBUG: Fetching data for {len(all_symbols)} early setups using MarketDataService...")
-        stock_batch_data = {}
-        from app.services.market_data import MarketDataService
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_symbol = {
-                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
-                for symbol in all_symbols
-            }
-            for future in concurrent.futures.as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    df, currency, err = future.result()
-                    if df is not None and not df.empty:
-                        stock_batch_data[symbol] = df
-                except Exception as e:
-                    print(f"ERROR: Failed to fetch {symbol} for early setups: {e}")
-
-        if not stock_batch_data:
             return []
 
         sector_by_symbol = {
@@ -771,10 +758,42 @@ class ScreenerService:
         if sum(1 for s in all_sector_states if s in gate_states) == 0:
             gate_states = ["LEADING", "IMPROVING", "NEUTRAL"]
 
+        filtered_symbols = []
+        for symbol in all_symbols:
+            sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
+            sector_info = sector_data.get(sector_key, {})
+            sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
+            if sector_state in gate_states:
+                filtered_symbols.append(symbol)
+
+        if not filtered_symbols:
+            return []
+
+        # 1. Fetch data for filtered symbols ONLY using MarketDataService
+        print(f"DEBUG: Fetching data for {len(filtered_symbols)} early setups (filtered from {len(all_symbols)}) using MarketDataService...")
+        stock_batch_data = {}
+        from app.services.market_data import MarketDataService
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_symbol = {
+                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
+                for symbol in filtered_symbols
+            }
+            for future in concurrent.futures.as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    df, currency, err = future.result()
+                    if df is not None and not df.empty:
+                        stock_batch_data[symbol] = df
+                except Exception as e:
+                    print(f"ERROR: Failed to fetch {symbol} for early setups: {e}")
+
+        if not stock_batch_data:
+            return []
+
         from app.engine.early_breakout import detect_early_breakout
 
         setups: List[Dict] = []
-        for symbol in all_symbols:
+        for symbol in filtered_symbols:
             try:
                 raw_df = stock_batch_data.get(symbol)
                 if raw_df is None or raw_df.empty:
@@ -785,9 +804,7 @@ class ScreenerService:
                 sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
                 sector_info = sector_data.get(sector_key, {})
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
-                if sector_state not in gate_states:
-                    continue
-
+                
                 eb = detect_early_breakout(sdf)
                 if not eb.signal:
                     continue
@@ -818,7 +835,15 @@ class ScreenerService:
 
         setups.sort(key=lambda x: (float(x.get("rangePct", 99.0)), -float(x.get("volRatio", 0.0))), reverse=False)
         num_setups = int(max(1, int(limit)))
-        return [setups[i] for i in range(min(len(setups), num_setups))]
+        final_setups = [setups[i] for i in range(min(len(setups), num_setups))]
+        
+        if not hasattr(cls, '_early_cache'):
+            cls._early_cache = {}
+        cls._early_cache["data"] = final_setups
+        cls._early_cache["timestamp"] = time.time()
+        cls._early_cache["timeframe"] = normalized_tf
+        
+        return final_setups
 
     @classmethod
     def get_next_session_watchlist(cls, timeframe: str = "1D") -> Dict:
