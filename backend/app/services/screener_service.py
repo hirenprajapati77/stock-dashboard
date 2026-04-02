@@ -404,81 +404,42 @@ class ScreenerService:
             if str(sector) in cls.SECTOR_INDEX_BY_KEY
         ]
 
-        # 1. Fetch data for all symbols using batch download (10x faster than ThreadPool)
-        print(f"DEBUG: Batch Downloading {len(all_symbols)} symbols for Momentum Screener...")
+        # 1. Fetch data for all symbols and sectors using MarketDataService (Threaded)
+        print(f"DEBUG: Fetching {len(all_symbols)} stocks and {len(sector_indices)} sectors for Screener via MarketDataService...", flush=True)
         stock_batch_data = {}
+        sector_batch_data = {}
+        
+        from app.services.market_data import MarketDataService
+        
+        # Combine all targets for a single thread pool pass
+        all_targets = all_symbols + sector_indices
         
         try:
-            # Use yf.download for high-speed batch fetching
-            # Mapping timeframe to interval for yf.download
-            yf_interval = normalized_tf # normalized_tf is already mapped to interval like '1d', '1h'
-            
-            # Use 'max' or a large enough period for technical indicators (e.g., 200 days)
-            period = "200d" if "d" in yf_interval.lower() else "60d"
-            
-            # Filter symbols for Yahoo (remove Fyers-specific if any)
-            yahoo_symbols = [s for s in all_symbols if ":" not in s]
-            
-            batch_df = yf.download(
-                tickers=" ".join(yahoo_symbols),
-                period=period,
-                interval=yf_interval,
-                group_by='ticker',
-                auto_adjust=True,
-                threads=True,
-                progress=False
-            )
-            
-            if not batch_df.empty:
-                for sym in yahoo_symbols:
-                    try:
-                        if isinstance(batch_df.columns, pd.MultiIndex):
-                            s_df = batch_df[sym].dropna(how='all')
-                        else:
-                            s_df = batch_df.dropna(how='all')
-                            
-                        if not s_df.empty:
-                            # Standardize column names to lowercase to match MarketDataService style
-                            s_df.columns = [c.lower() for c in s_df.columns]
-                            stock_batch_data[sym] = s_df
-                    except Exception as e:
-                        continue
-        except Exception as e:
-            print(f"ERROR: Batch download failed in screener: {e}")
-
-        # Also fetch sector indices in batch
-        sector_batch_data = {}
-        if sector_indices:
-            try:
-                # Reuse yf_interval and period from stock batch above
-                sec_batch_df = yf.download(
-                    tickers=" ".join(sector_indices),
-                    period=period,
-                    interval=yf_interval,
-                    group_by='ticker',
-                    auto_adjust=True,
-                    threads=True,
-                    progress=False
-                )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+                future_to_symbol = {
+                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_tf, count=200): sym 
+                    for sym in all_targets
+                }
                 
-                if not sec_batch_df.empty:
-                    for sec_sym in sector_indices:
-                        try:
-                            if isinstance(sec_batch_df.columns, pd.MultiIndex):
-                                sec_df = sec_batch_df[sec_sym].dropna(how='all')
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    sym = future_to_symbol[future]
+                    try:
+                        df, currency, err = future.result()
+                        if df is not None and not df.empty:
+                            # Standardize column names to lowercase
+                            df.columns = [c.lower() for c in df.columns]
+                            if sym in sector_indices:
+                                sector_batch_data[sym] = df
                             else:
-                                sec_df = sec_batch_df.dropna(how='all')
-                                
-                            if not sec_df.empty:
-                                sec_df.columns = [c.lower() for c in sec_df.columns]
-                                sector_batch_data[sec_sym] = sec_df
-                        except Exception:
-                            continue
-            except Exception as e:
-                print(f"ERROR: Failed to fetch sectors in batch: {e}")
+                                stock_batch_data[sym] = df
+                    except Exception as e:
+                        print(f"DEBUG: Failed to fetch {sym} in ScreenerService: {e}")
+
+        except Exception as e:
+            print(f"ERROR: Threaded data fetch failed in screener: {e}", flush=True)
 
         if not stock_batch_data:
-            print("WARNING: No stock data fetched for screener. Using fallback.")
+            print("WARNING: No stock data fetched for screener via MarketDataService. Using fallback.", flush=True)
             return cls._load_fallback(normalized_tf)
 
         sector_by_symbol = {

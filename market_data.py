@@ -93,7 +93,7 @@ class MarketDataService:
         return None
 
     @staticmethod
-    def get_ohlcv(symbol="RELIANCE", tf="1D", count=200, use_fast_info=True):
+    def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
         """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
         Returns (df, currency, error_message)

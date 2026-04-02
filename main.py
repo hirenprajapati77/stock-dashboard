@@ -65,6 +65,14 @@ async def lifespan(app: FastAPI):
             def _sync_warmup():
                 from app.services.screener_service import ScreenerService
                 from app.services.constituent_service import ConstituentService
+                from app.services.fyers_service import FyersService
+                
+                # 1. Warm up symbol master for search (NSE symbols)
+                print("[Warmup] Syncing Fyers symbol master...", flush=True)
+                FyersService.update_symbol_master()
+                
+                # 2. Warm up screener cache
+                print("[Warmup] Pre-warming screener cache...", flush=True)
                 symbols = ConstituentService.get_nifty100_symbols()
                 ScreenerService.screen_symbols(symbols)
 
@@ -214,7 +222,7 @@ app.add_middleware(
 )
 
 @app.get("/api/v2/ai-insights", dependencies=[Depends(login_required)])
-async def get_ai_insights(symbol: str = "RELIANCE", tf: str = "1D", base_conf: Optional[int] = None):
+async def get_ai_insights(symbol: str = "NIFTY50", tf: str = "1D", base_conf: Optional[int] = None):
     """
     Returns assistive AI insights for the given symbol.
     """
@@ -278,7 +286,7 @@ async def get_market_status():
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/v1/dashboard", dependencies=[Depends(login_required)])
-async def get_dashboard(response: Response, symbol: str = "RELIANCE", tf: str = "1D", strategy: str = "SR"):
+async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "1D", strategy: str = "SR"):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     print(f"DEBUG: Dashboard Request - {symbol} @ {tf} | Strategy: {strategy}")
     try:

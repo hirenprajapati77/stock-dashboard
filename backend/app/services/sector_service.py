@@ -137,50 +137,36 @@ class SectorService:
         
         unique_symbols = list(set(all_sector_symbols + all_cons_symbols))
         
+        # 1. Fetch data for all symbols using MarketDataService (Fyers-first + Proxy)
+        batch_data = {}
         try:
-            print(f"DEBUG: Batch Downloading {len(unique_symbols)} symbols for Sector Intelligence...")
+            print(f"DEBUG: Fetching data for {len(unique_symbols)} symbols via MarketDataService (Threaded)...", flush=True)
+            from app.services.market_data import MarketDataService
             
-            # Use yf.download for high-speed batch fetching
-            # Mapping timeframe to interval for yf.download
-            yf_interval = interval
-            # Note: yf.download does not support '75m' natively, MarketDataService usually resamples it
-            # But for sector data, we'll stick to 1h/1d standard intervals for speed
-            
-            # Filter symbols for Yahoo (remove Fyers-specific if any)
-            yahoo_symbols = [s for s in unique_symbols if ":" not in s]
-            
-            batch_df = yf.download(
-                tickers=" ".join(yahoo_symbols),
-                period=period,
-                interval=yf_interval,
-                group_by='ticker',
-                auto_adjust=True,
-                threads=True,
-                progress=False
-            )
-            
-            batch_data = {}
-            if not batch_df.empty:
-                for sym in yahoo_symbols:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                # Map timeframe to days count if needed, but get_ohlcv handles defaults well
+                future_to_symbol = {
+                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_timeframe, count=60): sym 
+                    for sym in unique_symbols
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    sym = future_to_symbol[future]
                     try:
-                        if isinstance(batch_df.columns, pd.MultiIndex):
-                            s_df = batch_df[sym].dropna(how='all')
-                        else:
-                            s_df = batch_df.dropna(how='all')
-                            
-                        if not s_df.empty:
-                            # Standardize column names to lowercase to match MarketDataService style
-                            s_df.columns = [c.lower() for c in s_df.columns]
-                            batch_data[sym] = s_df
+                        df, currency, err = future.result()
+                        if df is not None and not df.empty:
+                            # Standardize column names to lowercase
+                            df.columns = [c.lower() for c in df.columns]
+                            batch_data[sym] = df
                     except Exception as e:
-                        continue
+                        print(f"DEBUG: Failed to fetch {sym} in SectorService: {e}")
 
             if not batch_data:
-                print(f"Warning: No data fetched for sectors. Trying fallback.")
+                print(f"Warning: No data fetched for sectors via MarketDataService. Trying fallback.", flush=True)
                 data, alerts = cls._load_fallback(timeframe)
                 return data, alerts
         except Exception as e:
-            print(f"CRITICAL: Sector download failed: {e}. Trying fallback.")
+            print(f"CRITICAL: Sector fetch failed: {e}. Trying fallback.", flush=True)
             data, alerts = cls._load_fallback(timeframe)
             if data: return data, alerts
             return {}, []
