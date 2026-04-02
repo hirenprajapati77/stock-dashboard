@@ -1073,6 +1073,11 @@ async def get_index_page(user: Optional[str] = Depends(get_current_user)):
         return FileResponse(str(index_path))
     return {"status": "error", "message": "Dashboard not found"}
 
+@app.get("/api/v1/internal/audit")
+async def get_audit_logs():
+    """Hidden audit log that displays the trailing stdout logs."""
+    return {"status": "success", "logs": list(audit_tail.logs)}
+
 # Mount Frontend - Robust Path Finding
 try:
     frontend_path = curr_dir / "frontend"
@@ -1085,10 +1090,6 @@ try:
 except Exception as e:
     print(f"Failed to mount frontend: {e}")
 
-@app.get("/api/v1/internal/audit")
-async def get_audit_logs():
-    """Hidden audit log that displays the trailing stdout logs."""
-    return {"status": "success", "logs": list(audit_tail.logs)}
 
 if __name__ == "__main__":
     env_port = os.getenv("PORT") or os.getenv("UVICORN_PORT")

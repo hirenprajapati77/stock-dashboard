@@ -310,9 +310,9 @@ class MarketDataService:
                     # 2. Standard Stock Mapping
                     fyers_sym = f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
             
-            # Increase timeout to 8s to give Fyers (and its proxy) a fair chance on slow networks/Render
-            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 8s)...", flush=True)
-            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
+            # Fast timeout - Fyers responds instantly if logged in, no point waiting 8s when offline
+            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 2s)...", flush=True)
+            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=2)
             
             if fyers_df is not None and not fyers_df.empty:
                 print(f"DEBUG: [MarketData] SUCCESS: Fetched {symbol} from Fyers. Rows: {len(fyers_df)}", flush=True)
