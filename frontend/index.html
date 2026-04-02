@@ -276,12 +276,12 @@
             </div>
         </div>
 
-        <!-- 2. CENTER: Status (Hidden on small screens) -->
-        <div class="nav-section hidden xl:flex gap-4">
-            <div id="fyers-connection" class="flex items-center gap-2 px-3 py-1 bg-gray-900/50 rounded-full border border-gray-800">
+        <!-- 2. CENTER: Status (Responsive) -->
+        <div class="nav-section flex gap-2">
+            <div id="fyers-connection" class="flex items-center gap-1.5 px-2 py-1 bg-gray-900/50 rounded-full border border-gray-800 shrink-0">
                 <div id="fyers-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-600"></div>
-                <span id="fyers-status-text" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Broker: Offline</span>
-                <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-500 hover:text-blue-400 ml-1">CONNECT</button>
+                <span id="fyers-status-text" class="hidden sm:inline-block text-[9px] font-bold text-gray-400 uppercase tracking-widest">Broker: Offline</span>
+                <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-500 hover:text-blue-400">CONNECT</button>
             </div>
         </div>
 
