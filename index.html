@@ -153,71 +153,116 @@
             display: none !important;
         }
 
-        /* Decision Strip Styles */
-        .decision-strip {
-            background: linear-gradient(90deg, #131722 0%, #1c212e 100%);
-            border-bottom: 2px solid #1e222d;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        /* Chart Professional UX */
+        .chart-container-wrapper {
+            display: flex;
+            gap: 16px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .action-chip {
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 14px;
+        .chart-main {
+            flex: 1;
+            min-width: 0;
+            transition: all 0.3s ease;
         }
 
-        .action-chip.strong-buy { background: #00c076; color: #0b0e11; box-shadow: 0 0 15px rgba(0, 192, 118, 0.4); }
-        .action-chip.buy { background: rgba(0, 192, 118, 0.2); color: #00c076; border: 1px solid #00c076; }
-        .action-chip.watch { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid #3b82f6; }
-        .action-chip.avoid { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
-
-        .reason-tag {
-            padding: 2px 8px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            font-size: 10px;
-            color: #9ca3af;
-            font-weight: 600;
+        .levels-panel {
+            width: 280px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-origin: right;
         }
-        /* Global Loader Overlay */
-        #global-loader {
-            display: none;
-            position: fixed;
+
+        .levels-panel.collapsed {
+            width: 0;
+            margin: 0;
+            opacity: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        /* Fullscreen Mode */
+        body.chart-fullscreen {
+            overflow: hidden;
+        }
+
+        .chart-fullscreen header,
+        .chart-fullscreen #market-status-banner,
+        .chart-fullscreen #market-regime-banner,
+        .chart-fullscreen #market-breadth-card,
+        .chart-fullscreen #screener-panel,
+        .chart-fullscreen #decision-metrics,
+        .chart-fullscreen #standard-dashboard > div:not(.grid-cols-12),
+        .chart-fullscreen footer {
+            display: none !important;
+        }
+
+        .chart-fullscreen #standard-dashboard {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .chart-fullscreen .grid-cols-12 {
+            display: block;
+            margin: 0;
+            height: 100vh;
+        }
+
+        .chart-fullscreen .col-span-9 {
+            width: 100%;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .chart-fullscreen #chart-parent {
+            height: 100vh !important;
+            border-radius: 0;
+            border: none;
+        }
+
+        /* No Trade Overlay */
+        #no-trade-overlay {
+            position: absolute;
             inset: 0;
-            background: rgba(11, 14, 17, 0.85);
-            backdrop-filter: blur(8px);
-            z-index: 9999;
+            background: rgba(11, 14, 17, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 40;
+            display: none;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.3s ease;
+            text-align: center;
         }
 
-        .loader-spinner {
-            width: 48px;
-            height: 48px;
-            border: 3px solid rgba(59, 130, 246, 0.1);
-            border-top: 3px solid #3b82f6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+        /* Timeframe Button Group */
+        .tf-group button {
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .loader-glow {
-            position: absolute;
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
-            animation: pulse 2s infinite ease-in-out;
+        .tf-group button.active {
+            background: #3b82f6 !important;
+            color: white !important;
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
         }
 
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 
-            0%, 100% { transform: scale(1); opacity: 0.5; } 
-            50% { transform: scale(1.5); opacity: 0.8; } 
+        @media (max-width: 640px) {
+            .levels-panel {
+                display: none; /* Hide by default on mobile */
+            }
+            .levels-panel.mobile-show {
+                display: block;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                z-index: 100;
+                background: #131722;
+                max-height: 50vh;
+            }
         }
     </style>
 </head>
@@ -976,11 +1021,42 @@
                 </div>
             </div>
 
-            <!-- Middle Section (Wider Chart + Compact Sidebar) -->
-            <div class="grid grid-cols-12 gap-4 mt-6">
-                <!-- Chart Section (Now 9/12 width on sm+) -->
-                <div class="col-span-12 sm:col-span-9 space-y-4">
-                    <div class="glass rounded-2xl overflow-hidden relative h-[600px] flex flex-col" id="chart-parent">
+            <!-- Professional Chart Section -->
+            <div class="chart-container-wrapper mt-6">
+                <!-- Main Chart Focus Area -->
+                <div class="chart-main space-y-4">
+                    <div class="glass rounded-2xl overflow-hidden relative h-[650px] flex flex-col border border-gray-800" id="chart-parent">
+                        <!-- Chart Header / Control Strip -->
+                        <div class="bg-[#131722] border-b border-gray-800 px-4 py-2 flex items-center justify-between z-30">
+                            <div class="flex items-center gap-4">
+                                <!-- Timeframe Group -->
+                                <div class="tf-group flex items-center bg-black/40 p-0.5 rounded-lg border border-gray-800">
+                                    <button onclick="window.setActiveTimeframe('5m')" class="px-3 py-1 text-[10px] font-bold rounded-md text-gray-400 hover:text-white" data-tf-btn="5m">5M</button>
+                                    <button onclick="window.setActiveTimeframe('15m')" class="px-3 py-1 text-[10px] font-bold rounded-md text-gray-400 hover:text-white" data-tf-btn="15m">15M</button>
+                                    <button onclick="window.setActiveTimeframe('1H')" class="px-3 py-1 text-[10px] font-bold rounded-md text-gray-400 hover:text-white" data-tf-btn="1H">1H</button>
+                                    <button onclick="window.setActiveTimeframe('1D')" class="px-3 py-1 text-[10px] font-bold rounded-md text-gray-400 hover:text-white active" data-tf-btn="1D">1D</button>
+                                    <button onclick="window.setActiveTimeframe('1W')" class="px-3 py-1 text-[10px] font-bold rounded-md text-gray-400 hover:text-white" data-tf-btn="1W">1W</button>
+                                </div>
+                                <div class="h-4 w-[1px] bg-gray-800"></div>
+                                <div id="symbol-display" class="flex items-center gap-2">
+                                    <span class="text-xs font-black text-white tracking-widest uppercase" id="chart-symbol-label">NIFTY50</span>
+                                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter" id="chart-tf-label">DAILY</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-3">
+                                <button onclick="window.toggleLevelsPanel()" class="p-1.5 bg-gray-900 border border-gray-800 rounded-lg text-gray-400 hover:text-white hover:border-gray-600 transition-all flex items-center gap-2" title="Toggle Levels Panel">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                                    <span class="text-[10px] font-bold uppercase hidden md:inline">Levels</span>
+                                </button>
+                                <button onclick="window.toggleFullscreenChart()" class="p-1.5 bg-gray-900 border border-gray-800 rounded-lg text-gray-400 hover:text-white hover:border-gray-600 transition-all" title="Focus Mode">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Decision Strip -->
+                        <div id="decision-strip" class="decision-strip px-4 py-2.5 flex items-center justify-between z-20 border-b border-gray-800">
                         <!-- Decision Strip -->
                         <div id="decision-strip" class="decision-strip px-4 py-3 flex items-center justify-between z-20">
                             <div class="flex items-center gap-4">
@@ -1009,6 +1085,19 @@
                             </div>
                         </div>
                         <div id="tv-chart" class="flex-grow"></div>
+                        
+                        <!-- No Trade Overlay -->
+                        <div id="no-trade-overlay">
+                            <div class="p-8 bg-[#131722]/90 border border-yellow-500/30 rounded-3xl shadow-2xl flex flex-col items-center">
+                                <span class="text-4xl mb-4">🛡️</span>
+                                <h3 class="text-xl font-black text-yellow-400 uppercase tracking-widest mb-2">No Valid Setup</h3>
+                                <p class="text-xs text-gray-400 max-w-[280px] leading-relaxed">
+                                    Current price action does not meet the strict 9-point criteria for execution. 
+                                    <span class="text-white block mt-2">Awaiting structural confirmation or S/R retest.</span>
+                                </p>
+                            </div>
+                        </div>
+
                         <div id="loading-overlay" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-center justify-center hidden">
                             <div class="flex flex-col items-center gap-3">
                                 <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -1147,27 +1236,36 @@
                     </div>
             </div>
 
-            <!-- Compact Levels Sidebar (Right Side on sm+) -->
-            <div class="col-span-12 sm:col-span-3">
-                <div class="sticky top-20 max-h-[calc(100vh-90px)] overflow-y-auto glass rounded-2xl overflow-hidden border border-gray-800/50">
-                    <div class="px-3 py-2 border-b border-gray-800 flex justify-between items-center bg-gray-900/30">
-                        <h3 class="font-bold text-[10px] uppercase tracking-widest text-gray-400">Levels</h3>
-                    </div>
-                    <div class="p-2 space-y-3">
-                        <div>
-                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
-                                Resistances</p>
-                            <div id="resistance-list" class="space-y-1"></div>
+                <!-- Collapsible Levels Panel -->
+                <div class="levels-panel" id="levels-sidebar">
+                    <div class="sticky top-20 glass rounded-2xl overflow-hidden border border-gray-800/50 flex flex-col h-full max-h-[650px]">
+                        <div class="px-4 py-3 border-b border-gray-800 flex justify-between items-center bg-gray-900/30">
+                            <h3 class="font-black text-[11px] uppercase tracking-[0.2em] text-indigo-400">Tactical Levels</h3>
+                            <button onclick="window.toggleLevelsPanel()" class="text-gray-500 hover:text-white md:hidden">&times;</button>
                         </div>
-                        <div>
-                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
-                                Supports</p>
-                            <div id="support-list" class="space-y-1"></div>
+                        <div class="flex-1 overflow-y-auto p-3 space-y-5 custom-scrollbar">
+                            <div id="execution-summary-mini" class="p-3 bg-indigo-950/20 border border-indigo-500/20 rounded-xl space-y-2 hidden">
+                                <p class="text-[9px] font-bold text-indigo-400 uppercase">Execution Summary</p>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div class="flex flex-col"><span class="text-[8px] text-gray-500 uppercase">Risk</span><span id="mini-risk" class="text-xs font-bold text-down">--</span></div>
+                                    <div class="flex flex-col"><span class="text-[8px] text-gray-500 uppercase">Reward</span><span id="mini-reward" class="text-xs font-bold text-up">--</span></div>
+                                </div>
+                            </div>
+                            <div>
+                                <p class="text-gray-500 text-[10px] uppercase font-black tracking-widest px-1 mb-2">Resistances</p>
+                                <div id="resistance-list" class="space-y-1.5"></div>
+                            </div>
+                            <div>
+                                <p class="text-gray-500 text-[10px] uppercase font-black tracking-widest px-1 mb-2">Supports</p>
+                                <div id="support-list" class="space-y-1.5"></div>
+                            </div>
+                        </div>
+                        <div class="p-3 border-t border-gray-800 bg-gray-900/20">
+                            <p class="text-[8px] text-gray-600 italic leading-tight text-center">Levels are auto-calculated using volume profile + price action structure.</p>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
         </div>
     </main>
 
