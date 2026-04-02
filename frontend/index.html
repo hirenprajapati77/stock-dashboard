@@ -680,12 +680,12 @@
                             <div class="flex items-center gap-4">
                                 <div class="flex items-center gap-2">
                                     <span
-                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
+                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">MIN. QUALITY:</span>
                                     <select id="confidence-filter" onchange="window.intelligenceApp._renderHitsTable()"
                                         class="bg-gray-800 border border-gray-700 text-[9px] font-bold text-indigo-400 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none uppercase cursor-pointer">
-                                        <option value="40">40% (Early)</option>
-                                        <option value="60" selected>60% (Reliable)</option>
-                                        <option value="80">80% (Strongest)</option>
+                                        <option value="40">40 (Early)</option>
+                                        <option value="60" selected>60 (Reliable)</option>
+                                        <option value="80">80 (Strongest)</option>
                                     </select>
                                 </div>
                                 <label class="flex items-center gap-1.5 text-[9px] text-gray-400 font-bold uppercase tracking-wider cursor-pointer">
@@ -710,7 +710,7 @@
                         <!-- Trending Sectors Concentration Bar (populated by renderSectorConcentration) -->
                         <div id="trending-sectors-bar" class="hidden px-4 py-2.5 border-b border-gray-800/60 bg-gray-900/30">
                             <div class="flex items-center gap-3 flex-wrap">
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-gray-500 shrink-0">Trending:</span>
+                                <span class="text-[9px] font-bold uppercase tracking-widest text-gray-500 shrink-0">Sector Concentration (Hits):</span>
                                 <div id="trending-sectors-pills" class="flex items-center gap-2 flex-wrap"></div>
                                 <span id="trending-sectors-total" class="ml-auto text-[9px] text-gray-600 font-mono shrink-0"></span>
                             </div>
