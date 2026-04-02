@@ -311,24 +311,25 @@ class MarketDataService:
                     fyers_sym = f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
             
             # Increase timeout to 8s to give Fyers (and its proxy) a fair chance on slow networks/Render
-            print(f"DEBUG: Trying Fyers for {fyers_sym} (Timeout: 8s)")
+            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 8s)...", flush=True)
             fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
             
             if fyers_df is not None and not fyers_df.empty:
-                print(f"DEBUG: Successfully fetched {symbol} from Fyers", flush=True)
+                print(f"DEBUG: [MarketData] SUCCESS: Fetched {symbol} from Fyers. Rows: {len(fyers_df)}", flush=True)
                 fyers_df = fyers_df.tail(count)
                 MarketDataService._save_to_disk(symbol, tf, fyers_df)
                 return fyers_df, "INR", None
-            elif fyers_err == "Fyers request timed out":
-                print(f"WARNING: Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
+            
+            # Handle Fyers failures
+            if fyers_err == "Fyers request timed out":
+                print(f"WARNING: [MarketData] Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
             elif "not logged in" in str(fyers_err).lower():
-                # Silently fall back if not logged in (standard behavior)
-                pass
+                print(f"DEBUG: [MarketData] Fyers not logged in. Using Yahoo fallback for {symbol}.", flush=True)
             else:
-                print(f"DEBUG: Fyers fetch failed for {symbol}: {fyers_err}. Falling back to Yahoo.", flush=True)
+                print(f"DEBUG: [MarketData] FYERS FAILED for {fyers_sym}: {fyers_err}. Falling back to Yahoo...", flush=True)
                 
         except Exception as fe:
-            print(f"DEBUG: Fyers integration error: {fe}. Falling back to Yahoo.", flush=True)
+            print(f"DEBUG: [MarketData] Fyers integration exception: {fe}. Falling back to Yahoo.", flush=True)
 
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---

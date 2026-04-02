@@ -543,8 +543,12 @@ function updateUI(data) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
-            // Auto-fit viewport to the new data range
-            chart.timeScale().fitContent();
+            
+            // Only auto-fit if it's NOT a background refresh
+            if (!isBackground) {
+                chart.timeScale().fitContent();
+            }
+            
             // Enable time labels for intraday timeframes, hide for daily+
             const tf = document.getElementById('tf-selector').value;
             const isIntraday = ['5m', '15m', '75m', '1H', '2H', '4H'].includes(tf);
@@ -666,22 +670,33 @@ function renderLevelList(containerId, levels, color, isMTF) {
 }
 
 function drawLevelsOnChart(levels, fullData = null) {
-    if (!candlestickSeries) return;
+    if (!candlestickSeries || !chart) return;
 
     // Clear existing primitives
     levelsLayer.forEach(line => {
-        candlestickSeries.removePriceLine(line);
+        try { candlestickSeries.removePriceLine(line); } catch(e) {}
     });
+    // Remove zone area series if they exist
+    if (window.targetZoneSeries) { chart.removeSeries(window.targetZoneSeries); window.targetZoneSeries = null; }
+    if (window.stopZoneSeries) { chart.removeSeries(window.stopZoneSeries); window.stopZoneSeries = null; }
+    
     levelsLayer = [];
 
+    const isNoTrade = fullData && (fullData.action === 'WAIT' || fullData.action === 'HOLD' || !fullData.summary.entry);
+    const noTradeOverlay = document.getElementById('no-trade-overlay');
+    if (noTradeOverlay) noTradeOverlay.style.display = isNoTrade ? 'flex' : 'none';
+
     // 1. Draw Execution Overlays (Entry, SL, Target)
-    if (fullData && fullData.summary) {
+    if (fullData && fullData.summary && !isNoTrade) {
         const s = fullData.summary;
         const cmp = fullData.meta.cmp;
+        const entry = cmp; // Use CMP as active entry
+        const sl = parseFloat(s.stop_loss);
+        const tgt = parseFloat(s.target);
 
-        // Entry (Blue)
+        // Entry (Blue - Dotted for execution point)
         levelsLayer.push(candlestickSeries.createPriceLine({
-            price: cmp,
+            price: entry,
             color: '#3b82f6',
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Dashed,
@@ -689,9 +704,9 @@ function drawLevelsOnChart(levels, fullData = null) {
             title: 'ENTRY',
         }));
 
-        // Stop Loss (Red)
+        // Stop Loss (Red - Solid)
         levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.stop_loss,
+            price: sl,
             color: '#f6465d',
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Solid,
@@ -699,80 +714,108 @@ function drawLevelsOnChart(levels, fullData = null) {
             title: 'SL',
         }));
 
-        // Target (Green)
+        // Target (Green - Solid)
         levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.target,
+            price: tgt,
             color: '#00c076',
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Solid,
             axisLabelVisible: true,
             title: 'TGT',
         }));
+
+        // EXECUTION ZONES (Shaded Areas)
+        // We use AreaSeries to create shaded backgrounds for trade zones
+        if (tgt > entry) {
+            window.targetZoneSeries = chart.addAreaSeries({
+                topColor: 'rgba(0, 192, 118, 0.15)',
+                bottomColor: 'rgba(0, 192, 118, 0.02)',
+                lineColor: 'transparent',
+                lineWidth: 0,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                crosshairMarkerVisible: false,
+                autoscaleInfoProvider: () => null, // Don't affect auto-scaling
+            });
+            // Fill target zone data
+            const ohlcv = fullData.ohlcv || [];
+            if (ohlcv.length > 0) {
+                const zoneData = ohlcv.map(d => ({ time: d.time, value: tgt }));
+                window.targetZoneSeries.setData(zoneData);
+                // We set base price to entry to shade the zone
+                window.targetZoneSeries.applyOptions({ baseValue: { type: 'price', price: entry } });
+            }
+        }
+
+        if (sl < entry) {
+            window.stopZoneSeries = chart.addAreaSeries({
+                topColor: 'rgba(246, 70, 93, 0.12)',
+                bottomColor: 'rgba(246, 70, 93, 0.05)',
+                lineColor: 'transparent',
+                lineWidth: 0,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                crosshairMarkerVisible: false,
+                autoscaleInfoProvider: () => null,
+            });
+            const ohlcv = fullData.ohlcv || [];
+            if (ohlcv.length > 0) {
+                const zoneData = ohlcv.map(d => ({ time: d.time, value: entry }));
+                window.stopZoneSeries.setData(zoneData);
+                window.stopZoneSeries.applyOptions({ baseValue: { type: 'price', price: sl } });
+            }
+        }
     }
 
     if (!levels) return;
 
-    // Helper to draw
-    const addLine = (lv, color, isResistance) => {
-        // 1. ZONE Logic
-        if (lv.timeframe === 'ZONE') {
-            // Draw simple boundary lines
-            // Top
-            const l1 = candlestickSeries.createPriceLine({
-                price: lv.price_high || lv.price,
-                color: color, // Green/Red
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: isResistance ? 'SUPPLY' : 'DEMAND',
-            });
-            levelsLayer.push(l1);
-
-            // Bottom
-            if (lv.price_low && lv.price_low !== lv.price_high) {
-                const l2 = candlestickSeries.createPriceLine({
-                    price: lv.price_low,
-                    color: color,
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    axisLabelVisible: false, // Only label one side to reduce clutter
-                    title: '',
-                });
-                levelsLayer.push(l2);
-            }
-            return;
-        }
-
-        // 2. SWING Logic (Thicker lines)
-        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
-        const lineWidth = isSwing ? 2 : 1;
-        const lineStyle = isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed;
-
-        // 3. Simple Level
-        const line = candlestickSeries.createPriceLine({
-            price: lv.price,
-            color: color, // Blue/Green etc
-            lineWidth: lineWidth,
-            lineStyle: lineStyle,
-            axisLabelVisible: true,
-            title: lv.timeframe || '',
-        });
-        levelsLayer.push(line);
-    };
-
+    const cmpForDist = fullData ? fullData.meta.cmp : 0;
     const showMTF = document.getElementById('mtf-toggle').checked;
 
-    // Add MTF Resistance (Dashed)
-    if (showMTF && levels.mtf) {
-        levels.mtf.resistances.forEach(lv => addLine(lv, '#00c076', true));
-        levels.mtf.supports.forEach(lv => addLine(lv, '#3b82f6', false));
+    // Filter to Nearest 2 Levels for Clean Chart
+    const processLevels = (lvList, isResistance) => {
+        if (!lvList || !Array.isArray(lvList)) return [];
+        // Only include non-ZONE levels for this filtering logic
+        const simpleLevels = lvList.filter(l => l.timeframe !== 'ZONE').map(l => ({
+            ...l,
+            dist: Math.abs(l.price - cmpForDist)
+        }));
+        
+        // Sort by distance and take nearest 2
+        return simpleLevels.sort((a, b) => a.dist - b.dist).slice(0, 2);
+    };
+
+    const addLine = (lv, color, title = '') => {
+        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
+        levelsLayer.push(candlestickSeries.createPriceLine({
+            price: lv.price,
+            color: color,
+            lineWidth: isSwing ? 2 : 1,
+            lineStyle: isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: title || lv.timeframe || '',
+        }));
+    };
+
+    // Draw Nearest Supports (Primary only for chart cleanliness)
+    if (levels.primary) {
+        processLevels(levels.primary.supports, false).forEach(lv => addLine(lv, '#3b82f6', 'SUP'));
+        processLevels(levels.primary.resistances, true).forEach(lv => addLine(lv, 'rgba(156, 163, 175, 0.8)', 'RES'));
     }
 
-    // Add Primary Support (Solid)
-    if (levels.primary) {
-        levels.primary.supports.forEach(lv => addLine(lv, '#3b82f6', false));
-        levels.primary.resistances.forEach(lv => addLine(lv, '#dc2626', true)); // Red for resistance
-    }
+    // Draw Zones (Demand/Supply) - Always show if available as they are thematic
+    const zones = [
+        ...(levels.primary ? levels.primary.supports.filter(l => l.timeframe === 'ZONE') : []),
+        ...(levels.primary ? levels.primary.resistances.filter(l => l.timeframe === 'ZONE') : [])
+    ];
+
+    zones.forEach(zv => {
+        const isRes = fullData && zv.price > fullData.meta.cmp;
+        addLine(zv, isRes ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)', isRes ? 'SUPPLY' : 'DEMAND');
+        if (zv.price_low && zv.price_low !== zv.price) {
+            addLine({ price: zv.price_low }, isRes ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)', '');
+        }
+    });
 }
 
 // Rotation Data Fetching
@@ -1165,37 +1208,53 @@ async function fetchIntelligence() {
 }
 window.fetchIntelligence = fetchIntelligence;
 
-// --- Fyers Integration ---
-async function checkFyersStatus() {
-    try {
-        const res = await fetch('/api/v1/fyers/status');
-        const data = await res.json();
-        
-        const dot = document.getElementById('fyers-status-dot');
-        const text = document.getElementById('fyers-status-text');
-        const btn = document.getElementById('fyers-login-btn');
-        
-        if (data.logged_in) {
-            if (dot) dot.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]";
-            if (text) text.textContent = "Online";
-            if (text) text.className = "text-[10px] font-bold text-green-400 uppercase tracking-widest hidden lg:inline";
-            if (btn) btn.classList.add('hidden');
-        } else {
-            if (dot) dot.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]";
-            if (text) text.textContent = "Offline";
-            if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
-            if (btn) btn.classList.remove('hidden');
+// --- Professional UX Toggles ---
+window.toggleFullscreenChart = function() {
+    document.body.classList.toggle('chart-fullscreen');
+    setTimeout(() => {
+        if (chart) {
+            const container = document.getElementById('tv-chart');
+            chart.resize(container.clientWidth, container.clientHeight);
+            chart.timeScale().fitContent();
         }
-    } catch (e) {
-        console.error("Failed to check Fyers status", e);
+    }, 100);
+};
+
+window.toggleLevelsPanel = function() {
+    const sidebar = document.getElementById('levels-sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+        sidebar.classList.toggle('mobile-show');
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('tv-chart');
+                chart.resize(container.clientWidth, container.clientHeight);
+            }
+        }, 310); // Match CSS transition
     }
-}
+};
 
-function loginToFyers() {
-    window.location.href = '/api/v1/fyers/login';
-}
-
-window.loginToFyers = loginToFyers;
+window.setActiveTimeframe = function(tf) {
+    const selector = document.getElementById('tf-selector');
+    if (selector) {
+        selector.value = tf;
+        
+        // Update UI buttons
+        document.querySelectorAll('.tf-group button').forEach(btn => {
+            if (btn.dataset.tfBtn === tf) btn.classList.add('active');
+            else btn.classList.remove('active');
+        });
+        
+        // Update chart display
+        const tfLabel = document.getElementById('chart-tf-label');
+        if (tfLabel) {
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY' };
+            tfLabel.textContent = names[tf] || tf.toUpperCase();
+        }
+        
+        fetchData();
+    }
+};
 
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
