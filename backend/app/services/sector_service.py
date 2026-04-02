@@ -65,8 +65,8 @@ class SectorService:
     }
     CACHE_TTL = 600 # 10 minutes
 
-    @staticmethod
-    def calculate_state(sector_return: float, benchmark_return: float, prev_rs: float) -> str:
+    @classmethod
+    def calculate_state(cls, sector_return: float, benchmark_return: float, prev_rs: float) -> str:
         """
         Final Trader-Correct Logic v1.0 (LOCKED)
         """
