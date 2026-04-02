@@ -11,9 +11,37 @@ import pandas as pd
 import requests
 import uvicorn
 import os
+import collections
+from datetime import timedelta
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+
+# Simple Memory Logger for Auditing (Auto-clears every 1 hour)
+class TailLogHandler:
+    def __init__(self, maxlen=1000):
+        self.logs = collections.deque(maxlen=maxlen)
+        self.last_clear = datetime.now()
+        
+    def write(self, message):
+        now = datetime.now()
+        if (now - self.last_clear).total_seconds() > 3600:
+            self.logs.clear()
+            self.last_clear = now
+            
+        if message.strip():
+            timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+            self.logs.append(f"[{timestamp}] {message.strip()}")
+            
+        # Write to original stdout so console still works
+        sys.__stdout__.write(message)
+    
+    def flush(self):
+        sys.__stdout__.flush()
+
+# Inject the audit logger into global stdout
+audit_tail = TailLogHandler(maxlen=2000)
+sys.stdout = audit_tail
 
 # Runtime Dependency Check for stubborn Render environments
 def ensure_dependencies():
@@ -352,7 +380,8 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
 
         # 2. Await Primary Data first (Essential)
         try:
-            df, currency, error = await asyncio.wait_for(primary_task, timeout=8.0)
+            # 14 seconds allows Fyers to fail (timeout 8s) and smoothly hit Yahoo Proxy fallback
+            df, currency, error = await asyncio.wait_for(primary_task, timeout=14.0)
             
             source = "live"
             if error and not df.empty:
@@ -360,7 +389,7 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             elif df.empty:
                 return {"status": "error", "message": error or f"No data found for {symbol}.", "source": "error"}
         except asyncio.TimeoutError:
-            print("CRITICAL: Primary data fetch timed out!")
+            print(f"CRITICAL: Primary data fetch timed out for {symbol} after 14s. Backend is overloaded or downstream APIs are stalled.")
             return {"status": "error", "message": "Market data fetch timed out. Please retry."}
             
         cmp = float(df['close'].iloc[-1])
@@ -1048,6 +1077,11 @@ try:
 
 except Exception as e:
     print(f"Failed to mount frontend: {e}")
+
+@app.get("/api/v1/internal/audit")
+async def get_audit_logs():
+    """Hidden audit log that displays the trailing stdout logs."""
+    return {"status": "success", "logs": list(audit_tail.logs)}
 
 if __name__ == "__main__":
     env_port = os.getenv("PORT") or os.getenv("UVICORN_PORT")
