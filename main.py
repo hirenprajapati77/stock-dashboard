@@ -39,6 +39,13 @@ class TailLogHandler:
     def flush(self):
         sys.__stdout__.flush()
 
+    def isatty(self):
+        # Prevent uvicorn logging crash
+        return getattr(sys.__stdout__, 'isatty', lambda: False)()
+        
+    def fileno(self):
+        return getattr(sys.__stdout__, 'fileno', lambda: 1)()
+
 # Inject the audit logger into global stdout
 audit_tail = TailLogHandler(maxlen=2000)
 sys.stdout = audit_tail
