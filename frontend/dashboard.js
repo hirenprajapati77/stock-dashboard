@@ -970,11 +970,13 @@ class MarketIntelligence {
             const session = hit.session || {};
 
             // EDGE-CASE GUARDS (Handover v1.3)
-            const avoidSession = session.quality === "AVOID";
+            // NOTE: avoidSession removed as hard gate — session quality is already
+            // reflected in the confidence score cap (max 40% for AVOID sessions).
+            // Keeping avoidSession as a hard gate blocked ALL rows when market is closed.
             const laggingSector = hit.sectorState === "LAGGING";
             const belowThreshold = conf.score < threshold;
 
-            if (avoidSession || laggingSector || belowThreshold) {
+            if (laggingSector || belowThreshold) {
                 if (window.location.search.includes('debug=true')) {
                     console.log(`[Filter] ${hit.symbol} hidden: session=${session.quality}, sector=${hit.sectorState}, score=${conf.score}% (threshold=${threshold})`);
                 }
@@ -1001,6 +1003,21 @@ class MarketIntelligence {
             const scoreB = b.technical?.qualityScore || this._calculateConfidence(b).score;
             return scoreB - scoreA;
         });
+
+        // Sync sector concentration pills to match the FILTERED results (Bug Fix v1.0)
+        // Previously this was driven by raw backend data, causing pills to appear
+        // even when the table was empty due to client-side filtering.
+        if (window.renderSectorConcentration) {
+            const sectorCounts = {};
+            working.forEach(hit => {
+                const sector = hit.sector ? hit.sector.replace('NIFTY_', '') : null;
+                if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+            });
+            const sectorArr = Object.entries(sectorCounts)
+                .map(([sector, count]) => ({ sector, count }))
+                .sort((a, b) => b.count - a.count);
+            window.renderSectorConcentration(sectorArr, working.length);
+        }
 
         // Top Momentum Setup Logic (v1.0)
         // Top Momentum Setup Logic (v1.0)
