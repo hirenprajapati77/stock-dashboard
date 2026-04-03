@@ -946,18 +946,18 @@ window.onload = function () {
             if (viewDashBtn) viewDashBtn.className = 'nav-btn-secondary';
             if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
             fetchRotation();
-        } else if (isIntelligenceActive) {
-            intel.classList.remove('hidden');
-            std.classList.add('hidden');
-            rot.classList.add('hidden');
-            if (rotTog) rotTog.checked = false;
-            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
-            if (viewDashBtn) viewDashBtn.className = 'nav-btn-secondary';
-            fetchIntelligence();
         } else {
-            // Standard Dashboard is default
+            // Standard Dashboard is default on load
+            if (std) std.classList.remove('hidden');
+            if (intel) intel.classList.add('hidden');
+            if (rot) rot.classList.add('hidden');
+            if (rotTog) rotTog.checked = false;
+            
             if (viewDashBtn) viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
             if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
+
+            // Still fetch data in background if it's considered important, 
+            // but the view will be Dashboard.
         }
 
         if (localStorage.getItem('screener-active') === 'true' && scrTog) {

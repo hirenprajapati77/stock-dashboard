@@ -728,10 +728,12 @@ class MarketIntelligence {
         if (!hit) return { score: 0, factors: [] };
 
         // Prefer backend scoring if available (Decision Engine v2.0)
-        if (hit.score !== undefined || hit.confidence !== undefined) {
+        // Corrected: Use numerical qualityScore if hit.confidence is a string (A,B,C,D)
+        const backendScore = hit.technical?.qualityScore ?? hit.score;
+        if (backendScore !== undefined && typeof backendScore === 'number') {
             return { 
-                score: hit.score || hit.confidence, 
-                factors: hit.confidenceFactors || [] // Fallback to empty if not provided
+                score: backendScore, 
+                factors: hit.confidenceFactors || [] 
             };
         }
 
@@ -833,18 +835,24 @@ class MarketIntelligence {
         return { score: Math.max(0, Math.min(score, 100)), factors };
     }
 
+    _getConfidenceLabel(score, asGrade = false) {
+        if (asGrade) {
+            if (score >= 85) return "A";
+            if (score >= 70) return "B";
+            if (score >= 55) return "C";
+            return "D";
+        }
+        if (score >= 80) return "HIGH";
+        if (score >= 60) return "MEDIUM";
+        if (score >= 40) return "LOW";
+        return "VERY LOW";
+    }
+
     _renderConfidenceDots(score) {
         if (score >= 80) return "🟢🟢🟢🟢";
         if (score >= 60) return "🟢🟢🟢⚪";
         if (score >= 40) return "🟢🟢⚪⚪";
         return "🟢⚪⚪⚪";
-    }
-
-    _getConfidenceLabel(score) {
-        if (score >= 80) return "HIGH";
-        if (score >= 60) return "MEDIUM";
-        if (score >= 40) return "LOW";
-        return "VERY LOW";
     }
 
     // CONFIDENCE TREND ENGINE v1.3 (LOCKED)
@@ -1430,26 +1438,26 @@ class MarketIntelligence {
 
         // Confidence Metrics
         const confidence = this._calculateConfidence(hit);
-        const grade = hit.grade || 'C';
+        const scoreVal = confidence.score;
+        const grade = hit.grade || this._getConfidenceLabel(scoreVal, true);
 
         let gradeColor = 'text-gray-400';
-        if (grade === 'A+') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
-        else if (grade === 'A') gradeColor = 'text-green-400';
+        if (grade === 'A+' || grade === 'A') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
         else if (grade === 'B') gradeColor = 'text-green-200';
         else if (grade === 'C') gradeColor = 'text-yellow-500';
+        else if (grade === 'D') gradeColor = 'text-red-400';
 
         document.getElementById('expl-confidence-dots').textContent = grade;
         document.getElementById('expl-confidence-dots').className = `text-2xl font-black ${gradeColor}`;
 
-        document.getElementById('expl-confidence-score').textContent = `${hit.confidence || confidence.score}%`;
+        document.getElementById('expl-confidence-score').textContent = `${Math.round(scoreVal)}%`;
         const labelEl = document.getElementById('expl-confidence-label');
-        labelEl.textContent = this._getConfidenceLabel(hit.confidence || confidence.score);
+        labelEl.textContent = this._getConfidenceLabel(scoreVal);
 
         // Dynamic Label Styling
-        const scoreVal = hit.confidence || confidence.score;
         labelEl.className = 'text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ' +
             (scoreVal >= 80 ? 'bg-green-600/20 text-green-400' :
-                scoreVal >= 40 ? 'bg-yellow-600/20 text-yellow-500' :
+                scoreVal >= 60 ? 'bg-yellow-600/20 text-yellow-500' :
                     'bg-red-600/20 text-red-400');
 
         const confList = document.getElementById('expl-confidence-list');
