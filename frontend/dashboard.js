@@ -820,9 +820,9 @@ class MarketIntelligence {
 
         // HARD SAFETY RULES (LOCKED)
         if (sectorState === "LAGGING") {
-            const prev = score;
-            score = Math.min(score, 30);
-            if (prev > 30) factors.push({ label: "SAFETY CAP: Sector Lagging", value: `-${prev - 30}%`, positive: false });
+            const penalty = 20;
+            score -= penalty;
+            factors.push({ label: "PENALTY: Sector Lagging", value: `-${penalty}%`, positive: false });
         }
         if (sessionTag === "AVOID") {
             const prev = score;
@@ -966,7 +966,8 @@ class MarketIntelligence {
         const highProbabilityOnly = !!(highProbabilityOnlyEl && highProbabilityOnlyEl.checked);
 
         const working = this.allHits.filter(hit => {
-            const conf = this._calculateConfidence(hit);
+            const score = hit.technical?.qualityScore || this._calculateConfidence(hit).score;
+            const conf = { score: score }; 
             const session = hit.session || {};
 
             // EDGE-CASE GUARDS (Handover v1.3)
@@ -976,7 +977,7 @@ class MarketIntelligence {
             const laggingSector = hit.sectorState === "LAGGING";
             const belowThreshold = conf.score < threshold;
 
-            if (laggingSector || belowThreshold) {
+            if (belowThreshold) {
                 if (window.location.search.includes('debug=true')) {
                     console.log(`[Filter] ${hit.symbol} hidden: session=${session.quality}, sector=${hit.sectorState}, score=${conf.score}% (threshold=${threshold})`);
                 }
@@ -1068,7 +1069,7 @@ class MarketIntelligence {
         if (!working.length) {
             const hasHiddenHits = this.allHits.length > 0;
             const msg = hasHiddenHits
-                ? `No setups match the ${threshold}% confidence threshold. ${this.allHits.length} potential signals are being filtered. Try lowering the threshold.`
+                ? `No setups match the ${threshold}% confidence threshold. Try lowering the threshold.`
                 : 'No momentum hits found in the current market scan.';
             this.hitsBody.innerHTML = `<tr><td colspan="12" class="px-4 py-10 text-center text-gray-500 italic">${msg}</td></tr>`;
             return;
@@ -1578,9 +1579,8 @@ window.fetchDataForSymbol = (symbol, options = {}) => {
 
         setTimeout(() => {
             if (window.fetchData) {
-                // Keep Details action responsive from Intelligence view by avoiding full-screen overlay
-                // while still performing a real foreground fetch/error flow.
-                window.fetchData(fromIntelligence ? { showLoader: false, isBackground: false } : false);
+                // Pass symbol and background status correctly
+                window.fetchData(mappedSymbol, fromIntelligence);
             } else {
                 console.error("fetchData not found on window object!");
             }

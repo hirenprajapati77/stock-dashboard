@@ -506,8 +506,9 @@ class ScreenerService:
                 sector_info = sector_data.get(sector_key, {})
                 sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
                 
-                if sector_state not in gate_states:
-                    continue
+                # Sector state is no longer a hard gate for hits (v1.5)
+                # We allow all sectors and let the quality_score + UI filters decide visibility
+                pass 
 
                 # Calculate RS and Sector Return
                 sector_return = 0.0

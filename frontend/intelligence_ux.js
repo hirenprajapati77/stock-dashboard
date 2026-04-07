@@ -422,21 +422,8 @@ function renderTopPicks(hits) {
     }).join('');
 }
 
-window.fetchDataForSymbol = function(symbol) {
-    document.getElementById('symbol-input').value = symbol;
-    
-    // Switch view to dashboard so the user sees the chart update
-    const dashboardBtn = document.getElementById('view-dashboard');
-    if (dashboardBtn) {
-        dashboardBtn.click();
-    }
-    
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    // Fetch dashboard charts and strategy details
-    window.fetchData();
-};
+// window.fetchDataForSymbol is now handled by dashboard.js which has 
+// complex sector-to-symbol mapping and UI switching logic.
 
 window.renderTopPicks = renderTopPicks;
 
