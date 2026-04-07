@@ -1043,6 +1043,8 @@ window.onload = function () {
                 }
             }
         };
+        // Expose globally so dashboard.js fetchDataForSymbol can trigger view switches
+        window.switchView = switchView;
 
         // More Actions Dropdown Toggle
         const moreActionsBtn = document.getElementById('more-actions-btn');

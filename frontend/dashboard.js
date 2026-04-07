@@ -1562,31 +1562,31 @@ window.fetchDataForSymbol = (symbol, options = {}) => {
             }
         }
 
-        if (intelTog && intelTog.checked) {
-            intelTog.checked = false;
-            intelTog.dispatchEvent(new Event('change'));
-        } else if (!intelTog && fromIntelligence) {
+        // Switch back to dashboard view cleanly.
+        // Prefer the global switchView (exposed by script.js) so button styles + localStorage are updated correctly.
+        if (typeof window.switchView === 'function') {
+            window.switchView('dashboard');
+        } else {
+            // Fallback: manually show/hide sections if switchView isn't ready yet
             document.getElementById('intelligence-section')?.classList.add('hidden');
             document.getElementById('rotation-section')?.classList.add('hidden');
             document.getElementById('standard-dashboard')?.classList.remove('hidden');
-            document.getElementById('view-dashboard')?.classList.add('bg-blue-600', 'text-white');
-            document.getElementById('view-dashboard')?.classList.remove('text-gray-400');
-            document.getElementById('view-intelligence')?.classList.remove('bg-blue-600', 'text-white');
-            document.getElementById('view-intelligence')?.classList.add('text-gray-400');
-        }
-        if (rotTog && rotTog.checked) {
-            rotTog.checked = false;
-            rotTog.dispatchEvent(new Event('change'));
+            const vd = document.getElementById('view-dashboard');
+            const vi = document.getElementById('view-intelligence');
+            if (vd) vd.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+            if (vi) vi.className = 'nav-btn-secondary';
         }
 
+        // switchView('dashboard') triggers fetchData with no symbol, so we call fetchData
+        // again immediately after with the correct symbol.
         setTimeout(() => {
             if (window.fetchData) {
-                // Pass symbol and background status correctly
-                window.fetchData(mappedSymbol, fromIntelligence);
+                // isBackground = false: show loader and display errors to user
+                window.fetchData(mappedSymbol, false);
             } else {
                 console.error("fetchData not found on window object!");
             }
-        }, 50);
+        }, 60);
     }
 };
 
