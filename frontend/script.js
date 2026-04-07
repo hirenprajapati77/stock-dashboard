@@ -22,6 +22,11 @@ let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 window.currentMarketStatus = null;
 window.symbolCache = {}; // Frontend cache for instant switching
+window.intelligenceCache = {
+    data: null,
+    timestamp: 0,
+    timeframe: null
+};
 
 // Global Fetch Interceptor for Auth
 const originalFetch = window.fetch;
@@ -278,7 +283,7 @@ async function runScreener(force = false) {
     }
 }
 window.runScreener = runScreener;
-async function fetchData(isBackground = false) {
+async function fetchData(symbolArg = null, isBackground = false) {
     const loader = document.getElementById('chart-loader');
     const showLoader = isBackground !== true;
 
@@ -291,15 +296,31 @@ async function fetchData(isBackground = false) {
             if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
             window._loaderTimeout = setTimeout(() => {
                 if (loader && !loader.classList.contains('hidden')) {
-                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
                     loader.classList.add('hidden');
                     loader.style.display = 'none';
                 }
             }, 15000);
         }
 
+        // --- SYMBOL HANDLING (FIXED) ---
         const symbolInput = document.getElementById('symbol-input');
-        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
+        let symbol = symbolArg;
+        
+        if (symbol && typeof symbol === 'string') {
+            if (symbolInput) symbolInput.value = symbol.toUpperCase();
+        } else {
+            // Handle case where first arg might be a boolean meant for isBackground
+            if (typeof symbolArg === 'boolean') {
+                isBackground = symbolArg;
+                symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
+            } else {
+                symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
+            }
+        }
+        
+        if (!symbol || symbol.trim() === '') symbol = "NIFTY50";
+        symbol = symbol.trim().toUpperCase();
+
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const stratSelector = document.getElementById('strategy-selector');
@@ -1088,7 +1109,7 @@ window.onload = function () {
                             div.onclick = () => {
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
-                                fetchData();
+                                fetchData(item.symbol);
                             };
                             resultsDiv.appendChild(div);
                         });
@@ -1140,6 +1161,17 @@ window.onload = function () {
                 resultsDiv.classList.add('hidden');
             }
         });
+
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.onclick = () => {
+                const s = searchInput.value.trim().toUpperCase();
+                if (s) {
+                    fetchData(s);
+                    resultsDiv.classList.add('hidden');
+                }
+            };
+        }
 
         document.getElementById('tf-selector').addEventListener('change', () => {
             const isRotationActive = document.getElementById('rotation-toggle').checked;
@@ -1213,7 +1245,7 @@ window.onload = function () {
             } else if (isIntelligenceActive) {
                 fetchIntelligence(true);
             } else {
-                fetchData(true);
+                fetchData(null, true);
             }
         }, 10000); // reduced frequency for expensive intelligence calls (10s)
 
@@ -1236,12 +1268,38 @@ window.onload = function () {
 
 async function fetchIntelligence(isBackground = false, force = false) {
     try {
-        if (!isBackground) showGlobalLoader();
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
+        
+        // --- 1. FRONTEND CACHE & MARKET AWARENESS ---
+        const cache = window.intelligenceCache;
+        const isMarketClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
+        const ttl = isMarketClosed ? (3600 * 1000) : (300 * 1000); // 1 hour if closed, 5 mins if open
+        const isCacheValid = cache.data && cache.timeframe === tf && (now - cache.timestamp) < ttl;
 
-        // 1. Fetch data in parallel
+        // Stale-While-Revalidate: Show old data immediately
+        if (cache.data && cache.timeframe === tf) {
+            console.log(`[Intel] Rendering from frontend cache (Age: ${Math.round((now - cache.timestamp) / 1000)}s)`);
+            renderIntelligenceFromCache(cache.data);
+            
+            // If cache is fresh and market is closed, skip network entirely
+            if (isCacheValid && !force) {
+                console.log("[Intel] Cache is fresh and market is closed/idle. Skipping fetch.");
+                return;
+            }
+            
+            // If we have any data, treat this fetch as background to avoid annoying loaders
+            isBackground = true;
+        }
+
+        if (!isBackground) showGlobalLoader();
+        
+        // Show a small syncing indicator if background (optional, can be done via CSS/DOM)
+        const syncingIndicator = document.getElementById('intel-syncing-indicator');
+        if (syncingIndicator) syncingIndicator.classList.remove('hidden');
+
+        // 2. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&force=${force}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
@@ -1351,8 +1409,61 @@ async function fetchIntelligence(isBackground = false, force = false) {
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
             }
         }
-    } finally {
+
+        // --- 4. UPDATE FRONTEND CACHE ---
+        window.intelligenceCache = {
+            data: {
+                hitsData,
+                sectorData,
+                summaryData,
+                summarySource,
+                earlyData,
+                perfData,
+                tradePerfData,
+                watchlistData
+            },
+            timestamp: now,
+            timeframe: tf
+        };
+
+        if (syncingIndicator) syncingIndicator.classList.add('hidden');
         if (!isBackground) hideGlobalLoader();
+
+    } catch (err) {
+        console.error("Intelligence fetch failed:", err);
+        if (!isBackground) hideGlobalLoader();
+    }
+}
+
+function renderIntelligenceFromCache(cache) {
+    if (!intelligenceApp || !cache) return;
+    const { hitsData, sectorData, summaryData, summarySource, earlyData, perfData, tradePerfData, watchlistData } = cache;
+    
+    if (hitsData && hitsData.data) {
+        intelligenceApp.updateHits(hitsData.data, hitsData.source || 'cache');
+    }
+    if (hitsData && hitsData.sectorConcentration && window.renderSectorConcentration) {
+        window.renderSectorConcentration(hitsData.sectorConcentration, hitsData.count || 0);
+    }
+    if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
+        intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'cache');
+    }
+    if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
+        intelligenceApp.updateSignalPerformance(perfData);
+    }
+    if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
+        intelligenceApp.updateTradePerformance(tradePerfData);
+    }
+    if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
+        intelligenceApp.updateWatchlist(watchlistData);
+    }
+    if (sectorData && sectorData.data) {
+        window.lastSectorData = sectorData.data;
+        intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'cache');
+        if (window.renderActionableSectors) window.renderActionableSectors(sectorData.data);
+    }
+    if (summaryData) {
+        intelligenceApp.updateMarketSummary(summaryData, summarySource);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
