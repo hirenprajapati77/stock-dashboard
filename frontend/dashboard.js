@@ -728,10 +728,12 @@ class MarketIntelligence {
         if (!hit) return { score: 0, factors: [] };
 
         // Prefer backend scoring if available (Decision Engine v2.0)
-        if (hit.score !== undefined || hit.confidence !== undefined) {
+        // Corrected: Use numerical qualityScore if hit.confidence is a string (A,B,C,D)
+        const backendScore = hit.technical?.qualityScore ?? hit.score;
+        if (backendScore !== undefined && typeof backendScore === 'number') {
             return { 
-                score: hit.score || hit.confidence, 
-                factors: hit.confidenceFactors || [] // Fallback to empty if not provided
+                score: backendScore, 
+                factors: hit.confidenceFactors || [] 
             };
         }
 
