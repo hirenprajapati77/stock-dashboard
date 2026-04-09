@@ -39,9 +39,23 @@ async function checkFyersStatus() {
         if (result.status === 'success' && result.data.is_connected) {
             if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]';
             if (text) text.textContent = 'Online';
+            
+            // Update button if exists
+            const loginBtn = document.getElementById('fyers-login-btn');
+            if (loginBtn) {
+                loginBtn.textContent = 'ONLINE';
+                loginBtn.classList.remove('text-blue-400');
+                loginBtn.classList.add('text-green-400');
+            }
         } else {
             if (dot) dot.className = 'w-2 h-2 rounded-full bg-gray-600';
             if (text) text.textContent = 'Offline';
+            const loginBtn = document.getElementById('fyers-login-btn');
+            if (loginBtn) {
+                loginBtn.textContent = 'CONNECT';
+                loginBtn.classList.add('text-blue-400');
+                loginBtn.classList.remove('text-green-400');
+            }
         }
     } catch (e) {
         console.error('Fyers status check failed', e);
@@ -891,6 +905,27 @@ window.onload = function () {
         checkMarketStatus();
         initChart();
         fetchData();
+
+        // Check for Fyers login success in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('fyers_login') === 'success') {
+            console.log("Fyers login success detected, refreshing status and data...");
+            checkFyersStatus();
+            fetchData();
+            
+            // Clean up URL
+            setTimeout(() => {
+                const newUrl = window.location.pathname + window.location.search.replace(/[?&]fyers_login=success(&|$)/, '$1').replace(/[?&]$/, '');
+                window.history.replaceState({}, document.title, newUrl);
+            }, 2000);
+        }
+
+        // Global key listener for ESC to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.body.classList.contains('chart-fullscreen')) {
+                window.toggleFullscreenChart();
+            }
+        });
 
         // Force chart resize after a short delay to ensure container has proper dimensions
         setTimeout(() => {
