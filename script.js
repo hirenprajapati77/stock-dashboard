@@ -21,7 +21,32 @@ let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 window.currentMarketStatus = null;
+window.loginToFyers = function() {
+    console.log("Initiating Fyers Login...");
+    const width = 600, height = 700;
+    const left = (window.innerWidth / 2) - (width / 2);
+    const top = (window.innerHeight / 2) - (height / 2);
+    window.open(`${API_BASE}/api/v1/fyers/login`, 'FyersLogin', `width=${width},height=${height},top=${top},left=${left}`);
+};
 
+async function checkFyersStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/fyers/status`);
+        const result = await res.json();
+        const dot = document.getElementById('fyers-status-dot');
+        const text = document.getElementById('fyers-status-text');
+        
+        if (result.status === 'success' && result.data.is_connected) {
+            if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]';
+            if (text) text.textContent = 'Online';
+        } else {
+            if (dot) dot.className = 'w-2 h-2 rounded-full bg-gray-600';
+            if (text) text.textContent = 'Offline';
+        }
+    } catch (e) {
+        console.error('Fyers status check failed', e);
+    }
+}
 async function checkMarketStatus() {
     try {
         const res = await fetch(`${API_BASE}/api/v1/market-status`);
@@ -245,7 +270,9 @@ async function fetchData(isBackground = false) {
         }
 
         const symbolInput = document.getElementById('symbol-input');
-        const symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
+        let symbol = symbolInput ? symbolInput.value.trim().toUpperCase() : "NIFTY50";
+        if (!symbol) symbol = "NIFTY50"; // Fallback to avoid empty ticker error
+        
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const stratSelector = document.getElementById('strategy-selector');
@@ -275,7 +302,7 @@ async function fetchData(isBackground = false) {
                 }
             }
 
-            updateUI(data);
+            updateUI(data, isBackground);
             if (data.market_status) {
                 window.currentMarketStatus = data.market_status;
                 applyMarketStatusState(data.market_status);
@@ -375,6 +402,51 @@ function updateStrategyUI(data) {
         document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
         document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
 
+        // Update Swing Metrics
+        if (strategy === 'SWING') {
+            document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
+            document.getElementById('swing-ema').textContent = insights.ema_bias || 'NEUTRAL';
+            document.getElementById('swing-htf').textContent = metrics.htfTrend || 'NEUTRAL';
+            document.getElementById('swing-pullback').textContent = metrics.pullbackPct ? `${metrics.pullbackPct}%` : 'NO';
+        }
+
+        // Update Dynamic Metrics Panels
+        const dynPanels = document.getElementById('strategy-dynamic-panels');
+        if (dynPanels) {
+            const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY';
+            dynPanels.style.display = hasDynamicData ? 'grid' : 'none';
+            dynPanels.classList.remove('hidden'); // Ensure hidden class is removed if toggling display
+
+            if (hasDynamicData) {
+                const c1T = document.getElementById('strat-card-1-title');
+                const c1V = document.getElementById('strat-card-1-val');
+                const c2T = document.getElementById('strat-card-2-title');
+                const c2V = document.getElementById('strat-card-2-val');
+                const c3T = document.getElementById('strat-card-3-title');
+                const c3V = document.getElementById('strat-card-3-val');
+
+                if (strategy === 'FIBONACCI') {
+                    if(c1T) c1T.textContent = 'Retracement';
+                    if(c1V) c1V.textContent = metrics.retracementDepth || '--';
+                    if(c2T) c2T.textContent = 'Golden Pocket';
+                    if(c2V) c2V.textContent = metrics.goldenPocket ? 'YES' : 'NO';
+                    if(c2V) c2V.className = metrics.goldenPocket ? 'text-lg font-bold text-yellow-400' : 'text-lg font-bold text-gray-400';
+                    if(c3T) c3T.textContent = 'Trend';
+                    if(c3V) c3V.textContent = metrics.is_uptrend ? 'BULL' : 'BEAR';
+                    if(c3V) c3V.className = metrics.is_uptrend ? 'text-lg font-bold uppercase tracking-widest text-green-400' : 'text-lg font-bold uppercase tracking-widest text-red-400';
+                } else if (strategy === 'DEMAND_SUPPLY') {
+                    if(c1T) c1T.textContent = 'Departure';
+                    if(c1V) c1V.textContent = metrics.departureStrength || 'STRONG';
+                    if(c2T) c2T.textContent = 'Zone Range';
+                    if(c2V) c2V.textContent = metrics.zoneRange || '--';
+                    if(c2V) c2V.className = 'text-lg font-bold text-gray-300';
+                    if(c3T) c3T.textContent = 'Vol Spike';
+                    if(c3V) c3V.textContent = metrics.volExpansion || 'NONE';
+                    if(c3V) c3V.className = 'text-lg font-bold uppercase tracking-widest text-white';
+                }
+            }
+        }
+
     } catch (err) {
         console.error("Strategy UI update error:", err);
     }
@@ -386,7 +458,18 @@ function formatVal(v) {
     return v;
 }
 
-function updateUI(data) {
+function formatWithCurrency(val, currency = 'INR') {
+    if (val === undefined || val === null || val === '—' || val === '---') return '—';
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = symbolMap[currency] || '₹';
+    
+    if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
+    const num = parseFloat(val);
+    if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
+    return `${currencySym}${val}`;
+}
+
+function updateUI(data, isBackground = false) {
     try {
         // Hide error message if it exists
         const errDiv = document.getElementById('chart-error-msg');
@@ -394,27 +477,16 @@ function updateUI(data) {
         const tvChart = document.getElementById('tv-chart');
         if (tvChart) tvChart.classList.remove('hidden');
 
-        const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-        const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
-
-        const formatWithCurrency = (val) => {
-            if (val === undefined || val === null || val === '—') return '—';
-            if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
-            // If it's a string that looks like a number, try to parse it
-            const num = parseFloat(val);
-            if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
-            return `${currencySym}${val}`;
-        };
-
         // 1. Meta & Summary
         const cmpEl = document.getElementById('cmp');
-        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp);
+        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
 
         const verTag = document.getElementById('ver-tag');
         if (verTag) verTag.textContent = "v1.5.0 Intelligence Layer";
 
+        // Sync Time
         const syncTime = document.getElementById('sync-time');
-        if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;
+        if (syncTime && data.meta.last_update) syncTime.textContent = `${data.meta.last_update}`;
 
         // Pulse indicators only if price changed
         const liveInd = document.getElementById('live-indicator');
@@ -445,7 +517,7 @@ function updateUI(data) {
         // Summary details
         const setVal = (id, val) => {
             const el = document.getElementById(id);
-            if (el) el.textContent = formatWithCurrency(val);
+            if (el) el.textContent = formatWithCurrency(val, data.meta.currency);
         };
         setVal('nearest-support', data.summary.nearest_support);
         setVal('nearest-resistance', data.summary.nearest_resistance);
@@ -453,23 +525,8 @@ function updateUI(data) {
         const rrEl = document.getElementById('risk-reward');
         if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
 
-        const signalEl = document.getElementById('trade-signal');
-        const signalReasonEl = document.getElementById('trade-signal-reason');
-        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
-        if (signalEl) {
-            signalEl.textContent = signal;
-            signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
-                ? 'bg-green-600/20 text-green-300 border border-green-500/40'
-                : signal === 'SELL'
-                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
-                    : 'bg-gray-800 text-gray-400 border border-gray-700'
-                }`;
-        }
-        if (signalReasonEl) {
-            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
-                ? data.summary.trade_signal_reason
-                : 'Signal updates with EMA bias + structure.';
-        }
+        // 8. Hero Strip
+        updateHeroDecisionStrip(data);
 
         // 2. Insights
         const setTxt = (id, val) => {
@@ -594,8 +651,6 @@ function updateUI(data) {
         window.lastReceivedData = data;
         drawLevelsOnChart(data.levels, data);
 
-        // 8. Decision Strip (v2.0)
-        updateDecisionStrip(data);
 
         // 9. Strategy Specific UI Toggles
         updateStrategyUI(data);
@@ -605,44 +660,47 @@ function updateUI(data) {
     }
 }
 
-function updateDecisionStrip(data) {
-    const strip = document.getElementById('decision-strip');
-    const actionEl = document.getElementById('decision-action');
-    const confEl = document.getElementById('decision-confidence');
-    const entryEl = document.getElementById('strip-entry');
-    const slEl = document.getElementById('strip-sl');
-    const tgtEl = document.getElementById('strip-target');
-    const reasonsEl = document.getElementById('decision-reasons');
-
-    if (!strip || !data.action) return;
-
-    // 1. Action & Confidence
-    actionEl.textContent = data.action;
-    actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
-    confEl.textContent = `${data.score}%`;
-
-    // 2. Execution Levels
-    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-    const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
+function updateHeroDecisionStrip(data) {
+    const heroStrip = document.getElementById('hero-decision-strip');
+    if (!heroStrip || !data.summary) return;
     
-    entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
-    slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
-    tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
-
-    // 3. Reason Tags
-    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
-        `<span class="reason-tag">${tag}</span>`
-    ).join('');
-
-    // 4. Hide Execution Panel in CLOSED mode
-    const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-    if (entryEl && entryEl.parentElement && entryEl.parentElement.parentElement) {
-        if (isClosed) {
-            entryEl.parentElement.parentElement.classList.add('hidden');
-        } else {
-            entryEl.parentElement.parentElement.classList.remove('hidden');
-        }
+    heroStrip.classList.remove('hidden');
+    
+    // Action Badge
+    const action = data.action || 'WATCH';
+    const actionBadge = document.getElementById('hero-action-badge');
+    const badgeSpan = actionBadge.querySelector('span');
+    const badgeIcon = actionBadge.querySelector('i');
+    
+    badgeSpan.textContent = action;
+    actionBadge.className = 'decision-badge';
+    
+    if (action.includes('BUY') || action.includes('ENTRY')) {
+        actionBadge.classList.add('decision-buy');
+        badgeIcon.className = 'fas fa-check-circle';
+    } else if (action === 'WAIT' || action.includes('HOLD')) {
+        actionBadge.classList.add('decision-no-trade');
+        badgeIcon.className = 'fas fa-times-circle';
+    } else {
+        actionBadge.classList.add('decision-watch');
+        badgeIcon.className = 'fas fa-eye';
     }
+
+    // POWER HEADER INTEGRATION (Keep metrics persistent in Navigation Bar)
+    const currency = data.meta?.currency || 'INR';
+    const hPrice = document.getElementById('hero-price');
+    if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, currency);
+    
+    // Fallback: If no setup entry, use current market price for Entry visibility
+    const hEntry = document.getElementById('hero-entry');
+    const hSl = document.getElementById('hero-sl');
+    const hTarget = document.getElementById('hero-target');
+    const hRR = document.getElementById('hero-rr');
+
+    if (hEntry) hEntry.textContent = formatWithCurrency(data.setup?.entry || data.summary?.entry_price || data.meta.cmp, currency);
+    if (hSl) hSl.textContent = formatWithCurrency(data.setup?.sl || data.summary?.stop_loss, currency);
+    if (hTarget) hTarget.textContent = formatWithCurrency(data.setup?.target || data.summary?.target_price || data.summary?.target, currency);
+    if (hRR) hRR.textContent = (data.setup?.rr || data.summary?.risk_reward || 0).toFixed(2);
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
@@ -676,92 +734,85 @@ function drawLevelsOnChart(levels, fullData = null) {
     levelsLayer.forEach(line => {
         try { candlestickSeries.removePriceLine(line); } catch(e) {}
     });
+    
     // Remove zone area series if they exist
     if (window.targetZoneSeries) { chart.removeSeries(window.targetZoneSeries); window.targetZoneSeries = null; }
     if (window.stopZoneSeries) { chart.removeSeries(window.stopZoneSeries); window.stopZoneSeries = null; }
     
+    // Remove existing floating tags
+    const existingTags = document.querySelectorAll('.chart-tag');
+    existingTags.forEach(t => t.remove());
+
     levelsLayer = [];
 
-    const isNoTrade = fullData && (fullData.action === 'WAIT' || fullData.action === 'HOLD' || !fullData.summary.entry);
+    const action = fullData ? (fullData.action || 'WAIT') : 'WAIT';
+    const isNoTrade = action === 'WAIT' || action === 'HOLD' || (fullData && !fullData.summary.stop_loss);
+    
     const noTradeOverlay = document.getElementById('no-trade-overlay');
     if (noTradeOverlay) noTradeOverlay.style.display = isNoTrade ? 'flex' : 'none';
 
-    // 1. Draw Execution Overlays (Entry, SL, Target)
+    // 1. Floating Chart Tag (Status)
+    if (fullData) {
+        const tag = document.createElement('div');
+        tag.className = 'chart-tag';
+        const isEntry = action.includes('BUY') || action.includes('ENTRY');
+        tag.innerHTML = `<span class="${isEntry ? 'text-green-400' : 'text-amber-400'}">●</span> ${action}`;
+        document.getElementById('chart-parent').appendChild(tag);
+    }
+
+    // 2. Draw Execution Overlays (Entry, SL, Target)
     if (fullData && fullData.summary && !isNoTrade) {
         const s = fullData.summary;
-        const cmp = fullData.meta.cmp;
-        const entry = cmp; // Use CMP as active entry
+        const entry = fullData.meta.cmp;
         const sl = parseFloat(s.stop_loss);
         const tgt = parseFloat(s.target);
 
-        // Entry (Blue - Dotted for execution point)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: entry,
-            color: '#3b82f6',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'ENTRY',
-        }));
+        if (entry && sl && tgt) {
+            // SL (Red - Solid)
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: sl,
+                color: '#EF4444',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'STOP LOSS',
+            }));
 
-        // Stop Loss (Red - Solid)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: sl,
-            color: '#f6465d',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'SL',
-        }));
+            // Target (Green - Solid)
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: tgt,
+                color: '#22C55E',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'TARGET',
+            }));
 
-        // Target (Green - Solid)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: tgt,
-            color: '#00c076',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'TGT',
-        }));
-
-        // EXECUTION ZONES (Shaded Areas)
-        // We use AreaSeries to create shaded backgrounds for trade zones
-        if (tgt > entry) {
-            window.targetZoneSeries = chart.addAreaSeries({
-                topColor: 'rgba(0, 192, 118, 0.15)',
-                bottomColor: 'rgba(0, 192, 118, 0.02)',
-                lineColor: 'transparent',
-                lineWidth: 0,
-                priceLineVisible: false,
-                lastValueVisible: false,
-                crosshairMarkerVisible: false,
-                autoscaleInfoProvider: () => null, // Don't affect auto-scaling
-            });
-            // Fill target zone data
+            // EXECUTION ZONES (Shaded Areas)
             const ohlcv = fullData.ohlcv || [];
             if (ohlcv.length > 0) {
-                const zoneData = ohlcv.map(d => ({ time: d.time, value: tgt }));
-                window.targetZoneSeries.setData(zoneData);
-                // We set base price to entry to shade the zone
+                // Profit Zone
+                window.targetZoneSeries = chart.addAreaSeries({
+                    topColor: 'rgba(34, 197, 94, 0.15)',
+                    bottomColor: 'rgba(34, 197, 94, 0.02)',
+                    lineColor: 'transparent',
+                    lineWidth: 0,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                });
+                window.targetZoneSeries.setData(ohlcv.map(d => ({ time: d.time, value: tgt })));
                 window.targetZoneSeries.applyOptions({ baseValue: { type: 'price', price: entry } });
-            }
-        }
 
-        if (sl < entry) {
-            window.stopZoneSeries = chart.addAreaSeries({
-                topColor: 'rgba(246, 70, 93, 0.12)',
-                bottomColor: 'rgba(246, 70, 93, 0.05)',
-                lineColor: 'transparent',
-                lineWidth: 0,
-                priceLineVisible: false,
-                lastValueVisible: false,
-                crosshairMarkerVisible: false,
-                autoscaleInfoProvider: () => null,
-            });
-            const ohlcv = fullData.ohlcv || [];
-            if (ohlcv.length > 0) {
-                const zoneData = ohlcv.map(d => ({ time: d.time, value: entry }));
-                window.stopZoneSeries.setData(zoneData);
+                // Risk Zone
+                window.stopZoneSeries = chart.addAreaSeries({
+                    topColor: 'rgba(239, 68, 68, 0.12)',
+                    bottomColor: 'rgba(239, 68, 68, 0.05)',
+                    lineColor: 'transparent',
+                    lineWidth: 0,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                });
+                window.stopZoneSeries.setData(ohlcv.map(d => ({ time: d.time, value: entry })));
                 window.stopZoneSeries.applyOptions({ baseValue: { type: 'price', price: sl } });
             }
         }
@@ -769,53 +820,52 @@ function drawLevelsOnChart(levels, fullData = null) {
 
     if (!levels) return;
 
-    const cmpForDist = fullData ? fullData.meta.cmp : 0;
-    const showMTF = document.getElementById('mtf-toggle').checked;
+    const cmp = fullData ? fullData.meta.cmp : 0;
+    const strategy = fullData?.meta?.strategy || 'SR';
 
-    // Filter to Nearest 2 Levels for Clean Chart
-    const processLevels = (lvList, isResistance) => {
-        if (!lvList || !Array.isArray(lvList)) return [];
-        // Only include non-ZONE levels for this filtering logic
-        const simpleLevels = lvList.filter(l => l.timeframe !== 'ZONE').map(l => ({
-            ...l,
-            dist: Math.abs(l.price - cmpForDist)
-        }));
-        
-        // Sort by distance and take nearest 2
-        return simpleLevels.sort((a, b) => a.dist - b.dist).slice(0, 2);
-    };
-
-    const addLine = (lv, color, title = '') => {
-        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
+    // Helper to add lines
+    const addLine = (lv, color, title = '', dashed = true) => {
         levelsLayer.push(candlestickSeries.createPriceLine({
             price: lv.price,
             color: color,
-            lineWidth: isSwing ? 2 : 1,
-            lineStyle: isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed,
+            lineWidth: 1,
+            lineStyle: dashed ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
             axisLabelVisible: true,
             title: title || lv.timeframe || '',
         }));
     };
 
-    // Draw Nearest Supports (Primary only for chart cleanliness)
-    if (levels.primary) {
-        processLevels(levels.primary.supports, false).forEach(lv => addLine(lv, '#3b82f6', 'SUP'));
-        processLevels(levels.primary.resistances, true).forEach(lv => addLine(lv, 'rgba(156, 163, 175, 0.8)', 'RES'));
+    // MODE-BASED FILTERING (Rule: One Mode = One Visual)
+    if (strategy === 'SR') {
+        const primarySupports = (levels.primary?.supports || []).filter(l => l.timeframe !== 'ZONE');
+        const primaryResists = (levels.primary?.resistances || []).filter(l => l.timeframe !== 'ZONE');
+
+        // Take 2 nearest each
+        primarySupports.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
+            
+        primaryResists.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#94A3B8', 'RES'));
+    } 
+    else if (strategy === 'DEMAND_SUPPLY') {
+        const demand = (levels.primary?.supports || []).filter(l => l.timeframe === 'ZONE');
+        const supply = (levels.primary?.resistances || []).filter(l => l.timeframe === 'ZONE');
+
+        demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
+        supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
     }
-
-    // Draw Zones (Demand/Supply) - Always show if available as they are thematic
-    const zones = [
-        ...(levels.primary ? levels.primary.supports.filter(l => l.timeframe === 'ZONE') : []),
-        ...(levels.primary ? levels.primary.resistances.filter(l => l.timeframe === 'ZONE') : [])
-    ];
-
-    zones.forEach(zv => {
-        const isRes = fullData && zv.price > fullData.meta.cmp;
-        addLine(zv, isRes ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)', isRes ? 'SUPPLY' : 'DEMAND');
-        if (zv.price_low && zv.price_low !== zv.price) {
-            addLine({ price: zv.price_low }, isRes ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)', '');
-        }
-    });
+    else if (strategy === 'FIBONACCI') {
+        // In FIB mode, data structure changed to levels.primary
+        const supports = levels.primary?.supports || [];
+        const resistances = levels.primary?.resistances || [];
+        
+        // Show only key ratios: 38.2, 50, 61.8 (0.382, 0.5, 0.618)
+        const keyRatios = [0.382, 0.5, 0.618];
+        
+        [...supports, ...resistances]
+            .filter(l => keyRatios.includes(l.ratio))
+            .forEach(l => addLine(l, '#A855F7', l.label, true));
+    }
 }
 
 // Rotation Data Fetching
@@ -888,23 +938,38 @@ window.onload = function () {
             });
         }
 
-        // Intelligence Toggle Logic
-        if (intelTog) {
-            intelTog.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    intel.classList.remove('hidden');
-                    std.classList.add('hidden');
-                    rot.classList.add('hidden');
-                    if (rotTog) rotTog.checked = false;
-                    scrTog.checked = false;
-                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
-                    fetchIntelligence();
-                } else {
-                    intel.classList.add('hidden');
-                    if (!rotTog || !rotTog.checked) std.classList.remove('hidden');
-                }
-            });
-        }
+        // Navigation Logic (Dashboard vs Intelligence)
+        const btnDash = document.getElementById('view-dashboard');
+        const btnIntel = document.getElementById('view-intelligence');
+        
+        const setNavActive = (mode) => {
+            if (mode === 'intel') {
+                btnIntel.classList.add('bg-blue-600', 'text-white');
+                btnIntel.classList.remove('text-gray-400', 'hover:bg-gray-800');
+                btnDash.classList.remove('bg-blue-600', 'text-white');
+                btnDash.classList.add('text-gray-400', 'hover:bg-gray-800');
+                
+                intel.classList.remove('hidden');
+                std.classList.add('hidden');
+                if (rot) rot.classList.add('hidden');
+                if (rotTog) rotTog.checked = false;
+                scrTog.checked = false;
+                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                fetchIntelligence();
+            } else {
+                btnDash.classList.add('bg-blue-600', 'text-white');
+                btnDash.classList.remove('text-gray-400', 'hover:bg-gray-800');
+                btnIntel.classList.remove('bg-blue-600', 'text-white');
+                btnIntel.classList.add('text-gray-400', 'hover:bg-gray-800');
+                
+                std.classList.remove('hidden');
+                intel.classList.add('hidden');
+                if (rot) rot.classList.add('hidden');
+            }
+        };
+
+        if (btnDash) btnDash.addEventListener('click', () => setNavActive('dash'));
+        if (btnIntel) btnIntel.addEventListener('click', () => setNavActive('intel'));
 
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
@@ -998,6 +1063,9 @@ window.onload = function () {
         });
 
         document.getElementById('tf-selector').addEventListener('change', () => {
+            const tfSelector = document.getElementById('tf-selector');
+            if (window.updateTfChips) window.updateTfChips(tfSelector.value);
+            
             const isRotationActive = document.getElementById('rotation-toggle').checked;
             if (isRotationActive) {
                 fetchRotation();
@@ -1012,7 +1080,7 @@ window.onload = function () {
         if (intradayGroup) {
             const tfSelector = document.getElementById('tf-selector');
             const buttons = intradayGroup.querySelectorAll('button[data-tf]');
-            const setActive = (activeTf) => {
+            window.updateTfChips = (activeTf) => {
                 buttons.forEach(btn => {
                     if (btn.dataset.tf === activeTf) {
                         btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
@@ -1023,6 +1091,7 @@ window.onload = function () {
                     }
                 });
             };
+            const setActive = window.updateTfChips;
             buttons.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const tf = btn.dataset.tf;
@@ -1048,16 +1117,24 @@ window.onload = function () {
                 drawLevelsOnChart(window.lastReceivedData.levels);
             }
         });
-        document.getElementById('search-btn').addEventListener('click', () => {
-            resultsDiv.classList.add('hidden');
-            fetchData();
-        });
-        document.getElementById('symbol-input').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', (e) => {
+                e.preventDefault();
                 resultsDiv.classList.add('hidden');
                 fetchData();
-            }
-        });
+            });
+        }
+
+        const symbolInput = document.getElementById('symbol-input');
+        if (symbolInput) {
+            symbolInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    resultsDiv.classList.add('hidden');
+                    fetchData();
+                }
+            });
+        }
 
         setInterval(() => {
             const rotToggle = document.getElementById('rotation-toggle');

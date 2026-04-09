@@ -10,367 +10,119 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0b0e11;
-            color: #eaecef;
-        }
-
-        .glass {
-            background: rgba(23, 27, 34, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .mono {
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .text-up {
-            color: #00c076;
-        }
-
-        .text-down {
-            color: #f6465d;
-        }
-
-        .bg-up {
-            background-color: rgba(0, 192, 118, 0.1);
-        }
-
-        .bg-down {
-            background-color: rgba(246, 70, 93, 0.1);
-        }
-
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #0b0e11;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #2b3139;
-            border-radius: 10px;
-        }
-
-        #rotation-tooltip {
-            position: fixed;
-            pointer-events: none;
-            z-index: 1000;
-            padding: 12px;
-            border-radius: 12px;
-            font-size: 11px;
-            min-width: 150px;
-            display: none;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .hud-alert {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(4px);
-            padding: 8px 16px;
-            border-radius: 20px;
-            border: 1px solid rgba(59, 130, 246, 0.5);
-            color: #3b82f6;
-            font-weight: bold;
-            font-size: 12px;
-            z-index: 50;
-            display: none;
-            animation: slideDownIn 0.3s ease-out, fadeOut 2s 1s forwards;
-        }
-
-        @keyframes slideDownIn {
-            from {
-                transform: translate(-50%, -100%);
-                opacity: 0;
-            }
-
-            to {
-                transform: translate(-50%, 0);
-                opacity: 1;
-            }
-        }
-
-        @keyframes fadeOut {
-            to {
-                opacity: 0;
-            }
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #1e293b;
-            border-radius: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #334155;
-        }
-
-        .border-l-up {
-            border-left-color: #00c076;
-        }
-
-        .border-l-down {
-            border-left-color: #f6465d;
-        }
-
-        /* Signal Modal Styles */
-        .modal-overlay {
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(8px);
-            z-index: 1000;
-        }
-
-        .signal-modal {
-            max-width: 600px;
-            width: 90%;
-            background: #131722;
-            border: 1px solid #1e222d;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-        }
-
-        .strategy-card {
-            transition: all 0.3s ease;
-        }
-
-        .hidden-strategy {
-            display: none !important;
-        }
-
-        /* Decision Strip Styles */
-        .decision-strip {
-            background: linear-gradient(90deg, #131722 0%, #1c212e 100%);
-            border-bottom: 2px solid #1e222d;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .action-chip {
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 14px;
-        }
-
-        .action-chip.strong-buy { background: #00c076; color: #0b0e11; box-shadow: 0 0 15px rgba(0, 192, 118, 0.4); }
-        .action-chip.buy { background: rgba(0, 192, 118, 0.2); color: #00c076; border: 1px solid #00c076; }
-        .action-chip.watch { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid #3b82f6; }
-        .action-chip.avoid { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
-
-        .reason-tag {
-            padding: 2px 8px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            font-size: 10px;
-            color: #9ca3af;
-            font-weight: 600;
-        }
-
-        /* --- NEW NAVBAR REFACTOR STYLES --- */
-        .glass-navbar {
-            background: rgba(13, 17, 23, 0.8);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .nav-section {
-            display: flex;
-            align-items: center;
-        }
-
-        .symbol-box {
-            max-width: 140px;
-            transition: all 0.2s ease;
-        }
-
-        .symbol-box:focus-within {
-            max-width: 180px;
-            background: rgba(37, 99, 235, 0.1);
-            border-color: rgba(37, 99, 235, 0.5);
-        }
-
-        .dropdown-menu {
-            display: none;
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            min-width: 220px;
-            background: #1e222d;
-            border: 1px solid #363c4e;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-            border-radius: 12px;
-            padding: 8px;
-            z-index: 1000;
-            animation: dropdownFade 0.2s ease-out;
-        }
-
-        .dropdown-menu.show {
-            display: block;
-        }
-
-        @keyframes dropdownFade {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .nav-btn-primary {
-            padding: 6px 12px;
-            font-size: 13px;
-            font-weight: 700;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-
-        .nav-btn-secondary {
-            padding: 6px 10px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #9ca3af;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-
-        .nav-btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #fff;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 
 <body class="min-h-screen overflow-x-hidden">
-    <!-- Header / Navbar Refactor -->
-    <header class="h-14 glass-navbar sticky top-0 z-50 w-full px-6 flex items-center justify-between gap-4">
-        <!-- 1. LEFT: Branding & Main Nav -->
-        <div class="nav-section gap-6">
-            <div class="flex items-center gap-2 cursor-pointer group" onclick="window.location.reload()">
-                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-lg shadow-blue-600/20 group-hover:scale-105 transition-transform">S</div>
-                <div class="flex flex-col -space-y-1 hidden lg:flex">
-                    <h1 class="text-base font-black tracking-tighter text-white">S&R <span class="text-blue-500">PRO</span></h1>
-                    <p id="sync-time" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">LIVE SYNC</p>
+    <!-- Global Loader Overlay -->
+    <div id="global-loader">
+        <div class="loader-glow"></div>
+        <div class="loader-spinner mb-4"></div>
+        <div class="text-blue-400 font-bold uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Data...</div>
+    </div>
+    <!-- Header -->
+    <header class="h-auto min-h-[80px] py-1 border-b border-gray-800 bg-[#0B0F19] sticky top-0 z-50 px-4 flex flex-col justify-center gap-2 overflow-visible shadow-lg">
+        <!-- Top Row: Branding & Critical Decision Metrics -->
+        <div class="flex items-center justify-between w-full">
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white flex-shrink-0">S</div>
+                <div class="flex flex-col -space-y-1">
+                    <h1 class="text-lg font-bold tracking-tight whitespace-nowrap">S&R <span class="text-blue-500">PRO</span></h1>
+                    <p id="sync-time" class="text-[8px] text-gray-500 font-mono italic">--:--:--</p>
                 </div>
             </div>
 
-            <!-- View Toggles -->
-            <div class="flex items-center gap-1 bg-gray-900/40 p-1 rounded-lg border border-gray-800">
-                <button id="view-dashboard" class="nav-btn-primary bg-blue-600 text-white shadow-sm">Dashboard</button>
-                <button id="view-intelligence" class="nav-btn-secondary">Intelligence</button>
+            <div class="flex items-center gap-6 flex-grow justify-center px-4">
+                <div class="text-center">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Current Price</p>
+                    <span id="hero-price" class="text-sm font-bold text-white">₹0.00</span>
+                </div>
+                <div class="h-6 w-[1px] bg-white/10"></div>
+                <div class="text-center">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Entry</p>
+                    <span id="hero-entry" class="text-sm font-bold text-blue-400">---</span>
+                </div>
+                <div class="text-center">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Stop Loss</p>
+                    <span id="hero-sl" class="text-sm font-bold text-red-500">---</span>
+                </div>
+                <div class="text-center">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Target</p>
+                    <span id="hero-target" class="text-sm font-bold text-green-500">---</span>
+                </div>
+                <div class="text-center hidden sm:block">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">R/R</p>
+                    <span id="hero-rr" class="text-sm font-bold text-purple-400">0.00</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <div id="fyers-connection" class="flex items-center gap-2 px-2 py-1 bg-gray-900 rounded-lg border border-gray-800">
+                    <div id="fyers-status-dot" class="w-2 h-2 rounded-full bg-gray-600"></div>
+                    <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-400 uppercase tracking-widest hover:text-blue-300">CONNECT</button>
+                </div>
+                <div class="flex items-center space-x-1 bg-gray-900 px-1 py-1 rounded-lg border border-gray-800">
+                    <button id="view-dashboard" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white">DASHBOARD</button>
+                    <button id="view-intelligence" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-400 hover:bg-gray-800">INTELLIGENCE</button>
+                </div>
             </div>
         </div>
 
-        <!-- 2. CENTER: Status (Responsive) -->
-        <div class="nav-section flex gap-2">
-            <div id="fyers-connection" class="flex items-center gap-1.5 px-2 py-1 bg-gray-900/50 rounded-full border border-gray-800 shrink-0">
-                <div id="fyers-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-600"></div>
-                <span id="fyers-status-text" class="hidden sm:inline-block text-[9px] font-bold text-gray-400 uppercase tracking-widest">Broker: Offline</span>
-                <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-500 hover:text-blue-400">CONNECT</button>
-            </div>
-        </div>
-
-        <!-- 3. RIGHT: Controls & Search -->
-        <div class="nav-section gap-3">
-            <!-- Symbol Search -->
-            <div class="symbol-box relative flex items-center bg-gray-900/60 border border-gray-800 rounded-lg px-2 h-9">
-                <input type="text" id="symbol-input" value="NIFTY50" 
-                    class="bg-transparent border-none text-xs font-bold text-white focus:outline-none w-full uppercase placeholder-gray-500"
-                    placeholder="SEARCH">
-                <button id="search-btn" class="text-gray-500 hover:text-white p-1">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                </button>
-                <div id="search-results" class="absolute top-full left-0 mt-2 w-64 glass border border-gray-700 rounded-xl hidden z-50 shadow-2xl max-h-80 overflow-y-auto"></div>
+        <!-- Bottom Row: Navigation & Search -->
+        <div class="flex items-center w-full min-h-[40px] border-t border-white/5 pt-2 pb-1 gap-4">
+            <!-- Left: Toggles -->
+            <div class="flex items-center gap-3 flex-shrink-0">
+                <!-- Screener & Rotation -->
+                <div class="flex items-center gap-1.5 px-2 py-0.5 bg-gray-900/50 rounded-md border border-gray-800">
+                    <input type="checkbox" id="screener-toggle" class="w-3 h-3 cursor-pointer">
+                    <span class="text-[9px] font-bold text-gray-500 uppercase">Screener</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2 py-0.5 bg-gray-900/50 rounded-md border border-gray-800">
+                    <input type="checkbox" id="rotation-toggle" class="w-3 h-3 cursor-pointer">
+                    <span class="text-[9px] font-bold text-gray-500 uppercase">Rotation</span>
+                </div>
             </div>
 
-            <!-- Timeframe & Strategy -->
-            <div class="flex items-center gap-1.5 h-9">
-                <select id="tf-selector" 
-                    class="bg-gray-900/60 border border-gray-800 rounded-lg px-2 py-1.5 text-[10px] font-black text-gray-300 focus:border-blue-500/50 outline-none cursor-pointer uppercase transition-all">
-                    <option value="5m">5 MIN</option>
-                    <option value="15m">15 MIN</option>
-                    <option value="75m">75 MIN</option>
-                    <option value="1H">1 HOUR</option>
-                    <option value="2H">2 HOUR</option>
-                    <option value="4H">4 HOUR</option>
-                    <option value="1D" selected>DAILY</option>
-                    <option value="1W">WEEKLY</option>
-                    <option value="1M">MONTHLY</option>
+            <!-- Center: Search Bar (Expanded) -->
+            <div class="flex items-center justify-center flex-grow px-4">
+                <div class="relative w-full max-w-[400px]">
+                    <div class="flex items-center space-x-2 bg-[#111827] px-3 py-1.5 rounded-lg border border-gray-700 w-full focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all shadow-inner">
+                        <i class="fas fa-search text-gray-500 text-[10px]"></i>
+                        <input type="text" id="symbol-input" value="NIFTY50" class="bg-transparent border-none text-[11px] font-bold text-white focus:outline-none w-full uppercase" placeholder="SEARCH SYMBOL (e.g. TCS, HDFC)">
+                    </div>
+                    <div id="search-results" class="absolute top-[calc(100%+4px)] left-0 w-full bg-gray-900 border border-gray-700 rounded-lg hidden z-[100] shadow-2xl max-h-64 overflow-y-auto divide-y divide-gray-800"></div>
+                </div>
+            </div>
+
+            <!-- Right: Timeframes & Strategies -->
+            <div class="flex items-center gap-3 flex-shrink-0">
+                <div class="flex items-center">
+                    <div id="intraday-tf-toggle" class="flex items-center gap-1 bg-[#111827] border border-gray-700 rounded-md px-1 py-0.5">
+                        <button data-tf="5m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white">5M</button>
+                        <button data-tf="15m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-400">15M</button>
+                        <div class="w-[1px] h-3 bg-gray-700 mx-1"></div>
+                        <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none">
+                            <option value="5m">5M</option>
+                            <option value="15m">15M</option>
+                            <option value="1H">1H</option>
+                            <option value="4H">4H</option>
+                            <option value="1D" selected>1D</option>
+                            <option value="1W">1W</option>
+                        </select>
+                    </div>
+                </div>
+
+                <select id="strategy-selector" class="bg-blue-900/40 border border-blue-500/50 rounded-md px-2 py-0.5 text-[10px] font-bold text-blue-100 uppercase tracking-tighter">
+                    <option value="SR">Support/Resistance</option>
+                    <option value="SWING">Swing Trading</option>
+                    <option value="DEMAND_SUPPLY">Demand/Supply Zones</option>
+                    <option value="FIBONACCI">Fibonacci</option>
                 </select>
 
-                <select id="strategy-selector"
-                    class="bg-blue-900/30 border border-blue-500/30 rounded-lg px-2 py-1.5 text-[10px] font-black text-blue-400 focus:border-blue-500 outline-none cursor-pointer uppercase transition-all">
-                    <option value="SR">S / R</option>
-                    <option value="SWING">SWING</option>
-                    <option value="DEMAND_SUPPLY">ZONES</option>
-                    <option value="FIBONACCI">FIBO</option>
-                </select>
-            </div>
-
-            <div class="h-6 w-px bg-gray-800 mx-1 hidden md:block"></div>
-
-            <!-- More Actions Dropdown -->
-            <div class="relative">
-                <button id="more-actions-btn" 
-                    class="flex items-center gap-2 px-3 py-1.5 bg-gray-800/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all">
-                    More <span class="text-gray-600">▾</span>
-                </button>
-                
-                <div id="more-actions-dropdown" class="dropdown-menu">
-                    <!-- MTF Toggle -->
-                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
-                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Multi-Timeframe</span>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="mtf-toggle" class="sr-only peer" checked>
-                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                    </div>
-
-                    <!-- Screener Toggle -->
-                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
-                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Screener</span>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="screener-toggle" class="sr-only peer">
-                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
-                        </label>
-                    </div>
-
-                    <!-- Rotation Toggle -->
-                    <div class="px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors rounded-lg">
-                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rotation</span>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="rotation-toggle" class="sr-only peer">
-                            <div class="w-7 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                    </div>
-
-                    <div class="h-px bg-gray-800 my-1 mx-2"></div>
-
-                    <!-- Admin Actions -->
-                    <div class="px-3 py-2 flex items-center justify-between">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Admin</span>
-                        <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                    </div>
-                    
-                    <button id="logout-btn" 
-                        class="w-full text-left px-3 py-2 text-[10px] font-bold text-red-500 hover:bg-red-500/10 rounded-lg uppercase tracking-widest transition-colors mb-1">
-                        Logout System
-                    </button>
+                <div class="flex items-center gap-1.5 ml-2 border-l border-gray-800 pl-3">
+                    <input type="checkbox" id="mtf-toggle" class="w-3 h-3 cursor-pointer accent-blue-500" checked>
+                    <span class="text-[9px] font-bold text-gray-400 uppercase">MTF Lines</span>
                 </div>
             </div>
         </div>
@@ -515,7 +267,7 @@
                             </div>
                             <span class="text-[8px] text-green-400 font-mono uppercase">Score > 70 | RR > 2.0</span>
                         </div>
-                        <div id="top-picks-container" class="p-4 flex gap-4 overflow-x-auto custom-scrollbar">
+                        <div id="top-picks-grid" class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <!-- Top picks will be injected here -->
                         </div>
                     </div>
@@ -680,12 +432,12 @@
                             <div class="flex items-center gap-4">
                                 <div class="flex items-center gap-2">
                                     <span
-                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">MIN. QUALITY:</span>
+                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
                                     <select id="confidence-filter" onchange="window.intelligenceApp._renderHitsTable()"
                                         class="bg-gray-800 border border-gray-700 text-[9px] font-bold text-indigo-400 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none uppercase cursor-pointer">
-                                        <option value="40">40 (Early)</option>
-                                        <option value="60" selected>60 (Reliable)</option>
-                                        <option value="80">80 (Strongest)</option>
+                                        <option value="40">40% (Early)</option>
+                                        <option value="60" selected>60% (Reliable)</option>
+                                        <option value="80">80% (Strongest)</option>
                                     </select>
                                 </div>
                                 <label class="flex items-center gap-1.5 text-[9px] text-gray-400 font-bold uppercase tracking-wider cursor-pointer">
@@ -694,32 +446,12 @@
                                     High Probability Only
                                 </label>
                                 <div id="hits-sync-status"
-                                    class="flex items-center gap-3 text-[9px] text-gray-500 font-mono">
-                                    <div id="intel-syncing-indicator" class="hidden flex items-center gap-1.5 mr-2">
-                                        <span class="w-1.5 h-1.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></span>
-                                        <span class="text-[8px] text-indigo-400 font-bold animate-pulse">SYNCING</span>
-                                    </div>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
-                                        LIVE SYNC
-                                    </div>
-                                    <button onclick="window.fetchIntelligence(false, true)" 
-                                        class="px-2 py-0.5 rounded-lg border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition-all font-bold uppercase tracking-widest text-[8px]">
-                                        Force Refresh
-                                    </button>
+                                    class="flex items-center gap-1.5 text-[9px] text-gray-500 font-mono">
+                                    <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                                    LIVE SYNC
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Trending Sectors Concentration Bar (populated by renderSectorConcentration) -->
-                        <div id="trending-sectors-bar" class="hidden px-4 py-2.5 border-b border-gray-800/60 bg-gray-900/30">
-                            <div class="flex items-center gap-3 flex-wrap">
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-gray-500 shrink-0">Sector Concentration (Hits):</span>
-                                <div id="trending-sectors-pills" class="flex items-center gap-2 flex-wrap"></div>
-                                <span id="trending-sectors-total" class="ml-auto text-[9px] text-gray-600 font-mono shrink-0"></span>
-                            </div>
-                        </div>
-
                         <div class="overflow-x-auto min-h-[600px]">
                             <table class="w-full text-left text-[11px]">
                                 <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
@@ -773,8 +505,21 @@
                     </div>
                 </div>
 
-                <!-- Right: Sector Insight Cards (5 cols) -->
-                <div class="col-span-12 lg:col-span-5 space-y-4">
+                <!-- Right: Intelligence Panels (5 cols) -->
+                <div class="col-span-12 lg:col-span-5 space-y-6">
+                    <!-- Top Industries Heatmap (NEW) -->
+                    <div id="industry-heatmap-section" class="space-y-4">
+                        <div class="flex items-center justify-between px-2">
+                            <h2 class="text-[12px] font-black uppercase tracking-[0.2em] text-blue-400">Top Industries Heatmap</h2>
+                            <span class="text-[9px] text-gray-500 font-mono uppercase">Leaderboard</span>
+                        </div>
+                        <div id="industry-heatmap-grid" class="heatmap-container glass-card p-4 min-h-[120px]">
+                            <!-- Skeleton Loader State -->
+                            <div class="heatmap-card skeleton rounded-lg h-20"></div>
+                            <div class="heatmap-card skeleton rounded-lg h-20"></div>
+                        </div>
+                    </div>
+
                     <div class="flex items-center justify-between px-2">
                         <h2 class="text-[11px] font-bold uppercase tracking-widest text-blue-400">Sector
                             Intelligence</h2>
@@ -1006,6 +751,22 @@
                 </div>
             </div>
 
+            <!-- Dynamic Strategy Panels -->
+            <div id="strategy-dynamic-panels" class="grid grid-cols-3 gap-4 mt-4 hidden">
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p id="strat-card-1-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 1</p>
+                    <span id="strat-card-1-val" class="text-2xl font-bold mono text-white">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p id="strat-card-2-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 2</p>
+                    <span id="strat-card-2-val" class="text-[10px] font-bold text-gray-300">—</span>
+                </div>
+                <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
+                    <p id="strat-card-3-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 3</p>
+                    <span id="strat-card-3-val" class="text-lg font-bold uppercase tracking-widest text-white">—</span>
+                </div>
+            </div>
+
             <div id="strategy-zones-metrics"
                 class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6 strategy-card hidden-strategy">
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
@@ -1027,203 +788,133 @@
                 </div>
             </div>
 
-            <!-- Middle Section (Wider Chart + Compact Sidebar) -->
-            <div class="grid grid-cols-12 gap-4 mt-6">
-                <!-- Chart Section (Now 9/12 width on sm+) -->
-                <div class="col-span-12 sm:col-span-9 space-y-4">
-                    <div class="glass rounded-2xl overflow-hidden relative h-[600px] flex flex-col" id="chart-parent">
-                        <!-- Decision Strip -->
-                        <div id="decision-strip" class="decision-strip px-4 py-3 flex items-center justify-between z-20">
+            <!-- Horizontal Optimized Chart Section -->
+            <div class="chart-layout-wrapper mt-6">
+                <!-- Left: Execution Area -->
+                <div class="chart-column">
+                    <div class="glass-card overflow-hidden relative h-[700px] flex flex-col" id="chart-parent">
+                        <!-- Chart Header -->
+                        <div class="bg-black/20 border-b border-white/5 px-4 py-3 flex items-center justify-between z-30">
                             <div class="flex items-center gap-4">
-                                <div id="decision-action" class="action-chip watch">WATCH</div>
-                                <div class="flex flex-col">
-                                    <span class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Confidence</span>
-                                    <span id="decision-confidence" class="text-lg font-bold mono text-white">--%</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[8px] font-bold text-gray-500 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded">Active View</span>
+                                </div>
+                                <div id="chart-symbol-info" class="flex flex-col">
+                                    <span class="text-xs font-black text-white tracking-widest uppercase" id="chart-symbol-label">NIFTY50</span>
+                                    <span class="text-[8px] font-black text-gray-500 uppercase tracking-tighter" id="chart-tf-label">DAILY SESSION</span>
                                 </div>
                             </div>
-                            <div class="flex items-center gap-6">
-                                <div class="flex flex-col items-center">
-                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Entry</span>
-                                    <span id="strip-entry" class="text-xs font-bold mono text-blue-400">---</span>
-                                </div>
-                                <div class="flex flex-col items-center">
-                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Stop Loss</span>
-                                    <span id="strip-sl" class="text-xs font-bold mono text-down">---</span>
-                                </div>
-                                <div class="flex flex-col items-center">
-                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Target</span>
-                                    <span id="strip-target" class="text-xs font-bold mono text-up">---</span>
-                                </div>
-                            </div>
-                            <div id="decision-reasons" class="flex gap-2">
-                                <!-- Tags here -->
+                            
+                            <div class="flex items-center gap-2">
+                                <button onclick="window.toggleFullscreenChart()" class="p-2 bg-white/5 border border-white/5 rounded-lg text-gray-400 hover:text-white hover:border-white/10 transition-all">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
                             </div>
                         </div>
+
                         <div id="tv-chart" class="flex-grow"></div>
-                        <div id="chart-loader" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-center justify-center hidden">
-                            <div class="flex flex-col items-center gap-3">
-                                <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                <span class="text-xs font-bold text-white tracking-widest uppercase">Syncing Live Data...</span>
+                        
+                        <div id="loading-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-md z-30 flex items-center justify-center hidden">
+                            <div class="flex flex-col items-center gap-4">
+                                <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                <span class="text-[10px] font-black text-white tracking-[0.3em] uppercase">Recalibrating Levels</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Pro Intelligence Sidebar -->
+                <div class="intelligence-sidebar space-y-4">
+                    <!-- Tactical Levels (Relocated) -->
+                    <div class="glass-card overflow-hidden">
+                        <div class="px-4 py-3 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                            <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-blue-400">Tactical Levels</h3>
+                        </div>
+                        <div class="p-4 space-y-6 max-h-[300px] overflow-y-auto custom-scrollbar">
+                            <div>
+                                <p class="text-gray-500 text-[9px] uppercase font-black tracking-widest mb-3">Resistances</p>
+                                <div id="resistance-list" class="space-y-1.5"></div>
+                            </div>
+                            <div>
+                                <p class="text-gray-500 text-[9px] uppercase font-black tracking-widest mb-3">Supports</p>
+                                <div id="support-list" class="space-y-1.5"></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Price Action Insights -->
-                    <div class="glass rounded-2xl overflow-hidden">
-                        <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                            <h3 class="font-bold text-sm">Price Action Insights</h3>
-                            <span id="bias-badge"
-                                class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-gray-800">Neutral</span>
+                    <!-- Price Action (Relocated) -->
+                    <div class="glass-card overflow-hidden">
+                        <div class="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
+                            <h3 class="font-black text-[10px] uppercase tracking-widest text-white">Price Action</h3>
+                            <span id="bias-badge" class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-gray-800">Neutral</span>
                         </div>
-                        <div class="grid grid-cols-3 divide-x divide-gray-800 text-center p-6">
+                        <div class="grid grid-cols-2 gap-4 p-4 text-center">
                             <div>
-                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Inside Candle</p>
-                                <p id="inside-candle" class="text-lg font-bold">—</p>
+                                <p class="text-gray-500 text-[8px] uppercase mb-1 font-black">Inside Candle</p>
+                                <p id="inside-candle" class="text-sm font-black">—</p>
                             </div>
                             <div>
-                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Level Retest</p>
-                                <p id="retest" class="text-lg font-bold">—</p>
-                            </div>
-                            <div>
-                                <p class="text-gray-400 text-[10px] uppercase mb-1 font-bold">Upside Target</p>
-                                <p id="upside-pct" class="text-lg font-bold text-up">—</p>
+                                <p class="text-gray-500 text-[8px] uppercase mb-1 font-black">Level Retest</p>
+                                <p id="retest" class="text-sm font-black">—</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- AI Insights -->
-                    <div class="glass rounded-2xl overflow-hidden border border-indigo-500/20">
-                        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-indigo-500/5">
-                            <h3 class="font-bold text-xs tracking-tight text-indigo-100 uppercase italic">AI Strategic
-                                Context</h3>
-                            <span id="ai-priority-badge"
-                                class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-500">PRIORITY:
-                                —</span>
+                    <!-- AI Context (Relocated) -->
+                    <div class="glass-card overflow-hidden border border-indigo-500/20">
+                        <div class="p-4 border-b border-indigo-500/10 flex justify-between items-center bg-indigo-500/5">
+                            <h3 class="font-black text-[10px] uppercase tracking-widest text-indigo-400">AI Context</h3>
                         </div>
-                        <div class="grid grid-cols-2 divide-x divide-gray-800">
-                            <div class="p-5 space-y-2">
-                                <span id="ai-breakout-badge"
-                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
-                                <p id="ai-breakout-reason" class="text-xs text-gray-400 leading-relaxed italic">
-                                    Analyzing price velocity...</p>
+                        <div class="p-4 space-y-4">
+                            <div class="space-y-1">
+                                <span id="ai-breakout-badge" class="text-[8px] font-black px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 uppercase">WAITING</span>
+                                <p id="ai-breakout-reason" class="text-[11px] text-gray-400 leading-relaxed italic">Analyzing setup...</p>
                             </div>
-                            <div class="p-5 space-y-2">
-                                <span id="ai-regime-badge"
-                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">WAITING</span>
-                                <p id="ai-regime-reason" class="text-xs text-gray-400 leading-relaxed italic">
-                                    Calculating regime metrics...</p>
+                            <div class="space-y-1">
+                                <span id="ai-regime-badge" class="text-[8px] font-black px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 uppercase">WAITING</span>
+                                <p id="ai-regime-reason" class="text-[11px] text-gray-400 leading-relaxed italic">Calculating regime...</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Fundamental Health -->
-                    <div class="glass rounded-2xl overflow-hidden border border-gray-800 hidden" id="fundamentals-card">
-                        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
-                            <h3 class="font-bold text-sm tracking-tight text-gray-300 uppercase">Fundamental Health</h3>
-                            <span id="fund-sector"
-                                class="text-[10px] font-bold uppercase tracking-widest text-gray-500">—</span>
+                    <!-- Fundamentals (Relocated) -->
+                    <div class="glass-card overflow-hidden hidden" id="fundamentals-card">
+                        <div class="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                            <h3 class="font-black text-[10px] uppercase tracking-widest text-gray-400">Core Health</h3>
+                            <span id="fund-sector" class="text-[9px] font-bold uppercase text-gray-500">—</span>
                         </div>
-                        <!-- Market Health Card (Compact v1.3) -->
-                        <div id="market-health-card" class="bg-card border border-border rounded-xl p-3 shadow-xl mb-4">
-                            <div class="flex items-center justify-between mb-2">
-                                <h3 class="text-[9px] font-black tracking-widest text-indigo-400 uppercase">Market
-                                    Health Intelligence</h3>
-                                <div id="breadth-regime"
-                                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800">
-                                    NEUTRAL</div>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <div id="breadth-score" class="text-3xl font-black text-white tracking-tighter">—%</div>
-                                <div class="flex-1">
-                                    <div id="breadth-stats"
-                                        class="text-[9px] font-bold text-gray-500 uppercase tracking-tight mb-1">— / —
-                                        SECTORS LEADING</div>
-                                    <div id="breadth-labels"></div>
-                                </div>
-                                <div class="text-right">
-                                    <div id="market-bias"
-                                        class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">NEUTRAL
-                                        BIAS</div>
-                                </div>
-                            </div>
-                            <div class="h-1 w-full bg-gray-800 rounded-full overflow-hidden mt-2">
-                                <div id="breadth-bar" class="h-full bg-indigo-500 w-0 transition-all duration-1000">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Quick Filters (NEW v1.4) -->
-                        <div class="flex gap-2 mb-4 px-4 pb-4">
-                            <button id="filter-leaders" onclick="window.toggleQuickFilter('leaders')"
-                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-green-500/50 hover:text-green-400 transition-all">Leaders
-                                Only</button>
-                            <button id="filter-smart" onclick="window.toggleQuickFilter('smart')"
-                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-blue-500/50 hover:text-blue-400 transition-all">Smart
-                                Money</button>
-                            <button id="filter-momentum" onclick="window.toggleQuickFilter('momentum')"
-                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-indigo-500/50 hover:text-indigo-400 transition-all">Strong
-                                Mom</button>
-                            <button id="filter-early" onclick="window.toggleQuickFilter('early')"
-                                class="flex-1 py-1.5 rounded-lg border border-gray-800 bg-gray-900/50 text-[9px] font-black text-gray-500 uppercase hover:border-purple-500/50 hover:text-purple-300 transition-all">Early
-                                Setups</button>
-                        </div>
-                        <div class="grid grid-cols-4 divide-x divide-gray-800 text-center px-4 pb-4">
+                        <div class="p-4 grid grid-cols-2 gap-4">
                             <div>
-                                <p class="text-[10px] text-gray-500 mb-1">M-CAP</p>
-                                <p id="fund-mcap" class="text-sm font-bold">—</p>
+                                <p class="text-[8px] text-gray-500 mb-1 font-black uppercase">P/E Ratio</p>
+                                <p id="fund-pe" class="text-xs font-black">—</p>
                             </div>
                             <div>
-                                <p class="text-[10px] text-gray-500 mb-1">P/E</p>
-                                <p id="fund-pe" class="text-sm font-bold">—</p>
+                                <p class="text-[8px] text-gray-500 mb-1 font-black uppercase">ROE</p>
+                                <p id="fund-roe" class="text-xs font-black">—</p>
                             </div>
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">ROE</p>
-                                <p id="fund-roe" class="text-sm font-bold">—</p>
-                            </div>
-                            <div>
-                                <p class="text-[10px] text-gray-500 mb-1">DIV</p>
-                                <p id="fund-div" class="text-sm font-bold">—</p>
-                            </div>
-                        </div>
-                        <div class="px-4 py-3 border-t border-gray-800 flex items-center justify-between text-xs">
-                            <div class="flex flex-col"><span class="text-gray-500 text-[9px] uppercase">52W Range</span>
-                                <div class="flex items-center gap-2 font-mono"><span id="fund-52l"
-                                        class="text-down font-bold">—</span>
-                                    <div class="w-24 h-1 bg-gray-800 rounded-full relative overflow-hidden">
+                            <div class="col-span-2 space-y-1">
+                                <p class="text-[8px] text-gray-500 font-black uppercase">52W Range</p>
+                                <div class="flex items-center gap-2 font-mono text-[10px]">
+                                    <span id="fund-52l" class="text-down font-bold">—</span>
+                                    <div class="flex-grow h-1 bg-gray-800 rounded-full relative overflow-hidden">
                                         <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
-                                    </div><span id="fund-52h" class="text-up font-bold">—</span>
+                                    </div>
+                                    <span id="fund-52h" class="text-up font-bold">—</span>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-            </div>
-
-            <!-- Compact Levels Sidebar (Right Side on sm+) -->
-            <div class="col-span-12 sm:col-span-3">
-                <div class="sticky top-20 max-h-[calc(100vh-90px)] overflow-y-auto glass rounded-2xl overflow-hidden border border-gray-800/50">
-                    <div class="px-3 py-2 border-b border-gray-800 flex justify-between items-center bg-gray-900/30">
-                        <h3 class="font-bold text-[10px] uppercase tracking-widest text-gray-400">Levels</h3>
-                    </div>
-                    <div class="p-2 space-y-3">
-                        <div>
-                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
-                                Resistances</p>
-                            <div id="resistance-list" class="space-y-1"></div>
-                        </div>
-                        <div>
-                            <p class="text-gray-500 text-[8px] uppercase font-bold tracking-widest px-1 mb-1">
-                                Supports</p>
-                            <div id="support-list" class="space-y-1"></div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+                     </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
     <!-- Global Loading Overlay (Body level for persistence) -->
-    <div id="global-loader"
+    <div id="loading-overlay"
         class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex-col items-center justify-center pointer-events-none">
         <div class="flex flex-col items-center">
             <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
