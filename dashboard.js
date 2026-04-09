@@ -231,6 +231,45 @@ class MarketIntelligence {
         this._renderEarlySetups();
     }
 
+    _renderIndustryHeatmap(sectorData) {
+        const grid = document.getElementById('industry-heatmap-grid');
+        if (!grid) return;
+
+        const sectors = Object.entries(sectorData || {})
+            .map(([name, data]) => ({ name, ...data }))
+            .filter(s => s.metrics)
+            .sort((a, b) => (b.metrics.momentumScore || 0) - (a.metrics.momentumScore || 0))
+            .slice(0, 10); // Top 10 for alpha focus
+
+        if (sectors.length === 0) {
+            grid.innerHTML = '<div class="col-span-full py-10 text-center text-gray-500 italic">Calculating sector alpha signals...</div>';
+            return;
+        }
+
+        grid.innerHTML = sectors.map(sector => {
+            const score = sector.metrics.momentumScore || 0;
+            const state = sector.metrics.state || 'NEUTRAL';
+            const progress = Math.min(100, Math.max(0, (score / 150) * 100)); // Normalize score to 100
+            
+            let colorClass = 'bg-blue-500';
+            if (state === 'LEADING') colorClass = 'bg-green-500';
+            if (state === 'LAGGING') colorClass = 'bg-red-500';
+            if (state === 'WEAKENING') colorClass = 'bg-amber-500';
+
+            return `
+                <div class="heatmap-card group cursor-pointer" onclick="window.focusSector('${sector.name}')">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[10px] font-black text-white uppercase tracking-tighter">${sector.name.replace('NIFTY_', '').replace('_', ' ')}</span>
+                        <span class="text-[9px] font-bold text-gray-400 font-mono">${score.toFixed(1)}</span>
+                    </div>
+                    <div class="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full ${colorClass} transition-all duration-1000" style="width: ${progress}%"></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
     updateWatchlist(data) {
         this.watchlistData = data || null;
         this._renderWatchlist();
@@ -1143,9 +1182,9 @@ class MarketIntelligence {
             const filterMeta = hit.filterMeta || this._deriveFilterMeta(hit);
             const probabilityCategory = filterMeta.filterCategory || 'LOW';
             const probabilityClass = probabilityCategory === 'HIGH PROBABILITY'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                ? 'probability-high'
                 : (probabilityCategory === 'MEDIUM'
-                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+                    ? 'probability-medium'
                     : 'bg-gray-800/60 text-gray-400 border border-gray-700/60');
 
             // Sector Highlight & STRONG ENTRY Highlight (v1.6 Enhancements)
@@ -1153,8 +1192,8 @@ class MarketIntelligence {
             const isStrongEntry = (currentTag === 'STRONG_ENTRY') || (hit.tradeReady) || (score >= 80);
 
             let rowHighlightClasses = [];
-            if (isLeadingSector) rowHighlightClasses.push('border-l-[3px] border-green-500/70 bg-green-500/[0.03]');
-            if (isStrongEntry) rowHighlightClasses.push('ring-1 ring-green-500/60 shadow-[0_0_10px_rgba(0,192,118,0.15)] z-10 relative');
+            if (isLeadingSector) rowHighlightClasses.push('row-highlight-leader');
+            if (isStrongEntry) rowHighlightClasses.push('row-highlight-strong');
 
             const rowHighlight = rowHighlightClasses.join(' ');
 
@@ -1592,6 +1631,77 @@ window.fetchDataForSymbol = (symbol, options = {}) => {
                 console.error("fetchData not found on window object!");
             }
         }, 50);
+    }
+};
+
+window.renderTopPicks = (hits) => {
+    const section = document.getElementById('top-picks-section');
+    const grid = document.getElementById('top-picks-grid');
+    if (!grid) return;
+    
+    if (section) section.classList.remove('hidden');
+
+    const topPicks = (hits || [])
+        .filter(h => h.technical?.qualityScore >= 70 || h.grade === 'A' || h.grade === 'A+')
+        .sort((a, b) => (b.technical?.qualityScore || 0) - (a.technical?.qualityScore || 0))
+        .slice(0, 4);
+
+    if (topPicks.length === 0) {
+        grid.innerHTML = '<div class="col-span-full py-10 text-center text-gray-500 italic">Scanning for high-conviction trades...</div>';
+        return;
+    }
+
+    grid.innerHTML = topPicks.map(pick => {
+        const score = Math.round(pick.technical?.qualityScore || pick.score || 0);
+        const action = pick.entryTag || 'WATCHLIST';
+        const isEntry = action.includes('ENTRY') || action.includes('STRONG');
+        
+        return `
+            <div class="trading-card group" onclick="window.fetchDataForSymbol('${pick.symbol}', { fromIntelligence: true })">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-black text-white leading-none">${pick.symbol}</h3>
+                        <p class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">${pick.sector.replace('NIFTY_', '')}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs font-black ${isEntry ? 'text-green-400' : 'text-amber-400'} uppercase tracking-tight">${action.replace('_', ' ')}</span>
+                        <div class="text-[10px] text-gray-400 font-mono mt-0.5">₹${pick.price}</div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="flex-1">
+                        <div class="flex justify-between text-[10px] items-end mb-1">
+                            <span class="text-gray-500 uppercase font-black">Confidence</span>
+                            <span class="text-green-400 font-black">${score}%</span>
+                        </div>
+                        <div class="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" style="width: ${score}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+                        <div class="text-[8px] text-gray-500 uppercase font-bold">RR</div>
+                        <div class="text-xs font-black text-white">${pick.executionPlan?.riskRewardToT1?.toFixed(1) || '2.0'}</div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    ${(pick.reasonTags || ['Strong Trend', 'Volume Surge']).slice(0, 2).map(tag => 
+                        `<span class="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[9px] font-bold text-gray-400 uppercase tracking-tighter">${tag}</span>`
+                    ).join('')}
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-white/5 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span class="text-[10px] font-bold text-indigo-400">VIEW CHART →</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+};
+
+window.renderActionableSectors = (sectorData) => {
+    if (window.intelligenceApp) {
+        window.intelligenceApp._renderIndustryHeatmap(sectorData);
     }
 };
 

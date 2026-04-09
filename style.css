@@ -1,0 +1,290 @@
+/* 
+  Institutional-Grade Trading UI Design System
+  Background: #0B0F19 | Card: #111827 | Border: #1E293B
+  Accent Green: #22C55E | Accent Red: #EF4444 | Accent Blue: #3B82F6
+*/
+
+:root {
+    --bg-main: #0B0F19;
+    --bg-card: #111827;
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --border-focus: rgba(59, 130, 246, 0.3);
+    
+    --accent-blue: #3B82F6;
+    --accent-green: #22C55E;
+    --accent-red: #EF4444;
+    --accent-yellow: #F59E0B;
+    
+    --text-primary: #E2E8F0;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    
+    --radius-lg: 16px;
+    --radius-md: 12px;
+}
+
+body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism & Cards */
+.glass-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.5);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+.decision-badge {
+    padding: 6px 16px;
+    border-radius: 9999px;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.decision-buy { 
+    background: rgba(34, 197, 94, 0.15); 
+    color: var(--accent-green);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.decision-watch { 
+    background: rgba(245, 158, 11, 0.15); 
+    color: var(--accent-yellow);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.decision-no-trade { 
+    background: rgba(239, 68, 68, 0.15); 
+    color: var(--accent-red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Heatmap Cards */
+.heatmap-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    transition: all 0.2s ease;
+}
+
+.heatmap-card:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+}
+
+/* Trading Cards (Top Picks) */
+.trading-card {
+    background: linear-gradient(145deg, #111827 0%, #1c2538 100%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.trading-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1), transparent);
+    pointer-events: none;
+}
+
+.trading-card:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* Floating Chart Tags */
+.chart-tag {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    z-index: 10;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    background: rgba(17, 24, 39, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    animation: slide-in 0.4s ease-out;
+}
+
+@keyframes slide-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Modern Typography Utilities */
+.text-up { color: var(--accent-green); }
+.text-down { color: var(--accent-red); }
+.mono { font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; }
+
+/* Dashboard Hit Row Highlights */
+.row-highlight-leader {
+    border-left: 4px solid var(--accent-green) !important;
+    background: rgba(34, 197, 94, 0.03) !important;
+}
+
+.row-highlight-strong {
+    box-shadow: inset 0 0 12px rgba(34, 197, 94, 0.15);
+    background: rgba(34, 197, 94, 0.05) !important;
+}
+
+.probability-high {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: #10b981 !important;
+    border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+
+.probability-medium {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #f59e0b !important;
+    border: 1px solid rgba(245, 158, 11, 0.25) !important;
+}
+
+/* Chart Container Fixes */
+#chart-parent {
+    position: relative;
+    min-height: 520px;
+    display: flex;
+    flex-direction: column;
+    background: #131722;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+#tv-chart {
+    flex-grow: 1;
+    height: 500px; /* Base height if flex fails */
+    min-height: 450px;
+    width: 100%;
+}
+
+#no-trade-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    background: rgba(11, 15, 25, 0.8);
+    backdrop-filter: blur(4px);
+    display: none; /* Controlled by JS */
+    align-items: center;
+    justify-content: center;
+}
+
+/* Horizontal Optimized Layout */
+.chart-layout-wrapper {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+    align-items: start;
+    width: 100%;
+}
+
+.chart-column {
+    min-width: 0; /* Prevents flex/grid blowouts */
+}
+
+.intelligence-sidebar {
+    position: sticky;
+    top: 96px; /* Header (80px) + Padding (16px) */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: fit-content;
+}
+
+.intelligence-sidebar .glass-card {
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width: 1200px) {
+    .chart-layout-wrapper {
+        grid-template-columns: 1fr;
+    }
+    
+    .intelligence-sidebar {
+        position: static;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+}
+
+/* Responsive Grid Adjustments */
+@media (max-width: 1024px) {
+    .hero-strip {
+        padding: 12px 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .hero-strip {
+        flex-wrap: wrap;
+        height: auto;
+        gap: 16px;
+    }
+    
+    .hero-strip .flex {
+        flex-wrap: wrap;
+    }
+
+    #industry-heatmap-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    #industry-heatmap-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .trading-card {
+        padding: 16px;
+    }
+}
+
+/* Custom Scrollbar for Premium Feel */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-main);
+}
+
+::-webkit-scrollbar-thumb {
+    background: #1f2937;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #374151;
+}

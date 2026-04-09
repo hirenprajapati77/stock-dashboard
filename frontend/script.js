@@ -21,53 +21,32 @@ let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
 let fetchController = null; // To abort previous fetches
 window.currentMarketStatus = null;
-window.symbolCache = {}; // Frontend cache for instant switching
-window.intelligenceCache = {
-    data: null,
-    timestamp: 0,
-    timeframe: null
+window.loginToFyers = function() {
+    console.log("Initiating Fyers Login...");
+    const width = 600, height = 700;
+    const left = (window.innerWidth / 2) - (width / 2);
+    const top = (window.innerHeight / 2) - (height / 2);
+    window.open(`${API_BASE}/api/v1/fyers/login`, 'FyersLogin', `width=${width},height=${height},top=${top},left=${left}`);
 };
 
-// Global Fetch Interceptor for Auth
-const originalFetch = window.fetch;
-window.fetch = async (...args) => {
-    const response = await originalFetch(...args);
-    if (response.status === 401 && !args[0].includes('/api/v1/login')) {
-        window.location.href = '/login';
-    }
-    return response;
-};
-
-function showGlobalLoader() {
-    const loader = document.getElementById('global-loader');
-    if (loader) {
-        loader.style.zIndex = '10000'; // Ensure it's on top of EVERYTHING
-        loader.classList.remove('hidden');
-        loader.style.display = 'flex';
-        loader.style.opacity = '1';
-
-        // Safeguard: Hide loader after 20s if it hangs
-        if (window._globalLoaderTimeout) clearTimeout(window._globalLoaderTimeout);
-        window._globalLoaderTimeout = setTimeout(() => {
-            hideGlobalLoader();
-            console.warn("[UI] Global loader safeguard triggered after 20s.");
-        }, 20000);
+async function checkFyersStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/fyers/status`);
+        const result = await res.json();
+        const dot = document.getElementById('fyers-status-dot');
+        const text = document.getElementById('fyers-status-text');
+        
+        if (result.status === 'success' && result.data.is_connected) {
+            if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]';
+            if (text) text.textContent = 'Online';
+        } else {
+            if (dot) dot.className = 'w-2 h-2 rounded-full bg-gray-600';
+            if (text) text.textContent = 'Offline';
+        }
+    } catch (e) {
+        console.error('Fyers status check failed', e);
     }
 }
-
-function hideGlobalLoader() {
-    const loader = document.getElementById('global-loader');
-    if (loader) {
-        if (window._globalLoaderTimeout) clearTimeout(window._globalLoaderTimeout);
-        loader.style.opacity = '0';
-        // Delay hiding slightly to prevent flashes and ensure background updates finish
-        setTimeout(() => { 
-            loader.classList.add('hidden');
-            loader.style.display = 'none'; 
-        }, 500);
-    }
-}
-
 async function checkMarketStatus() {
     try {
         const res = await fetch(`${API_BASE}/api/v1/market-status`);
@@ -204,7 +183,6 @@ function initChart() {
 // 5. Screener Logic
 document.getElementById('screener-toggle').addEventListener('change', function (e) {
     const panel = document.getElementById('screener-panel');
-    localStorage.setItem('screener-active', e.target.checked);
     if (e.target.checked) {
         panel.classList.remove('hidden');
         runScreener();
@@ -213,15 +191,15 @@ document.getElementById('screener-toggle').addEventListener('change', function (
     }
 });
 
-async function runScreener(force = false) {
+async function runScreener() {
     const list = document.getElementById('screener-list');
     const count = document.getElementById('screener-count');
 
-    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point Fundamental Quality Check (Strict Growth Context)...</p>';
+    list.innerHTML = '<p class="text-xs text-indigo-400/60 animate-pulse">Running 9-point fundamental check on Nifty 10...</p>';
     count.textContent = 'SCANNING...';
 
     try {
-        const response = await fetch(`${SCREENER_URL}?force=${force}&_=${Date.now()}`);
+        const response = await fetch(`${SCREENER_URL}?_=${Date.now()}`);
         const data = await response.json();
 
         if (data.status === 'success') {
@@ -230,16 +208,10 @@ async function runScreener(force = false) {
 
             if (data.matches.length === 0) {
                 const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-                list.innerHTML = `
-                    <div class="flex flex-col items-center gap-2 py-4 text-center px-4">
-                        <p class="text-xs text-gray-500">${isClosed ? 'No matches found (showing last session data).' : 'No stocks currently match all 9 strict growth criteria.'}</p>
-                        <button onclick="window.runScreener(true)" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-widest border border-indigo-500/30 px-3 py-1.5 rounded-xl transition-all hover:bg-indigo-500/10">FORCE RE-SCAN</button>
-                        <p class="text-[9px] text-gray-600 italic">This will bypass cache and check live proxies.</p>
-                    </div>
-                `;
+                list.innerHTML = `<p class="text-xs text-gray-500">${isClosed ? 'No live data (market closed). Awaiting next session.' : 'No stocks currently match all 9 strict growth criteria.'}</p>`;
                 return;
             }
-            // ... (rest of the loop)
+
             data.matches.forEach(stock => {
                 const card = document.createElement('div');
                 card.className = "min-w-[180px] bg-gray-900 border border-indigo-500/30 p-3 rounded-xl hover:border-indigo-400 transition-all cursor-pointer";
@@ -274,17 +246,11 @@ async function runScreener(force = false) {
     } catch (error) {
         console.error("Screener error:", error);
         count.textContent = 'ERROR';
-        list.innerHTML = `
-            <div class="flex flex-col items-center gap-2 py-4">
-                <p class="text-xs text-down">Failed to connect to screener service.</p>
-                <button onclick="window.runScreener()" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-widest border border-indigo-500/30 px-3 py-1 rounded-lg">RETRY</button>
-            </div>
-        `;
+        list.innerHTML = '<p class="text-xs text-down">Failed to connect to screener service.</p>';
     }
 }
-window.runScreener = runScreener;
-async function fetchData(symbolArg = null, isBackground = false) {
-    const loader = document.getElementById('chart-loader');
+async function fetchData(isBackground = false) {
+    const loader = document.getElementById('loading-overlay');
     const showLoader = isBackground !== true;
 
     try {
@@ -296,31 +262,17 @@ async function fetchData(symbolArg = null, isBackground = false) {
             if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
             window._loaderTimeout = setTimeout(() => {
                 if (loader && !loader.classList.contains('hidden')) {
+                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
                     loader.classList.add('hidden');
                     loader.style.display = 'none';
                 }
             }, 15000);
         }
 
-        // --- SYMBOL HANDLING (FIXED) ---
         const symbolInput = document.getElementById('symbol-input');
-        let symbol = symbolArg;
+        let symbol = symbolInput ? symbolInput.value.trim().toUpperCase() : "NIFTY50";
+        if (!symbol) symbol = "NIFTY50"; // Fallback to avoid empty ticker error
         
-        if (symbol && typeof symbol === 'string') {
-            if (symbolInput) symbolInput.value = symbol.toUpperCase();
-        } else {
-            // Handle case where first arg might be a boolean meant for isBackground
-            if (typeof symbolArg === 'boolean') {
-                isBackground = symbolArg;
-                symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
-            } else {
-                symbol = symbolInput ? symbolInput.value.toUpperCase() : "NIFTY50";
-            }
-        }
-        
-        if (!symbol || symbol.trim() === '') symbol = "NIFTY50";
-        symbol = symbol.trim().toUpperCase();
-
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const stratSelector = document.getElementById('strategy-selector');
@@ -328,25 +280,13 @@ async function fetchData(symbolArg = null, isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
-        if (!isBackground) showGlobalLoader();
-
-        // Frontend Caching: Show old data instantly if available
-        const cacheKey = `${symbol}_${tf}_${strategy}`;
-        if (window.symbolCache[cacheKey]) {
-            console.log(`[Cache] HIT for ${cacheKey} - Rendering instantly`);
-            updateUI(window.symbolCache[cacheKey]);
-        }
-
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
 
         if (data && data.meta) {
             window.lastReceivedData = data;
-            window.symbolCache[cacheKey] = data; // Update cache
             
             // Update live indicator based on source
             const liveIndicator = document.getElementById('live-indicator');
@@ -362,7 +302,7 @@ async function fetchData(symbolArg = null, isBackground = false) {
                 }
             }
 
-            updateUI(data);
+            updateUI(data, isBackground);
             if (data.market_status) {
                 window.currentMarketStatus = data.market_status;
                 applyMarketStatusState(data.market_status);
@@ -405,8 +345,7 @@ async function fetchData(symbolArg = null, isBackground = false) {
             }
         }
     } finally {
-        if (!isBackground) hideGlobalLoader();
-        // ALWAYS try to hide chart-loader in finally if it was showing
+        // ALWAYS try to hide loader in finally if it was showing
         if (loader) {
             loader.classList.add('hidden');
             loader.style.display = 'none';
@@ -463,15 +402,49 @@ function updateStrategyUI(data) {
         document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
         document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
 
-        // Fibonacci Specific Overlay (Optional metrics)
-        if (data.meta.strategy === 'FIBONACCI' && metrics.retracementDepth) {
-            const setupEl = document.getElementById('metric-setup');
-            setupEl.textContent = metrics.goldenPocket ? 'Golden Pocket' : 'Fib Retracement';
-            setupEl.className = `text-sm font-bold ${metrics.goldenPocket ? 'text-yellow-400' : 'text-up'}`;
-            
-            const srEl = document.getElementById('metric-sr');
-            srEl.textContent = `${metrics.retracementDepth} Retrace`;
-            srEl.className = 'text-sm font-bold text-blue-400';
+        // Update Swing Metrics
+        if (strategy === 'SWING') {
+            document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
+            document.getElementById('swing-ema').textContent = insights.ema_bias || 'NEUTRAL';
+            document.getElementById('swing-htf').textContent = metrics.htfTrend || 'NEUTRAL';
+            document.getElementById('swing-pullback').textContent = metrics.pullbackPct ? `${metrics.pullbackPct}%` : 'NO';
+        }
+
+        // Update Dynamic Metrics Panels
+        const dynPanels = document.getElementById('strategy-dynamic-panels');
+        if (dynPanels) {
+            const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY';
+            dynPanels.style.display = hasDynamicData ? 'grid' : 'none';
+            dynPanels.classList.remove('hidden'); // Ensure hidden class is removed if toggling display
+
+            if (hasDynamicData) {
+                const c1T = document.getElementById('strat-card-1-title');
+                const c1V = document.getElementById('strat-card-1-val');
+                const c2T = document.getElementById('strat-card-2-title');
+                const c2V = document.getElementById('strat-card-2-val');
+                const c3T = document.getElementById('strat-card-3-title');
+                const c3V = document.getElementById('strat-card-3-val');
+
+                if (strategy === 'FIBONACCI') {
+                    if(c1T) c1T.textContent = 'Retracement';
+                    if(c1V) c1V.textContent = metrics.retracementDepth || '--';
+                    if(c2T) c2T.textContent = 'Golden Pocket';
+                    if(c2V) c2V.textContent = metrics.goldenPocket ? 'YES' : 'NO';
+                    if(c2V) c2V.className = metrics.goldenPocket ? 'text-lg font-bold text-yellow-400' : 'text-lg font-bold text-gray-400';
+                    if(c3T) c3T.textContent = 'Trend';
+                    if(c3V) c3V.textContent = metrics.is_uptrend ? 'BULL' : 'BEAR';
+                    if(c3V) c3V.className = metrics.is_uptrend ? 'text-lg font-bold uppercase tracking-widest text-green-400' : 'text-lg font-bold uppercase tracking-widest text-red-400';
+                } else if (strategy === 'DEMAND_SUPPLY') {
+                    if(c1T) c1T.textContent = 'Departure';
+                    if(c1V) c1V.textContent = metrics.departureStrength || 'STRONG';
+                    if(c2T) c2T.textContent = 'Zone Range';
+                    if(c2V) c2V.textContent = metrics.zoneRange || '--';
+                    if(c2V) c2V.className = 'text-lg font-bold text-gray-300';
+                    if(c3T) c3T.textContent = 'Vol Spike';
+                    if(c3V) c3V.textContent = metrics.volExpansion || 'NONE';
+                    if(c3V) c3V.className = 'text-lg font-bold uppercase tracking-widest text-white';
+                }
+            }
         }
 
     } catch (err) {
@@ -485,7 +458,18 @@ function formatVal(v) {
     return v;
 }
 
-function updateUI(data) {
+function formatWithCurrency(val, currency = 'INR') {
+    if (val === undefined || val === null || val === '—' || val === '---') return '—';
+    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
+    const currencySym = symbolMap[currency] || '₹';
+    
+    if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
+    const num = parseFloat(val);
+    if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
+    return `${currencySym}${val}`;
+}
+
+function updateUI(data, isBackground = false) {
     try {
         // Hide error message if it exists
         const errDiv = document.getElementById('chart-error-msg');
@@ -493,27 +477,16 @@ function updateUI(data) {
         const tvChart = document.getElementById('tv-chart');
         if (tvChart) tvChart.classList.remove('hidden');
 
-        const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-        const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
-
-        const formatWithCurrency = (val) => {
-            if (val === undefined || val === null || val === '—') return '—';
-            if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
-            // If it's a string that looks like a number, try to parse it
-            const num = parseFloat(val);
-            if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
-            return `${currencySym}${val}`;
-        };
-
         // 1. Meta & Summary
         const cmpEl = document.getElementById('cmp');
-        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp);
+        if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
 
         const verTag = document.getElementById('ver-tag');
         if (verTag) verTag.textContent = "v1.5.0 Intelligence Layer";
 
+        // Sync Time
         const syncTime = document.getElementById('sync-time');
-        if (syncTime && data.meta.last_update) syncTime.textContent = `Last updated: ${data.meta.last_update}`;
+        if (syncTime && data.meta.last_update) syncTime.textContent = `${data.meta.last_update}`;
 
         // Pulse indicators only if price changed
         const liveInd = document.getElementById('live-indicator');
@@ -544,7 +517,7 @@ function updateUI(data) {
         // Summary details
         const setVal = (id, val) => {
             const el = document.getElementById(id);
-            if (el) el.textContent = formatWithCurrency(val);
+            if (el) el.textContent = formatWithCurrency(val, data.meta.currency);
         };
         setVal('nearest-support', data.summary.nearest_support);
         setVal('nearest-resistance', data.summary.nearest_resistance);
@@ -552,23 +525,8 @@ function updateUI(data) {
         const rrEl = document.getElementById('risk-reward');
         if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
 
-        const signalEl = document.getElementById('trade-signal');
-        const signalReasonEl = document.getElementById('trade-signal-reason');
-        const signal = (data.summary && data.summary.trade_signal) ? data.summary.trade_signal : 'HOLD';
-        if (signalEl) {
-            signalEl.textContent = signal;
-            signalEl.className = `px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${signal === 'BUY'
-                ? 'bg-green-600/20 text-green-300 border border-green-500/40'
-                : signal === 'SELL'
-                    ? 'bg-red-600/20 text-red-300 border border-red-500/40'
-                    : 'bg-gray-800 text-gray-400 border border-gray-700'
-                }`;
-        }
-        if (signalReasonEl) {
-            signalReasonEl.textContent = (data.summary && data.summary.trade_signal_reason)
-                ? data.summary.trade_signal_reason
-                : 'Signal updates with EMA bias + structure.';
-        }
+        // 8. Hero Strip
+        updateHeroDecisionStrip(data);
 
         // 2. Insights
         const setTxt = (id, val) => {
@@ -601,32 +559,30 @@ function updateUI(data) {
             const ai = data.ai_analysis;
             const pBadge = document.getElementById('ai-priority-badge');
             if (pBadge) {
-                const priority = ai.priority?.level || 'MEDIUM';
-                pBadge.textContent = `PRIORITY: ${priority}`;
-                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${priority === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-                    priority === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
+                pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
+                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
                     }`;
             }
 
             const bBadge = document.getElementById('ai-breakout-badge');
             if (bBadge) {
-                const quality = ai.breakout?.breakout_quality || 'UNKNOWN';
-                bBadge.textContent = quality.replace('_', ' ');
-                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
-                    quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
+                bBadge.textContent = ai.breakout.breakout_quality.replace('_', ' ');
+                bBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.breakout.breakout_quality === 'LIKELY_GENUINE' ? 'bg-up text-up' :
+                    ai.breakout.breakout_quality === 'LIKELY_FAKE' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
                     }`;
             }
             const bR = document.getElementById('ai-breakout-reason');
-            if (bR) bR.textContent = ai.breakout?.reason || 'No breakout analysis available.';
+            if (bR) bR.textContent = ai.breakout.reason;
 
             const rBadge = document.getElementById('ai-regime-badge');
             if (rBadge) {
-                const regime = ai.regime?.market_regime || 'NEUTRAL';
-                rBadge.textContent = regime.replace('_', ' ');
-                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'}`;
+                rBadge.textContent = ai.regime.market_regime.replace('_', ' ');
+                rBadge.className = `text-[9px] font-bold px-1.5 py-0.5 rounded capitalize ${ai.regime.market_regime.startsWith('TRENDING') ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-400'
+                    }`;
             }
             const rR = document.getElementById('ai-regime-reason');
-            if (rR) rR.textContent = ai.regime?.reason || 'Market regime stable.';
+            if (rR) rR.textContent = ai.regime.reason;
         }
 
         // 4. Levels
@@ -644,8 +600,12 @@ function updateUI(data) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
-            // Auto-fit viewport to the new data range
-            chart.timeScale().fitContent();
+            
+            // Only auto-fit if it's NOT a background refresh
+            if (!isBackground) {
+                chart.timeScale().fitContent();
+            }
+            
             // Enable time labels for intraday timeframes, hide for daily+
             const tf = document.getElementById('tf-selector').value;
             const isIntraday = ['5m', '15m', '75m', '1H', '2H', '4H'].includes(tf);
@@ -691,8 +651,6 @@ function updateUI(data) {
         window.lastReceivedData = data;
         drawLevelsOnChart(data.levels, data);
 
-        // 8. Decision Strip (v2.0)
-        updateDecisionStrip(data);
 
         // 9. Strategy Specific UI Toggles
         updateStrategyUI(data);
@@ -702,44 +660,47 @@ function updateUI(data) {
     }
 }
 
-function updateDecisionStrip(data) {
-    const strip = document.getElementById('decision-strip');
-    const actionEl = document.getElementById('decision-action');
-    const confEl = document.getElementById('decision-confidence');
-    const entryEl = document.getElementById('strip-entry');
-    const slEl = document.getElementById('strip-sl');
-    const tgtEl = document.getElementById('strip-target');
-    const reasonsEl = document.getElementById('decision-reasons');
-
-    if (!strip || !data.action) return;
-
-    // 1. Action & Confidence
-    actionEl.textContent = data.action;
-    actionEl.className = `action-chip ${data.action.toLowerCase().replace(' ', '-')}`;
-    confEl.textContent = `${data.score}%`;
-
-    // 2. Execution Levels
-    const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
-    const currencySym = (data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
+function updateHeroDecisionStrip(data) {
+    const heroStrip = document.getElementById('hero-decision-strip');
+    if (!heroStrip || !data.summary) return;
     
-    entryEl.textContent = `${currencySym}${formatVal(data.meta.cmp)}`;
-    slEl.textContent = `${currencySym}${formatVal(data.summary.stop_loss)}`;
-    tgtEl.textContent = `${currencySym}${formatVal(data.summary.target)}`;
-
-    // 3. Reason Tags
-    reasonsEl.innerHTML = (data.reasonTags || []).map(tag => 
-        `<span class="reason-tag">${tag}</span>`
-    ).join('');
-
-    // 4. Hide Execution Panel in CLOSED mode
-    const isClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-    if (entryEl && entryEl.parentElement && entryEl.parentElement.parentElement) {
-        if (isClosed) {
-            entryEl.parentElement.parentElement.classList.add('hidden');
-        } else {
-            entryEl.parentElement.parentElement.classList.remove('hidden');
-        }
+    heroStrip.classList.remove('hidden');
+    
+    // Action Badge
+    const action = data.action || 'WATCH';
+    const actionBadge = document.getElementById('hero-action-badge');
+    const badgeSpan = actionBadge.querySelector('span');
+    const badgeIcon = actionBadge.querySelector('i');
+    
+    badgeSpan.textContent = action;
+    actionBadge.className = 'decision-badge';
+    
+    if (action.includes('BUY') || action.includes('ENTRY')) {
+        actionBadge.classList.add('decision-buy');
+        badgeIcon.className = 'fas fa-check-circle';
+    } else if (action === 'WAIT' || action.includes('HOLD')) {
+        actionBadge.classList.add('decision-no-trade');
+        badgeIcon.className = 'fas fa-times-circle';
+    } else {
+        actionBadge.classList.add('decision-watch');
+        badgeIcon.className = 'fas fa-eye';
     }
+
+    // POWER HEADER INTEGRATION (Keep metrics persistent in Navigation Bar)
+    const currency = data.meta?.currency || 'INR';
+    const hPrice = document.getElementById('hero-price');
+    if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, currency);
+    
+    // Fallback: If no setup entry, use current market price for Entry visibility
+    const hEntry = document.getElementById('hero-entry');
+    const hSl = document.getElementById('hero-sl');
+    const hTarget = document.getElementById('hero-target');
+    const hRR = document.getElementById('hero-rr');
+
+    if (hEntry) hEntry.textContent = formatWithCurrency(data.setup?.entry || data.summary?.entry_price || data.meta.cmp, currency);
+    if (hSl) hSl.textContent = formatWithCurrency(data.setup?.sl || data.summary?.stop_loss, currency);
+    if (hTarget) hTarget.textContent = formatWithCurrency(data.setup?.target || data.summary?.target_price || data.summary?.target, currency);
+    if (hRR) hRR.textContent = (data.setup?.rr || data.summary?.risk_reward || 0).toFixed(2);
 }
 
 function renderLevelList(containerId, levels, color, isMTF) {
@@ -767,158 +728,162 @@ function renderLevelList(containerId, levels, color, isMTF) {
 }
 
 function drawLevelsOnChart(levels, fullData = null) {
-    if (!candlestickSeries) return;
+    if (!candlestickSeries || !chart) return;
 
     // Clear existing primitives
     levelsLayer.forEach(line => {
-        candlestickSeries.removePriceLine(line);
+        try { candlestickSeries.removePriceLine(line); } catch(e) {}
     });
+    
+    // Remove zone area series if they exist
+    if (window.targetZoneSeries) { chart.removeSeries(window.targetZoneSeries); window.targetZoneSeries = null; }
+    if (window.stopZoneSeries) { chart.removeSeries(window.stopZoneSeries); window.stopZoneSeries = null; }
+    
+    // Remove existing floating tags
+    const existingTags = document.querySelectorAll('.chart-tag');
+    existingTags.forEach(t => t.remove());
+
     levelsLayer = [];
 
-    // 1. Draw Execution Overlays (Entry, SL, Target)
-    if (fullData && fullData.summary) {
+    const action = fullData ? (fullData.action || 'WAIT') : 'WAIT';
+    const isNoTrade = action === 'WAIT' || action === 'HOLD' || (fullData && !fullData.summary.stop_loss);
+    
+    const noTradeOverlay = document.getElementById('no-trade-overlay');
+    if (noTradeOverlay) noTradeOverlay.style.display = isNoTrade ? 'flex' : 'none';
+
+    // 1. Floating Chart Tag (Status)
+    if (fullData) {
+        const tag = document.createElement('div');
+        tag.className = 'chart-tag';
+        const isEntry = action.includes('BUY') || action.includes('ENTRY');
+        tag.innerHTML = `<span class="${isEntry ? 'text-green-400' : 'text-amber-400'}">●</span> ${action}`;
+        document.getElementById('chart-parent').appendChild(tag);
+    }
+
+    // 2. Draw Execution Overlays (Entry, SL, Target)
+    if (fullData && fullData.summary && !isNoTrade) {
         const s = fullData.summary;
-        const cmp = fullData.meta.cmp;
+        const entry = fullData.meta.cmp;
+        const sl = parseFloat(s.stop_loss);
+        const tgt = parseFloat(s.target);
 
-        // Entry (Blue)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: cmp,
-            color: '#3b82f6',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'ENTRY',
-        }));
+        if (entry && sl && tgt) {
+            // SL (Red - Solid)
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: sl,
+                color: '#EF4444',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'STOP LOSS',
+            }));
 
-        // Stop Loss (Red)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.stop_loss,
-            color: '#f6465d',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'SL',
-        }));
+            // Target (Green - Solid)
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: tgt,
+                color: '#22C55E',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'TARGET',
+            }));
 
-        // Target (Green)
-        levelsLayer.push(candlestickSeries.createPriceLine({
-            price: s.target,
-            color: '#00c076',
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'TGT',
-        }));
+            // EXECUTION ZONES (Shaded Areas)
+            const ohlcv = fullData.ohlcv || [];
+            if (ohlcv.length > 0) {
+                // Profit Zone
+                window.targetZoneSeries = chart.addAreaSeries({
+                    topColor: 'rgba(34, 197, 94, 0.15)',
+                    bottomColor: 'rgba(34, 197, 94, 0.02)',
+                    lineColor: 'transparent',
+                    lineWidth: 0,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                });
+                window.targetZoneSeries.setData(ohlcv.map(d => ({ time: d.time, value: tgt })));
+                window.targetZoneSeries.applyOptions({ baseValue: { type: 'price', price: entry } });
+
+                // Risk Zone
+                window.stopZoneSeries = chart.addAreaSeries({
+                    topColor: 'rgba(239, 68, 68, 0.12)',
+                    bottomColor: 'rgba(239, 68, 68, 0.05)',
+                    lineColor: 'transparent',
+                    lineWidth: 0,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                });
+                window.stopZoneSeries.setData(ohlcv.map(d => ({ time: d.time, value: entry })));
+                window.stopZoneSeries.applyOptions({ baseValue: { type: 'price', price: sl } });
+            }
+        }
     }
 
     if (!levels) return;
 
-    // Helper to draw
-    const addLine = (lv, color, isResistance) => {
-        // 1. FIBONACCI Logic
-        if (lv.type === 'FIBONACCI') {
-            const line = candlestickSeries.createPriceLine({
-                price: lv.price,
-                color: lv.ratio === 0.618 || lv.ratio === 0.5 ? '#fbbf24' : '#a855f7', // Gold for Golden Pocket, Purple for others
-                lineWidth: lv.ratio === 0.618 || lv.ratio === 0.5 ? 2 : 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: lv.label || 'FIB',
-            });
-            levelsLayer.push(line);
-            return;
-        }
+    const cmp = fullData ? fullData.meta.cmp : 0;
+    const strategy = fullData?.meta?.strategy || 'SR';
 
-        // 2. ZONE Logic
-        if (lv.timeframe === 'ZONE') {
-            const l1 = candlestickSeries.createPriceLine({
-                price: lv.price_high || lv.price,
-                color: color,
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: isResistance ? 'SUPPLY' : 'DEMAND',
-            });
-            levelsLayer.push(l1);
-
-            if (lv.price_low && lv.price_low !== lv.price_high) {
-                const l2 = candlestickSeries.createPriceLine({
-                    price: lv.price_low,
-                    color: color,
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    axisLabelVisible: false,
-                    title: '',
-                });
-                levelsLayer.push(l2);
-            }
-            return;
-        }
-
-        // 2. SWING Logic (Thicker lines)
-        const isSwing = lv.timeframe === '1D' || lv.timeframe === '1W' || lv.timeframe === '1M';
-        const lineWidth = isSwing ? 2 : 1;
-        const lineStyle = isSwing ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed;
-
-        // 3. Simple Level
-        const line = candlestickSeries.createPriceLine({
+    // Helper to add lines
+    const addLine = (lv, color, title = '', dashed = true) => {
+        levelsLayer.push(candlestickSeries.createPriceLine({
             price: lv.price,
-            color: color, // Blue/Green etc
-            lineWidth: lineWidth,
-            lineStyle: lineStyle,
+            color: color,
+            lineWidth: 1,
+            lineStyle: dashed ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
             axisLabelVisible: true,
-            title: lv.timeframe || '',
-        });
-        levelsLayer.push(line);
+            title: title || lv.timeframe || '',
+        }));
     };
 
-    const showMTF = document.getElementById('mtf-toggle').checked;
+    // MODE-BASED FILTERING (Rule: One Mode = One Visual)
+    if (strategy === 'SR') {
+        const primarySupports = (levels.primary?.supports || []).filter(l => l.timeframe !== 'ZONE');
+        const primaryResists = (levels.primary?.resistances || []).filter(l => l.timeframe !== 'ZONE');
 
-    // Add MTF Resistance (Dashed)
-    if (showMTF && levels.mtf) {
-        levels.mtf.resistances.forEach(lv => addLine(lv, '#00c076', true));
-        levels.mtf.supports.forEach(lv => addLine(lv, '#3b82f6', false));
+        // Take 2 nearest each
+        primarySupports.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
+            
+        primaryResists.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#94A3B8', 'RES'));
+    } 
+    else if (strategy === 'DEMAND_SUPPLY') {
+        const demand = (levels.primary?.supports || []).filter(l => l.timeframe === 'ZONE');
+        const supply = (levels.primary?.resistances || []).filter(l => l.timeframe === 'ZONE');
+
+        demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
+        supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
     }
-
-    // Add Primary Support (Solid)
-    if (levels.primary) {
-        levels.primary.supports.forEach(lv => addLine(lv, '#3b82f6', false));
-        levels.primary.resistances.forEach(lv => addLine(lv, '#dc2626', true)); // Red for resistance
+    else if (strategy === 'FIBONACCI') {
+        // In FIB mode, data structure changed to levels.primary
+        const supports = levels.primary?.supports || [];
+        const resistances = levels.primary?.resistances || [];
+        
+        // Show only key ratios: 38.2, 50, 61.8 (0.382, 0.5, 0.618)
+        const keyRatios = [0.382, 0.5, 0.618];
+        
+        [...supports, ...resistances]
+            .filter(l => keyRatios.includes(l.ratio))
+            .forEach(l => addLine(l, '#A855F7', l.label, true));
     }
 }
 
 // Rotation Data Fetching
-async function fetchRotation(isBackground = false) {
+async function fetchRotation() {
     try {
-        if (!isBackground) showGlobalLoader();
         const tf = document.getElementById('tf-selector').value;
         const res = await fetch(`${ROTATION_URL}?tf=${tf}&t=${Date.now()}`);
-        if (!res.ok) {
-            if (!isBackground) hideGlobalLoader();
-            throw new Error(`HTTP ${res.status}`);
-        }
         const result = await res.json();
         if (result.status === 'success' && rotationApp) {
             rotationApp.setData(result.data, result.alerts);
         }
-    } finally {
-        if (!isBackground) hideGlobalLoader();
+    } catch (e) {
+        console.error("Failed to fetch rotation data", e);
     }
 }
 
 // Initialize
 window.onload = function () {
-    // Logout Handler
-    const logoutBtn = document.getElementById('logout-btn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
-            try {
-                await fetch(`${API_BASE}/api/v1/logout`, { method: 'POST' });
-                window.location.href = '/login';
-            } catch (e) { window.location.href = '/login'; }
-        });
-    }
-
     try {
         if (typeof LightweightCharts === 'undefined') {
             throw new Error("Charting library not found. Please check your internet connection.");
@@ -931,9 +896,7 @@ window.onload = function () {
         setTimeout(() => {
             if (chart) {
                 const chartContainer = document.getElementById('tv-chart');
-                if (chartContainer) {
-                    chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
-                }
+                chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
             }
         }, 100);
 
@@ -942,136 +905,71 @@ window.onload = function () {
             rotationApp = new RotationDashboard('rotation-canvas');
         }
 
+        // Initialize Intelligence App
+        if (typeof MarketIntelligence !== 'undefined') {
             intelligenceApp = new MarketIntelligence('momentum-hits-body', 'sector-intelligence-list');
             window.intelligenceApp = intelligenceApp;
-            window.marketIntelligence = intelligenceApp;
+        }
 
         // Toggle Handlers
         const std = document.getElementById('standard-dashboard');
         const rot = document.getElementById('rotation-section');
         const intel = document.getElementById('intelligence-section');
-        const scrTog = document.getElementById('screener-toggle');
         const rotTog = document.getElementById('rotation-toggle');
-        const viewDashBtn = document.getElementById('view-dashboard');
-        const viewIntelBtn = document.getElementById('view-intelligence');
+        const intelTog = document.getElementById('intelligence-toggle');
+        const scrTog = document.getElementById('screener-toggle');
 
-        // Restore States from localStorage
-        const isRotationActive = localStorage.getItem('rotation-active') === 'true';
-        const isIntelligenceActive = localStorage.getItem('intelligence-active') === 'true';
-
-        if (isRotationActive && rotTog) {
-            rotTog.checked = true;
-            rot.classList.remove('hidden');
-            std.classList.add('hidden');
-            intel.classList.add('hidden');
-            if (viewDashBtn) viewDashBtn.className = 'nav-btn-secondary';
-            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
-            fetchRotation();
-        } else {
-            // Standard Dashboard is default on load
-            if (std) std.classList.remove('hidden');
-            if (intel) intel.classList.add('hidden');
-            if (rot) rot.classList.add('hidden');
-            if (rotTog) rotTog.checked = false;
-            
-            if (viewDashBtn) viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
-            if (viewIntelBtn) viewIntelBtn.className = 'nav-btn-secondary';
-
-            // Still fetch data in background if it's considered important, 
-            // but the view will be Dashboard.
-        }
-
-        if (localStorage.getItem('screener-active') === 'true' && scrTog) {
-            scrTog.checked = true;
-            document.getElementById('screener-panel')?.classList.remove('hidden');
-            runScreener();
-        }
-
-        // View Mode Switcher Logic
-        const switchView = (mode) => {
-            // Update button styles
-            if (viewDashBtn && viewIntelBtn) {
-                if (mode === 'dashboard') {
-                    viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
-                    viewIntelBtn.className = 'nav-btn-secondary';
-                } else if (mode === 'intelligence') {
-                    viewIntelBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
-                    viewDashBtn.className = 'nav-btn-secondary';
-                } else {
-                    viewDashBtn.className = 'nav-btn-secondary';
-                    viewIntelBtn.className = 'nav-btn-secondary';
-                }
-            }
-
-            if (mode === 'dashboard') {
-                localStorage.setItem('rotation-active', 'false');
-                localStorage.setItem('intelligence-active', 'false');
-                std.classList.remove('hidden');
-                rot.classList.add('hidden');
-                intel.classList.add('hidden');
-                if (rotTog) rotTog.checked = false;
-                
-                // Force chart resize when returning to dashboard
-                setTimeout(() => {
-                    if (chart) {
-                        const chartContainer = document.getElementById('tv-chart');
-                        if (chartContainer) chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
-                    }
-                }, 50);
-            } else if (mode === 'intelligence') {
-                localStorage.setItem('rotation-active', 'false');
-                localStorage.setItem('intelligence-active', 'true');
-                std.classList.add('hidden');
-                rot.classList.add('hidden');
-                intel.classList.remove('hidden');
-                if (rotTog) rotTog.checked = false;
-                fetchIntelligence();
-            } else if (mode === 'rotation') {
-                const isActive = rotTog && rotTog.checked;
-                localStorage.setItem('rotation-active', isActive);
-                if (isActive) {
-                    localStorage.setItem('intelligence-active', 'false');
-                    std.classList.add('hidden');
+        // Rotation Toggle Logic
+        if (rotTog) {
+            rotTog.addEventListener('change', (e) => {
+                if (e.target.checked) {
                     rot.classList.remove('hidden');
+                    std.classList.add('hidden');
                     intel.classList.add('hidden');
+                    if (intelTog) intelTog.checked = false;
+                    scrTog.checked = false;
+                    document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
                     fetchRotation();
                     if (rotationApp) rotationApp.resize();
                 } else {
-                    std.classList.remove('hidden');
                     rot.classList.add('hidden');
-                    if (viewDashBtn) viewDashBtn.className = 'nav-btn-primary bg-blue-600 text-white shadow-sm';
+                    if (!intelTog || !intelTog.checked) std.classList.remove('hidden');
                 }
+            });
+        }
+
+        // Navigation Logic (Dashboard vs Intelligence)
+        const btnDash = document.getElementById('view-dashboard');
+        const btnIntel = document.getElementById('view-intelligence');
+        
+        const setNavActive = (mode) => {
+            if (mode === 'intel') {
+                btnIntel.classList.add('bg-blue-600', 'text-white');
+                btnIntel.classList.remove('text-gray-400', 'hover:bg-gray-800');
+                btnDash.classList.remove('bg-blue-600', 'text-white');
+                btnDash.classList.add('text-gray-400', 'hover:bg-gray-800');
+                
+                intel.classList.remove('hidden');
+                std.classList.add('hidden');
+                if (rot) rot.classList.add('hidden');
+                if (rotTog) rotTog.checked = false;
+                scrTog.checked = false;
+                document.getElementById('screener-toggle').dispatchEvent(new Event('change'));
+                fetchIntelligence();
+            } else {
+                btnDash.classList.add('bg-blue-600', 'text-white');
+                btnDash.classList.remove('text-gray-400', 'hover:bg-gray-800');
+                btnIntel.classList.remove('bg-blue-600', 'text-white');
+                btnIntel.classList.add('text-gray-400', 'hover:bg-gray-800');
+                
+                std.classList.remove('hidden');
+                intel.classList.add('hidden');
+                if (rot) rot.classList.add('hidden');
             }
         };
-        // Expose globally so dashboard.js fetchDataForSymbol can trigger view switches
-        window.switchView = switchView;
 
-        // More Actions Dropdown Toggle
-        const moreActionsBtn = document.getElementById('more-actions-btn');
-        const moreActionsDropdown = document.getElementById('more-actions-dropdown');
-        if (moreActionsBtn && moreActionsDropdown) {
-            moreActionsBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                moreActionsDropdown.classList.toggle('show');
-            });
-            document.addEventListener('click', (e) => {
-                if (!moreActionsDropdown.contains(e.target)) {
-                    moreActionsDropdown.classList.remove('show');
-                }
-            });
-        }
-
-        if (viewDashBtn) {
-            viewDashBtn.addEventListener('click', () => switchView('dashboard'));
-        }
-
-        if (viewIntelBtn) {
-            viewIntelBtn.addEventListener('click', () => switchView('intelligence'));
-        }
-
-        if (rotTog) {
-            rotTog.addEventListener('change', () => switchView('rotation'));
-        }
+        if (btnDash) btnDash.addEventListener('click', () => setNavActive('dash'));
+        if (btnIntel) btnIntel.addEventListener('click', () => setNavActive('intel'));
 
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
@@ -1111,7 +1009,7 @@ window.onload = function () {
                             div.onclick = () => {
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
-                                fetchData(item.symbol);
+                                fetchData();
                             };
                             resultsDiv.appendChild(div);
                         });
@@ -1164,18 +1062,10 @@ window.onload = function () {
             }
         });
 
-        const searchBtn = document.getElementById('search-btn');
-        if (searchBtn) {
-            searchBtn.onclick = () => {
-                const s = searchInput.value.trim().toUpperCase();
-                if (s) {
-                    fetchData(s);
-                    resultsDiv.classList.add('hidden');
-                }
-            };
-        }
-
         document.getElementById('tf-selector').addEventListener('change', () => {
+            const tfSelector = document.getElementById('tf-selector');
+            if (window.updateTfChips) window.updateTfChips(tfSelector.value);
+            
             const isRotationActive = document.getElementById('rotation-toggle').checked;
             if (isRotationActive) {
                 fetchRotation();
@@ -1190,7 +1080,7 @@ window.onload = function () {
         if (intradayGroup) {
             const tfSelector = document.getElementById('tf-selector');
             const buttons = intradayGroup.querySelectorAll('button[data-tf]');
-            const setActive = (activeTf) => {
+            window.updateTfChips = (activeTf) => {
                 buttons.forEach(btn => {
                     if (btn.dataset.tf === activeTf) {
                         btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
@@ -1201,6 +1091,7 @@ window.onload = function () {
                     }
                 });
             };
+            const setActive = window.updateTfChips;
             buttons.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const tf = btn.dataset.tf;
@@ -1226,16 +1117,24 @@ window.onload = function () {
                 drawLevelsOnChart(window.lastReceivedData.levels);
             }
         });
-        document.getElementById('search-btn').addEventListener('click', () => {
-            resultsDiv.classList.add('hidden');
-            fetchData();
-        });
-        document.getElementById('symbol-input').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', (e) => {
+                e.preventDefault();
                 resultsDiv.classList.add('hidden');
                 fetchData();
-            }
-        });
+            });
+        }
+
+        const symbolInput = document.getElementById('symbol-input');
+        if (symbolInput) {
+            symbolInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    resultsDiv.classList.add('hidden');
+                    fetchData();
+                }
+            });
+        }
 
         setInterval(() => {
             const rotToggle = document.getElementById('rotation-toggle');
@@ -1243,11 +1142,11 @@ window.onload = function () {
             const isIntelligenceActive = isIntelligenceModeActive();
 
             if (isRotationActive) {
-                fetchRotation(true);
+                fetchRotation();
             } else if (isIntelligenceActive) {
-                fetchIntelligence(true);
+                fetchIntelligence();
             } else {
-                fetchData(null, true);
+                fetchData(true);
             }
         }, 10000); // reduced frequency for expensive intelligence calls (10s)
 
@@ -1268,42 +1167,15 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence(isBackground = false, force = false) {
+async function fetchIntelligence() {
     try {
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
-        
-        // --- 1. FRONTEND CACHE & MARKET AWARENESS ---
-        const cache = window.intelligenceCache;
-        const isMarketClosed = window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED';
-        const ttl = isMarketClosed ? (3600 * 1000) : (300 * 1000); // 1 hour if closed, 5 mins if open
-        const isCacheValid = cache.data && cache.timeframe === tf && (now - cache.timestamp) < ttl;
 
-        // Stale-While-Revalidate: Show old data immediately
-        if (cache.data && cache.timeframe === tf) {
-            console.log(`[Intel] Rendering from frontend cache (Age: ${Math.round((now - cache.timestamp) / 1000)}s)`);
-            renderIntelligenceFromCache(cache.data);
-            
-            // If cache is fresh and market is closed, skip network entirely
-            if (isCacheValid && !force) {
-                console.log("[Intel] Cache is fresh and market is closed/idle. Skipping fetch.");
-                return;
-            }
-            
-            // If we have any data, treat this fetch as background to avoid annoying loaders
-            isBackground = true;
-        }
-
-        if (!isBackground) showGlobalLoader();
-        
-        // Show a small syncing indicator if background (optional, can be done via CSS/DOM)
-        const syncingIndicator = document.getElementById('intel-syncing-indicator');
-        if (syncingIndicator) syncingIndicator.classList.remove('hidden');
-
-        // 2. Fetch data in parallel
+        // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&force=${force}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
@@ -1379,10 +1251,6 @@ async function fetchIntelligence(isBackground = false, force = false) {
             if (hitsData && hitsData.data) {
                 intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
             }
-            // Render Trending Sectors header from sector concentration data
-            if (hitsData && hitsData.sectorConcentration && window.renderSectorConcentration) {
-                window.renderSectorConcentration(hitsData.sectorConcentration, hitsData.count || 0);
-            }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
                 intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
             }
@@ -1411,96 +1279,59 @@ async function fetchIntelligence(isBackground = false, force = false) {
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
             }
         }
-
-        // --- 4. UPDATE FRONTEND CACHE ---
-        window.intelligenceCache = {
-            data: {
-                hitsData,
-                sectorData,
-                summaryData,
-                summarySource,
-                earlyData,
-                perfData,
-                tradePerfData,
-                watchlistData
-            },
-            timestamp: now,
-            timeframe: tf
-        };
-
-        if (syncingIndicator) syncingIndicator.classList.add('hidden');
-        if (!isBackground) hideGlobalLoader();
-
-    } catch (err) {
-        console.error("Intelligence fetch failed:", err);
-        if (!isBackground) hideGlobalLoader();
-    }
-}
-
-function renderIntelligenceFromCache(cache) {
-    if (!intelligenceApp || !cache) return;
-    const { hitsData, sectorData, summaryData, summarySource, earlyData, perfData, tradePerfData, watchlistData } = cache;
-    
-    if (hitsData && hitsData.data) {
-        intelligenceApp.updateHits(hitsData.data, hitsData.source || 'cache');
-    }
-    if (hitsData && hitsData.sectorConcentration && window.renderSectorConcentration) {
-        window.renderSectorConcentration(hitsData.sectorConcentration, hitsData.count || 0);
-    }
-    if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
-        intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'cache');
-    }
-    if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
-        intelligenceApp.updateSignalPerformance(perfData);
-    }
-    if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
-        intelligenceApp.updateTradePerformance(tradePerfData);
-    }
-    if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
-        intelligenceApp.updateWatchlist(watchlistData);
-    }
-    if (sectorData && sectorData.data) {
-        window.lastSectorData = sectorData.data;
-        intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'cache');
-        if (window.renderActionableSectors) window.renderActionableSectors(sectorData.data);
-    }
-    if (summaryData) {
-        intelligenceApp.updateMarketSummary(summaryData, summarySource);
+    } catch (e) {
+        console.error("Critical failure in fetchIntelligence", e);
     }
 }
 window.fetchIntelligence = fetchIntelligence;
 
-// --- Fyers Integration ---
-async function checkFyersStatus() {
-    try {
-        const res = await fetch('/api/v1/fyers/status');
-        const data = await res.json();
-        
-        const dot = document.getElementById('fyers-status-dot');
-        const text = document.getElementById('fyers-status-text');
-        const btn = document.getElementById('fyers-login-btn');
-        
-        if (data.logged_in) {
-            if (dot) dot.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]";
-            if (text) text.textContent = "Online";
-            if (text) text.className = "text-[10px] font-bold text-green-400 uppercase tracking-widest hidden lg:inline";
-            if (btn) btn.classList.add('hidden');
-        } else {
-            if (dot) dot.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]";
-            if (text) text.textContent = "Offline";
-            if (text) text.className = "text-[10px] font-bold text-red-400 uppercase tracking-widest hidden lg:inline";
-            if (btn) btn.classList.remove('hidden');
+// --- Professional UX Toggles ---
+window.toggleFullscreenChart = function() {
+    document.body.classList.toggle('chart-fullscreen');
+    setTimeout(() => {
+        if (chart) {
+            const container = document.getElementById('tv-chart');
+            chart.resize(container.clientWidth, container.clientHeight);
+            chart.timeScale().fitContent();
         }
-    } catch (e) {
-        console.error("Failed to check Fyers status", e);
+    }, 100);
+};
+
+window.toggleLevelsPanel = function() {
+    const sidebar = document.getElementById('levels-sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+        sidebar.classList.toggle('mobile-show');
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('tv-chart');
+                chart.resize(container.clientWidth, container.clientHeight);
+            }
+        }, 310); // Match CSS transition
     }
-}
+};
 
-function loginToFyers() {
-    window.location.href = '/api/v1/fyers/login';
-}
-
-window.loginToFyers = loginToFyers;
+window.setActiveTimeframe = function(tf) {
+    const selector = document.getElementById('tf-selector');
+    if (selector) {
+        selector.value = tf;
+        
+        // Update UI buttons
+        document.querySelectorAll('.tf-group button').forEach(btn => {
+            if (btn.dataset.tfBtn === tf) btn.classList.add('active');
+            else btn.classList.remove('active');
+        });
+        
+        // Update chart display
+        const tfLabel = document.getElementById('chart-tf-label');
+        if (tfLabel) {
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY' };
+            tfLabel.textContent = names[tf] || tf.toUpperCase();
+        }
+        
+        fetchData();
+    }
+};
 
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
