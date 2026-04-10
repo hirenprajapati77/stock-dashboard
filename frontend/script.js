@@ -331,6 +331,16 @@ async function fetchData(isBackground = false) {
         
         // Show error UI if NOT background, OR if it's a critical rate limit error
         if (!isBackground || isRateLimit) {
+            // Update chart labels even on error so user knows which symbol failed
+            const symbolInput = document.getElementById('symbol-input');
+            const symbol = symbolInput ? symbolInput.value.trim().toUpperCase() : "ERROR";
+            const tf = document.getElementById('tf-selector')?.value || '1D';
+            
+            const sLab = document.getElementById('chart-symbol-label');
+            const tfLab = document.getElementById('chart-tf-label');
+            if (sLab) sLab.textContent = symbol;
+            if (tfLab) tfLab.textContent = `${tf} - SYNC ERROR`;
+
             const chartParent = document.getElementById('chart-parent');
             if (chartParent) {
                 // If we don't have a chart yet, or it's a rate limit error, show/update error area
@@ -498,9 +508,18 @@ function updateUI(data, isBackground = false) {
         const verTag = document.getElementById('ver-tag');
         if (verTag) verTag.textContent = "v1.5.0 Intelligence Layer";
 
-        // Sync Time
+        // Sync Time & Symbol
         const syncTime = document.getElementById('sync-time');
         if (syncTime && data.meta.last_update) syncTime.textContent = `${data.meta.last_update}`;
+
+        const sLabel = document.getElementById('chart-symbol-label');
+        const tfLabel = document.getElementById('chart-tf-label');
+        if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
+        if (tfLabel) {
+            const tf = data.meta.timeframe || '1D';
+            tfLabel.textContent = `${tf} SESSION`;
+        }
+
 
         // Pulse indicators only if price changed
         const liveInd = document.getElementById('live-indicator');
@@ -1372,9 +1391,27 @@ window.setActiveTimeframe = function(tf) {
     }
 };
 
+// Handle messages from popups (Fyers Login)
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'fyers_auth') {
+        console.log("Fyers auth message received:", event.data);
+        if (event.data.status === 'success') {
+            // Update UI immediately
+            checkFyersStatus();
+            fetchData();
+            
+            // Show a success notification if wanted (optional)
+        } else {
+            console.error("Fyers authentication failed:", event.data.message);
+            alert("Fyers Authentication Failed: " + (event.data.message || "Unknown error"));
+        }
+    }
+});
+
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
     checkFyersStatus();
-    // Poll every 30 seconds for faster updates after login
+    // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
+

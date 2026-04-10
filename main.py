@@ -83,7 +83,7 @@ ensure_dependencies()
 from fastapi import FastAPI, Query, Response, Request, Depends, HTTPException, status, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 
 from app.services.market_data import MarketDataService
 from app.services.fundamentals import FundamentalService
@@ -613,26 +613,51 @@ async def fyers_callback(
         if not resolved_auth_code and code and not str(code).isdigit():
             resolved_auth_code = code
 
+        def _auth_response_js(status_val, msg=None):
+            # Returns a small script that communicates with the opener and closes the popup
+            js_msg = msg.replace('"', '\\"') if msg else ""
+            return f"""
+            <html>
+                <body style="background: #0b0e11; color: #d1d4dc; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+                    <div style="text-align: center;">
+                        <h2 style="color: {'#22c55e' if status_val == 'success' else '#ef4444'}">
+                            {'Authentication Successful' if status_val == 'success' else 'Authentication Failed'}
+                        </h2>
+                        <p style="font-size: 14px; opacity: 0.8;">{msg or 'Redirecting back to dashboard...'}</p>
+                        <script>
+                            if (window.opener) {{
+                                window.opener.postMessage({{ 
+                                    type: 'fyers_auth', 
+                                    status: '{status_val}', 
+                                    message: '{js_msg}' 
+                                }}, '*');
+                                setTimeout(() => window.close(), 1000);
+                            }} else {{
+                                window.location.href = "/?fyers_login={status_val}";
+                            }}
+                        </script>
+                    </div>
+                </body>
+            </html>
+            """
+
         if not resolved_auth_code:
             query_keys = ", ".join(sorted(request.query_params.keys())) or "none"
-            return RedirectResponse(
-                url=_build_fyers_redirect(
-                    request,
-                    "error",
-                    f"Missing auth_code in Fyers callback (received query keys: {query_keys}).",
-                )
-            )
+            return HTMLResponse(content=_auth_response_js("error", f"Missing auth_code (keys: {query_keys})"))
 
         success, message = FyersService.generate_token(
             resolved_auth_code,
             redirect_uri=_resolve_fyers_redirect_url(request),
         )
+        
         if success:
-            # Redirect back to the dashboard with a success message
-            return RedirectResponse(url=_build_fyers_redirect(request, "success"))
-        return RedirectResponse(url=_build_fyers_redirect(request, "error", message))
+            return HTMLResponse(content=_auth_response_js("success"))
+        return HTMLResponse(content=_auth_response_js("error", message))
+        
     except Exception as e:
-        return RedirectResponse(url=_build_fyers_redirect(request, "error", str(e)))
+        import traceback
+        traceback.print_exc()
+        return HTMLResponse(content=_auth_response_js("error", str(e)))
 
 @app.get("/api/v1/fyers/status", dependencies=[Depends(login_required)])
 async def fyers_status(request: Request):
