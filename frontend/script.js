@@ -33,28 +33,24 @@ async function checkFyersStatus() {
     try {
         const res = await fetch(`${API_BASE}/api/v1/fyers/status`);
         const result = await res.json();
-        const dot = document.getElementById('fyers-status-dot');
-        const text = document.getElementById('fyers-status-text');
-        
-        if (result.status === 'success' && result.data.is_connected) {
-            if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]';
-            if (text) text.textContent = 'Online';
-            
-            // Update button if exists
-            const loginBtn = document.getElementById('fyers-login-btn');
+        const statusDot = document.getElementById('fyers-status-dot');
+        const loginBtn = document.getElementById('fyers-login-btn');
+
+        if (result.logged_in) {
+            if (statusDot) {
+                statusDot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
+            }
             if (loginBtn) {
                 loginBtn.textContent = 'ONLINE';
-                loginBtn.classList.remove('text-blue-400');
-                loginBtn.classList.add('text-green-400');
+                loginBtn.className = 'text-[9px] font-bold text-green-400 uppercase tracking-widest';
+                loginBtn.onclick = null; // Prevent re-login if already connected
             }
         } else {
-            if (dot) dot.className = 'w-2 h-2 rounded-full bg-gray-600';
-            if (text) text.textContent = 'Offline';
-            const loginBtn = document.getElementById('fyers-login-btn');
+            if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-gray-600';
             if (loginBtn) {
                 loginBtn.textContent = 'CONNECT';
-                loginBtn.classList.add('text-blue-400');
-                loginBtn.classList.remove('text-green-400');
+                loginBtn.className = 'text-[9px] font-bold text-blue-400 uppercase tracking-widest hover:text-blue-300';
+                loginBtn.onclick = () => window.loginToFyers();
             }
         }
     } catch (e) {
@@ -341,33 +337,50 @@ async function fetchData(isBackground = false) {
             if (sLab) sLab.textContent = symbol;
             if (tfLab) tfLab.textContent = `${tf} - SYNC ERROR`;
 
+            // If we have existing data and it's a background update or rate limit, 
+            // DON'T show the giant blocking overlay. Just update status indicator.
+            const hasData = !!window.lastReceivedData;
+            
+            if (hasData && (isBackground || isRateLimit)) {
+                console.warn(`Data sync rate-limited for ${symbol}. Keeping existing data visible.`);
+                const liveIndicator = document.getElementById('live-indicator');
+                if (liveIndicator) {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span> COOLDOWN';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-orange-500 font-bold';
+                    liveIndicator.title = "Data provider is rate-limiting. Using existing data until sync recovers.";
+                }
+                return; // Exit without showing blocking error
+            }
+
             const chartParent = document.getElementById('chart-parent');
             if (chartParent) {
-                // If we don't have a chart yet, or it's a rate limit error, show/update error area
-                if (!chart || chartParent.innerHTML.includes('Failed to load data') || isRateLimit) {
-                    const tvChart = document.getElementById('tv-chart');
-                    if (tvChart && isRateLimit) tvChart.classList.add('hidden'); // Hide chart area for rate limit message
+                // Determine Provider name for branding
+                const loginBtn = document.getElementById('fyers-login-btn');
+                const providerName = (loginBtn && loginBtn.textContent === 'ONLINE') ? 'Fyers' : 'Yahoo Finance';
 
-                    let errDiv = document.getElementById('chart-error-msg');
-                    if (!errDiv) {
-                        errDiv = document.createElement('div');
-                        errDiv.id = 'chart-error-msg';
-                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
-                        chartParent.appendChild(errDiv);
-                    }
-                    errDiv.classList.remove('hidden');
-                    
-                    errDiv.innerHTML = `
-                        <div class="flex flex-col items-center gap-3">
-                            <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
-                            <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error'}</p>
-                            <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
-                            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
-                        </div>
-                    `;
+                const tvChart = document.getElementById('tv-chart');
+                if (tvChart && isRateLimit) tvChart.classList.add('hidden'); 
+
+                let errDiv = document.getElementById('chart-error-msg');
+                if (!errDiv) {
+                    errDiv = document.createElement('div');
+                    errDiv.id = 'chart-error-msg';
+                    errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
+                    chartParent.appendChild(errDiv);
                 }
+                errDiv.classList.remove('hidden');
+                
+                errDiv.innerHTML = `
+                    <div class="flex flex-col items-center gap-3">
+                        <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
+                        <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? providerName + ' Cooldown' : 'Sync Error'}</p>
+                        <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
+                        <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+                    </div>
+                `;
             }
         }
+
     } finally {
         // ALWAYS try to hide loader in finally if it was showing
         if (loader) {
