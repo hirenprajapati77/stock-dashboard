@@ -177,23 +177,37 @@ class MarketDataService:
             # 1. Build 'info' equivalent
             fin = result.get('financialData', {})
             stats = result.get('defaultKeyStatistics', {})
+            profile = result.get('assetProfile', {})
             
             if not fin:
                 print(f"DEBUG: Missing financialData for {symbol}")
             if not stats:
                 print(f"DEBUG: Missing defaultKeyStatistics for {symbol}")
             
-            print(f"DEBUG: Data segments for {symbol}: fin={len(fin)}, stats={len(stats)}")
+            print(f"DEBUG: Data segments for {symbol}: fin={len(fin)}, stats={len(stats)}, profile={len(profile)}")
             
+            def get_yval(d, key):
+                return d.get(key, {}).get('raw')
+
             info = {
                 'longName': symbol, 
-                'currentPrice': fin.get('currentPrice', {}).get('raw', 0),
-                'debtToEquity': fin.get('debtToEquity', {}).get('raw'),
-                'pegRatio': stats.get('pegRatio', {}).get('raw'),
-                'revenueQuarterlyGrowth': fin.get('revenueGrowth', {}).get('raw'),
-                'marketCap': stats.get('marketCap', {}).get('raw'),
-                'trailingPE': stats.get('trailingPE', {}).get('raw'),
-                'returnOnEquity': fin.get('returnOnEquity', {}).get('raw'),
+                'currentPrice': get_yval(fin, 'currentPrice') or 0,
+                'debtToEquity': get_yval(fin, 'debtToEquity'),
+                'pegRatio': get_yval(stats, 'pegRatio'),
+                'revenueQuarterlyGrowth': get_yval(fin, 'revenueGrowth'),
+                'marketCap': get_yval(stats, 'marketCap'),
+                'trailingPE': get_yval(stats, 'trailingPE'),
+                'forwardPE': get_yval(stats, 'forwardPE'),
+                'bookValue': get_yval(stats, 'bookValue'),
+                'priceToBook': get_yval(stats, 'priceToBook'),
+                'dividendYield': get_yval(stats, 'dividendYield'),
+                'profitMargins': get_yval(fin, 'profitMargins'),
+                'returnOnEquity': get_yval(fin, 'returnOnEquity'),
+                'fiftyTwoWeekHigh': get_yval(stats, 'fiftyTwoWeekHigh'),
+                'fiftyTwoWeekLow': get_yval(stats, 'fiftyTwoWeekLow'),
+                'sector': profile.get('sector', '—'),
+                'industry': profile.get('industry', '—'),
+                'website': profile.get('website', ''),
                 'returnOnCapitalEmployed': None 
             }
             

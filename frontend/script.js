@@ -765,13 +765,17 @@ function drawLevelsOnChart(levels, fullData = null) {
     const noTradeOverlay = document.getElementById('no-trade-overlay');
     if (noTradeOverlay) noTradeOverlay.style.display = isNoTrade ? 'flex' : 'none';
 
-    // 1. Floating Chart Tag (Status)
-    if (fullData) {
-        const tag = document.createElement('div');
-        tag.className = 'chart-tag';
+    // 1. Chart Header Action Tag (Primary Feedback)
+    const headerAction = document.getElementById('chart-header-action');
+    if (headerAction && fullData) {
         const isEntry = action.includes('BUY') || action.includes('ENTRY');
-        tag.innerHTML = `<span class="${isEntry ? 'text-green-400' : 'text-amber-400'}">●</span> ${action}`;
-        document.getElementById('chart-parent').appendChild(tag);
+        headerAction.innerHTML = `
+            <div class="px-3 py-1 bg-white/5 border border-white/5 rounded-lg flex items-center gap-2">
+                <span class="${isEntry ? 'text-green-400' : 'text-amber-400'} animate-pulse text-[10px]">●</span>
+                <span class="text-[9px] font-black text-white tracking-widest uppercase">${action}</span>
+            </div>
+        `;
+        headerAction.classList.remove('hidden');
     }
 
     // 2. Draw Execution Overlays (Entry, SL, Target)
