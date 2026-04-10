@@ -21,6 +21,11 @@ class TradeDecisionService:
             decision_data = cls.compute_trade_score(row, market_phase)
             row.update(decision_data)
             
+            # 2. Build Execution Plan (Original logic, kept for compatibility)
+            plan = cls.build_plan(row)
+            row["executionPlan"] = plan
+            row["tradeDecisionTag"] = decision_data.get("action", plan.get("tradeTag", "WATCHLIST"))
+
             # 3. AI Insights & Commentary (Phase 2 Enhancement)
             ai_context = {
                 "entityType": "stock",

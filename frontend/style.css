@@ -116,24 +116,7 @@ body {
     box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
 }
 
-/* Floating Chart Tags */
-.chart-tag {
-    position: absolute;
-    top: 70px;
-    right: 24px;
-    z-index: 10;
-    padding: 6px 14px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 800;
-    background: rgba(17, 24, 39, 0.85);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: white;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    pointer-events: none;
-    animation: slide-in 0.4s ease-out;
-}
+/* Chart Action Tags are now integrated into the header - removed floating styles */
 
 @keyframes slide-in {
     from { opacity: 0; transform: translateY(-10px); }

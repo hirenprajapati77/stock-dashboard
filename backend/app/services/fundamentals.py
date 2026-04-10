@@ -24,12 +24,11 @@ class FundamentalService:
                 return entry['data']
 
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
+            from app.services.market_data import MarketDataService
+            stats = MarketDataService.get_yahoo_stats_via_proxy(symbol)
             
-            if not info or len(info) < 5:
-                # If info is mostly empty (common during rate limits), cache error state
-                # but keep old data if we have it
+            if not stats or not stats.get('info'):
+                # Fallback check for very simple info if proxy fails
                 old_data = cls._cache[symbol]['data'] if symbol in cls._cache else None
                 cls._cache[symbol] = {
                     'timestamp': now,
@@ -38,42 +37,40 @@ class FundamentalService:
                 }
                 return old_data
 
-            # Helper to safely get value or None
-            def get_val(key, default=None):
-                return info.get(key, default)
+            info = stats['info']
 
             # Robust Market Cap Formatting
-            mcap = get_val('marketCap')
+            mcap = info.get('marketCap')
             formatted_mcap = "—"
             if mcap:
-                if mcap > 1e12: formatted_mcap = f"{mcap/1e12:.2f}T"
-                elif mcap > 1e9: formatted_mcap = f"{mcap/1e9:.2f}B"
-                elif mcap > 1e7: formatted_mcap = f"{mcap/1e7:.2f}Cr"
-                elif mcap > 1e6: formatted_mcap = f"{mcap/1e6:.2f}M"
+                if mcap >= 1e12: formatted_mcap = f"{mcap/1e12:.2f}T"
+                elif mcap >= 1e9: formatted_mcap = f"{mcap/1e9:.2f}B"
+                elif mcap >= 1e7: formatted_mcap = f"{mcap/1e7:.2f}Cr"
+                elif mcap >= 1e5: formatted_mcap = f"{mcap/1e5:.2f}L"
                 else: formatted_mcap = f"{mcap:.0f}"
 
             data = {
                 "market_cap": formatted_mcap,
-                "pe_ratio": float(round(get_val('trailingPE', 0), 2)) if get_val('trailingPE') else None,
-                "forward_pe": float(round(get_val('forwardPE', 0), 2)) if get_val('forwardPE') else None,
-                "book_value": float(round(get_val('bookValue', 0), 2)) if get_val('bookValue') else None,
-                "pb_ratio": float(round(get_val('priceToBook', 0), 2)) if get_val('priceToBook') else None,
-                "dividend_yield": float(round(get_val('dividendYield', 0) * 100, 2)) if get_val('dividendYield') else None,
-                "roe": float(round(get_val('returnOnEquity', 0) * 100, 2)) if get_val('returnOnEquity') else None,
-                "profit_margin": float(round(get_val('profitMargins', 0) * 100, 2)) if get_val('profitMargins') else None,
-                "52w_high": float(get_val('fiftyTwoWeekHigh')) if get_val('fiftyTwoWeekHigh') else None,
-                "52w_low": float(get_val('fiftyTwoWeekLow')) if get_val('fiftyTwoWeekLow') else None,
-                "sector": str(get_val('sector', '—')),
-                "industry": str(get_val('industry', '—')),
-                "website": str(get_val('website', '')),
-                "long_name": str(get_val('longName', symbol))
+                "pe_ratio": float(round(info.get('trailingPE', 0), 2)) if info.get('trailingPE') else None,
+                "forward_pe": float(round(info.get('forwardPE', 0), 2)) if info.get('forwardPE') else None,
+                "book_value": float(round(info.get('bookValue', 0), 2)) if info.get('bookValue') else None,
+                "pb_ratio": float(round(info.get('priceToBook', 0), 2)) if info.get('priceToBook') else None,
+                "dividend_yield": float(round(info.get('dividendYield', 0) * 100, 2)) if info.get('dividendYield') else None,
+                "roe": float(round(info.get('returnOnEquity', 0) * 100, 2)) if info.get('returnOnEquity') else None,
+                "profit_margin": float(round(info.get('profitMargins', 0) * 100, 2)) if info.get('profitMargins') else None,
+                "52w_high": float(info.get('fiftyTwoWeekHigh')) if info.get('fiftyTwoWeekHigh') else None,
+                "52w_low": float(info.get('fiftyTwoWeekLow')) if info.get('fiftyTwoWeekLow') else None,
+                "sector": str(info.get('sector', '—')),
+                "industry": str(info.get('industry', '—')),
+                "website": str(info.get('website', '')),
+                "long_name": str(info.get('longName', symbol))
             }
             
             # Simple health check
             pe = data.get('pe_ratio')
             pb = data.get('pb_ratio')
             is_undervalued = False
-            if pe is not None and pe < 20 and pb is not None and pb < 1.5:
+            if pe is not None and 0 < pe < 25 and pb is not None and 0 < pb < 2.5:
                 is_undervalued = True
             data['is_undervalued'] = bool(is_undervalued)
             
