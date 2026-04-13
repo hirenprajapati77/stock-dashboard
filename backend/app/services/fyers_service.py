@@ -16,7 +16,7 @@ class FyersService:
     BASE_URL = "https://api-t1.fyers.in/api/v3"
     # Production data endpoint
     DATA_URL = "https://api.fyers.in/data" 
-    # Fallback endpoint for token exchange
+    # Fallback endpoint for token exchange (api-t1 is often the required endpoint for V3)
     AUTH_FALLBACK_URL = "https://api-t1.fyers.in/api/v3"
     
     SYMBOL_MASTER_URLS = {
@@ -35,9 +35,12 @@ class FyersService:
             try:
                 with open(fyers_config.token_file, "r") as f:
                     cls._access_token = f.read().strip()
+                print(f"[Fyers] Loaded token from {fyers_config.token_file} (Length: {len(cls._access_token) if cls._access_token else 0})", flush=True)
                 return bool(cls._access_token)
             except Exception as e:
-                print(f"Error loading Fyers token: {e}")
+                print(f"[Fyers] Error loading token: {e}", flush=True)
+        else:
+            print(f"[Fyers] Token file NOT found at: {fyers_config.token_file}", flush=True)
         return False
 
     @classmethod
@@ -59,9 +62,10 @@ class FyersService:
     @classmethod
     def _build_auth_url(cls, redirect_url):
         """Builds the Fyers authorization URL manually to avoid SDK dependencies."""
-        # Use a hardcoded fallback if redirect_url is suspicious or empty
+        # Use provided redirect URL directly; fyers_config handles the defaults
         final_redirect = redirect_url
-        if not final_redirect or "onrender.com" not in final_redirect:
+        if not final_redirect:
+            # Last resort fallback if config is somehow empty
             final_redirect = "https://stock-dashboard-9nvy.onrender.com/api/v1/fyers/callback"
             
         params = {
@@ -96,11 +100,19 @@ class FyersService:
                 "redirect_uri": resolved_redirect,
             }
             
+            # Derive Origin and Referer from the redirect_uri to be environment-agnostic
+            try:
+                from urllib.parse import urlparse
+                parsed_uri = urlparse(resolved_redirect)
+                origin = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
+            except:
+                origin = "https://stock-dashboard-9nvy.onrender.com"
+
             headers = {
                 "Accept": "application/json",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                "Origin": "https://stock-dashboard-9nvy.onrender.com",
-                "Referer": "https://stock-dashboard-9nvy.onrender.com/"
+                "Origin": origin,
+                "Referer": f"{origin}/"
             }
             
             # Fyers V3 can be extremely specific about the appIdHash salt and the field names.
@@ -134,7 +146,30 @@ class FyersService:
             # Production fallback (Direct - only if proxy missing or all proxy attempts consumed code)
             prod_base = cls.AUTH_FALLBACK_URL.rstrip('/')
             attempts.extend([
-                {"url": f"{prod_base}/validate-authcode", "ct": "application/json", "label": "Prod (V3-Minimal)", "payload": {"grant_type": "authorization_code", "appIdHash": hash_full, "code": auth_code}},
+                {
+                    "url": f"{prod_base}/validate-authcode", 
+                    "ct": "application/json", 
+                    "label": "Prod (V3-Full-JSON)", 
+                    "payload": {
+                        "grant_type": "authorization_code", 
+                        "appIdHash": hash_full, 
+                        "code": auth_code,
+                        "appId": raw_app_id,
+                        "redirect_uri": resolved_redirect
+                    }
+                },
+                {
+                    "url": f"{prod_base}/validate-authcode", 
+                    "ct": "application/x-www-form-urlencoded", 
+                    "label": "Prod (V3-Full-Form)", 
+                    "payload": {
+                        "grant_type": "authorization_code", 
+                        "appIdHash": hash_full, 
+                        "code": auth_code,
+                        "appId": raw_app_id,
+                        "redirect_uri": resolved_redirect
+                    }
+                },
             ])
 
             # Track errors from ALL variations for the last_auth_debug
@@ -264,7 +299,13 @@ class FyersService:
         if not range_from or not range_to:
             now = int(time.time())
             range_to = time.strftime("%Y-%m-%d", time.localtime(now))
-            days = 300 if fyers_tf == "D" else 30
+            # Increase lookback to ensure technical signals have enough context
+            if fyers_tf in ["1", "5", "10", "15"]:
+                days = 60 # 60 days for lower intraday
+            elif fyers_tf in ["30", "60", "120", "240"]:
+                days = 180 # 180 days for hourly
+            else:
+                days = 730 # 2 years for Daily and above
             range_from = time.strftime("%Y-%m-%d", time.localtime(now - (days * 86400)))
 
         fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"
@@ -287,14 +328,17 @@ class FyersService:
             
             res = requests.get(url, params=params, headers=headers, timeout=timeout)
             if res.status_code == 401:
-                return None, "Fyers Token Expired (401)"
+                cls._access_token = None  # Clear stale token
+                return None, "Fyers Token Expired (401) — Please reconnect"
             response = res.json()
             if response.get("s") == "ok":
                 df = pd.DataFrame(response.get("candles"), columns=["timestamp", "open", "high", "low", "close", "volume"])
                 df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
                 df.set_index("timestamp", inplace=True)
                 return df, None
-            return None, response.get("message", f"Fyers Data Error: {response}")
+            err_msg = response.get("message", f"Fyers Data Error: {response}")
+            print(f"DEBUG: [Fyers] Data API response (HTTP {res.status_code}): {response}", flush=True)
+            return None, err_msg
         except requests.exceptions.Timeout:
             return None, "Fyers request timed out"
         except Exception as e:

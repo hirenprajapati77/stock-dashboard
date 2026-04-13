@@ -288,7 +288,7 @@ async function fetchData(isBackground = false) {
         if (!symbol) symbol = "NIFTY50"; // Fallback to avoid empty ticker error
         
         const tfSelector = document.getElementById('tf-selector');
-        const tf = tfSelector ? tfSelector.value : '1D';
+        const tf = tfSelector ? tfSelector.value : '15m';
         const stratSelector = document.getElementById('strategy-selector');
         const strategy = stratSelector ? stratSelector.value : 'SR';
 
@@ -302,17 +302,21 @@ async function fetchData(isBackground = false) {
         if (data && data.meta) {
             window.lastReceivedData = data;
             
-            // Update live indicator based on source
+            // Update live indicator based on specific source
             const liveIndicator = document.getElementById('live-indicator');
             if (liveIndicator) {
-                if (data.source === 'fallback') {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> CACHED';
-                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
-                    liveIndicator.title = "Yahoo rate limit reached. Showing last cached data.";
-                } else {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> LIVE';
+                if (data.source === 'fyers') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> FYERS LIVE';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-green-400 font-bold';
+                    liveIndicator.title = "Real-time data from Fyers API";
+                } else if (data.source === 'yahoo') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> YAHOO LIVE';
                     liveIndicator.className = 'flex items-center gap-1 text-[9px] text-blue-400 font-bold';
                     liveIndicator.title = "Live data from Yahoo Finance";
+                } else if (data.source === 'cache' || data.source === 'fallback') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> OFFLINE CACHE';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
+                    liveIndicator.title = "Rate limit reached or offline. Showing last cached data.";
                 }
             }
 
@@ -1209,7 +1213,7 @@ window.onload = function () {
 async function fetchIntelligence() {
     try {
         const tfSelector = document.getElementById('tf-selector');
-        const tf = tfSelector ? tfSelector.value : '1D';
+        const tf = tfSelector ? tfSelector.value : '15m';
         const now = Date.now();
 
         // 1. Fetch data in parallel
