@@ -36,7 +36,10 @@ async function checkFyersStatus() {
         const statusDot = document.getElementById('fyers-status-dot');
         const loginBtn = document.getElementById('fyers-login-btn');
 
-        if (result.logged_in) {
+        // Backend returns { status: "success", data: { is_connected: bool, ... } }
+        const isConnected = result?.data?.is_connected || result?.logged_in || false;
+
+        if (isConnected) {
             if (statusDot) {
                 statusDot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
             }
@@ -330,7 +333,7 @@ async function fetchData(isBackground = false) {
             // Update chart labels even on error so user knows which symbol failed
             const symbolInput = document.getElementById('symbol-input');
             const symbol = symbolInput ? symbolInput.value.trim().toUpperCase() : "ERROR";
-            const tf = document.getElementById('tf-selector')?.value || '1D';
+            const tf = document.getElementById('tf-selector')?.value || '15m';
             
             const sLab = document.getElementById('chart-symbol-label');
             const tfLab = document.getElementById('chart-tf-label');
@@ -439,6 +442,13 @@ function updateStrategyUI(data) {
         document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
         document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
 
+        // Toggle specific strategy panels
+        const swingPanel = document.getElementById('strategy-swing-metrics');
+        const zonesPanel = document.getElementById('strategy-zones-metrics');
+        
+        if (swingPanel) swingPanel.style.display = strategy === 'SWING' ? 'grid' : 'none';
+        if (zonesPanel) zonesPanel.style.display = strategy === 'DEMAND_SUPPLY' ? 'grid' : 'none';
+
         // Update Swing Metrics
         if (strategy === 'SWING') {
             document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
@@ -452,7 +462,7 @@ function updateStrategyUI(data) {
         if (dynPanels) {
             const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY';
             dynPanels.style.display = hasDynamicData ? 'grid' : 'none';
-            dynPanels.classList.remove('hidden'); // Ensure hidden class is removed if toggling display
+            if (hasDynamicData) dynPanels.classList.remove('hidden'); 
 
             if (hasDynamicData) {
                 const c1T = document.getElementById('strat-card-1-title');
@@ -529,7 +539,7 @@ function updateUI(data, isBackground = false) {
         const tfLabel = document.getElementById('chart-tf-label');
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
-            const tf = data.meta.timeframe || '1D';
+            const tf = data.meta.timeframe || '15m';
             tfLabel.textContent = `${tf} SESSION`;
         }
 
@@ -1409,11 +1419,12 @@ window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'fyers_auth') {
         console.log("Fyers auth message received:", event.data);
         if (event.data.status === 'success') {
-            // Update UI immediately
-            checkFyersStatus();
-            fetchData();
-            
-            // Show a success notification if wanted (optional)
+            console.log("Fyers success received, waiting for session to settle...");
+            // Add a small delay to ensure backend has flushed the token file
+            setTimeout(() => {
+                checkFyersStatus();
+                fetchData();
+            }, 500);
         } else {
             console.error("Fyers authentication failed:", event.data.message);
             alert("Fyers Authentication Failed: " + (event.data.message || "Unknown error"));

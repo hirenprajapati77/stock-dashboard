@@ -123,8 +123,7 @@ async def lifespan(app: FastAPI):
                 
                 # 2. Warm up screener cache
                 print("[Warmup] Pre-warming screener cache...", flush=True)
-                symbols = ConstituentService.get_nifty100_symbols()
-                ScreenerService.screen_symbols(symbols)
+                ScreenerService.get_screener_data()
 
             await asyncio.to_thread(_sync_warmup)
             print(f"[Warmup] Done in {time.time() - t0:.1f}s")
@@ -353,7 +352,7 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
 
         async def fetch_mtf_wrapper(htf_name):
             try:
-                h_df, _, h_err = await asyncio.to_thread(
+                h_df, _, h_err, _ = await asyncio.to_thread(
                     MarketDataService.get_ohlcv, 
                     norm_symbol, 
                     htf_name, 
@@ -403,12 +402,12 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
         # 2. Await Primary Data first (Essential)
         try:
             # 14 seconds allows Fyers to fail (timeout 8s) and smoothly hit Yahoo Proxy fallback
-            df, currency, error = await asyncio.wait_for(primary_task, timeout=14.0)
+            df, currency, error, source_type = await asyncio.wait_for(primary_task, timeout=14.0)
             
-            source = "live"
-            if error and not df.empty:
-                source = "fallback"
-            elif df.empty:
+            # Map source_type to standardized UI labels
+            source = source_type if source_type != "error" else "fallback"
+            
+            if df.empty:
                 return {"status": "error", "message": error or f"No data found for {symbol}.", "source": "error"}
         except asyncio.TimeoutError:
             print(f"CRITICAL: Primary data fetch timed out for {symbol} after 14s. Backend is overloaded or downstream APIs are stalled.")
@@ -667,18 +666,22 @@ async def fyers_status(request: Request):
     auth_url = FyersService.get_login_url(effective_redirect_url)
     
     return {
-        "status": "online" if is_logged_in else "offline",
-        "logged_in": is_logged_in,
-        "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
-        "app_id_source": "env" if os.getenv("FYERS_APP_ID") else "default",
-        "redirect_url": effective_redirect_url,
-        "redirect_url_source": "env" if os.getenv("FYERS_REDIRECT_URL") else "derived",
-        "auth_url": auth_url,
-        "callback_path": "/api/v1/fyers/callback",
-        "config_ready": bool(fyers_config.app_id and fyers_config.secret_id),
-        "fyers_token_file_from_env": bool(os.getenv("FYERS_TOKEN_FILE")),
-        "fyers_token_file_name": os.path.basename(fyers_config.token_file),
-        "last_auth_debug": FyersService.get_last_auth_debug()
+        "status": "success",
+        "data": {
+            "is_connected": is_logged_in,
+            "logged_in": is_logged_in,
+            "status": "online" if is_logged_in else "offline",
+            "app_id": fyers_config.app_id[:5] + "..." if fyers_config.app_id else None,
+            "app_id_source": "env" if os.getenv("FYERS_APP_ID") else "default",
+            "redirect_url": effective_redirect_url,
+            "redirect_url_source": "env" if os.getenv("FYERS_REDIRECT_URL") else "derived",
+            "auth_url": auth_url,
+            "callback_path": "/api/v1/fyers/callback",
+            "config_ready": bool(fyers_config.app_id and fyers_config.secret_id),
+            "fyers_token_file_from_env": bool(os.getenv("FYERS_TOKEN_FILE")),
+            "fyers_token_file_name": os.path.basename(fyers_config.token_file),
+            "last_auth_debug": FyersService.get_last_auth_debug()
+        }
     }
 
 

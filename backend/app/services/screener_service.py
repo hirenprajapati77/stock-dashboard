@@ -424,7 +424,7 @@ class ScreenerService:
                 for future in concurrent.futures.as_completed(future_to_symbol):
                     sym = future_to_symbol[future]
                     try:
-                        df, currency, err = future.result()
+                        df, currency, err, _ = future.result()
                         if df is not None and not df.empty:
                             # Standardize column names to lowercase
                             df.columns = [c.lower() for c in df.columns]
@@ -782,7 +782,7 @@ class ScreenerService:
             for future in concurrent.futures.as_completed(future_to_symbol):
                 symbol = future_to_symbol[future]
                 try:
-                    df, currency, err = future.result()
+                    df, currency, err, _ = future.result()
                     if df is not None and not df.empty:
                         stock_batch_data[symbol] = df
                 except Exception as e:
@@ -930,7 +930,7 @@ class ScreenerService:
             market_return = 0.0
             try:
                 from app.services.market_data import MarketDataService
-                n_df, _, _ = MarketDataService.get_ohlcv("^NSEI", timeframe)
+                n_df, _, _, _ = MarketDataService.get_ohlcv("^NSEI", timeframe)
                 if n_df is not None and len(n_df) >= 2:
                     n_close = n_df["close" if "close" in n_df.columns else "Close"]
                     market_return = float(((n_close.iloc[-1] - n_close.iloc[-2]) / n_close.iloc[-2]) * 100)

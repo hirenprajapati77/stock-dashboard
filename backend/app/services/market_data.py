@@ -16,6 +16,8 @@ class MarketDataService:
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
     _ohlcv_cache = {}
     CACHE_TTL = 300 # 5 minutes
+    _cool_off_symbols = {} # symbol -> timestamp when cool-off ends
+    COOL_OFF_DURATION = 900 # 15 minutes
 
     @staticmethod
     def _pick_fast_info_value(fast_info, *keys):
@@ -257,7 +259,7 @@ class MarketDataService:
     def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
         """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
-        Returns (df, currency, error_message)
+        Returns (df, currency, error_message, source)
         """
         symbol = MarketDataService.normalize_symbol(symbol)
         cache_key = f"{symbol}_{tf}_{count}_{use_fast_info}"
@@ -267,7 +269,7 @@ class MarketDataService:
         if cache_key in MarketDataService._ohlcv_cache:
             entry = MarketDataService._ohlcv_cache[cache_key]
             if (now - entry['timestamp']) < MarketDataService.CACHE_TTL:
-                return entry['df'].copy(), entry['currency'], None
+                return entry['df'].copy(), entry['currency'], None, entry.get('source', 'cache')
             
         # Map TF to yfinance interval
         interval_map = {
@@ -299,6 +301,7 @@ class MarketDataService:
         
         # 1.5 Try Fyers first if logged in
         try:
+            # Check if symbol is in cool-off for Fyers as well (optional, but keep it simple)
             # Map Yahoo/internal symbols to Fyers-specific symbol formats
             fyers_sym = symbol
             if ":" not in symbol:
@@ -324,15 +327,15 @@ class MarketDataService:
                     # 2. Standard Stock Mapping
                     fyers_sym = f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
             
-            # Fast timeout - Fyers responds instantly if logged in, no point waiting 8s when offline
-            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 2s)...", flush=True)
-            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=2)
+            # Increased timeout - Fyers needs more than 2s sometimes on Render
+            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 8s)...", flush=True)
+            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
             
             if fyers_df is not None and not fyers_df.empty:
                 print(f"DEBUG: [MarketData] SUCCESS: Fetched {symbol} from Fyers. Rows: {len(fyers_df)}", flush=True)
                 fyers_df = fyers_df.tail(count)
                 MarketDataService._save_to_disk(symbol, tf, fyers_df)
-                return fyers_df, "INR", None
+                return fyers_df, "INR", None, "fyers"
             
             # Handle Fyers failures
             if fyers_err == "Fyers request timed out":
@@ -344,6 +347,19 @@ class MarketDataService:
                 
         except Exception as fe:
             print(f"DEBUG: [MarketData] Fyers integration exception: {fe}. Falling back to Yahoo.", flush=True)
+
+        # 1.6 Check Cool-off for Yahoo Finance
+        if symbol in MarketDataService._cool_off_symbols:
+            cool_off_end = MarketDataService._cool_off_symbols[symbol]
+            if time.time() < cool_off_end:
+                print(f"DEBUG: [MarketData] Symbol {symbol} is in COOL-OFF. Returning disk cache.", flush=True)
+                df_disk = MarketDataService._load_from_disk(symbol, tf)
+                if df_disk is not None and not df_disk.empty:
+                    return df_disk.tail(count), "INR", None, "cache"
+                return pd.DataFrame(), "INR", f"Symbol {symbol} is temporarily rate-limited. Please wait.", "error"
+            else:
+                # Cool-off expired
+                MarketDataService._cool_off_symbols.pop(symbol, None)
 
         try:
             # --- SYNTHETIC SYMBOL HANDLING ---
@@ -377,23 +393,43 @@ class MarketDataService:
                     
                     # Disk persistence for synthetic
                     MarketDataService._save_to_disk(symbol, tf, df)
-                    return df, "INR", None
+                    return df, "INR", None, "yahoo"
             
             # Standard Fetch
-            print(f"DEBUG: Yahoo Finance Fetching Symbol: {symbol}")
-            ticker = yf.Ticker(symbol)
+            # Convert Fyers-format symbols (e.g. NSE:TCS-EQ) to yfinance format (TCS.NS)
+            yahoo_symbol = symbol
+            if ":" in symbol:
+                # Strip exchange prefix and -EQ / -INDEX suffix for Yahoo
+                parts = symbol.split(":", 1)
+                exchange = parts[0].upper()
+                raw = parts[1].upper()
+                # Remove common Fyers suffixes
+                for sfx in ["-EQ", "-BE", "-SM", "-BL", "-IL", "-INDEX"]:
+                    if raw.endswith(sfx):
+                        raw = raw[:-len(sfx)]
+                        break
+                if exchange == "NSE":
+                    yahoo_symbol = f"{raw}.NS"
+                elif exchange == "BSE":
+                    yahoo_symbol = f"{raw}.BO"
+                else:
+                    yahoo_symbol = raw
+                print(f"DEBUG: Converted Fyers symbol {symbol} -> Yahoo {yahoo_symbol}", flush=True)
+
+            print(f"DEBUG: Yahoo Finance Fetching Symbol: {yahoo_symbol}")
+            ticker = yf.Ticker(yahoo_symbol)
             df = ticker.history(period=period, interval=interval)
             
             # 401 / Invalid Crumb Bypass via Proxy
             if df.empty:
-                print(f"DEBUG: Yahoo Direct failed for {symbol}, trying Proxy...")
+                print(f"DEBUG: Yahoo Direct failed for {yahoo_symbol}, trying Proxy...")
                 y_range = period
                 y_interval = interval
                 
                 # Try query2 first (often bypasses crumb), then query1
                 res = None
                 for q_host in ["query2.finance.yahoo.com", "query1.finance.yahoo.com"]:
-                    y_url = f"https://{q_host}/v8/finance/chart/{symbol}?range={y_range}&interval={y_interval}"
+                    y_url = f"https://{q_host}/v8/finance/chart/{yahoo_symbol}?range={y_range}&interval={y_interval}"
                     res = MarketDataService._fetch_via_proxy(y_url, max_retries=1, timeout=10)
                     if res:
                         break
@@ -458,9 +494,9 @@ class MarketDataService:
                 df_disk = MarketDataService._load_from_disk(symbol, tf)
                 if df_disk is not None and not df_disk.empty:
                     print(f"DEBUG: Returning persistent cache for {symbol}")
-                    return df_disk.tail(count), "INR", None # Pretend it's success to unblock UI
+                    return df_disk.tail(count), "INR", None, "cache" # Pretend it's success to unblock UI
                 
-                return pd.DataFrame(), "INR", f"No data found for {symbol}. (Possible Yahoo Finance Rate Limit - please wait 2-5 minutes)"
+                return pd.DataFrame(), "INR", f"No data found for {symbol}. (Possible Yahoo Finance Rate Limit - please wait 2-5 minutes)", "error"
                 
             df.columns = [c.lower() for c in df.columns]
 
@@ -478,31 +514,34 @@ class MarketDataService:
                 df = df.resample(resample_map[tf], offset=offset).agg(resample_logic).dropna()
             
             df = df.tail(count)
-            is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY")
+            is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY") or symbol.startswith("NSE:") or symbol.startswith("BSE:")
             currency = "INR" if is_inr else "USD"
             
             # 2. Update Memory Cache
             MarketDataService._ohlcv_cache[cache_key] = {
                 'df': df.copy(),
                 'currency': currency,
+                'source': "yahoo",
                 'timestamp': time.time()
             }
             # 3. Save to Disk Persistence
             MarketDataService._save_to_disk(symbol, tf, df)
             
-            return df, currency, None
+            return df, currency, None, "yahoo"
             
         except Exception as e:
             err_msg = str(e)
-            if "Too Many Requests" in err_msg or "Rate limited" in err_msg:
+            if "Too Many Requests" in err_msg or "Rate limited" in err_msg or "429" in err_msg:
+                print(f"CRITICAL: Yahoo Rate Limit for {symbol}. Triggering {MarketDataService.COOL_OFF_DURATION}s cool-off.", flush=True)
+                MarketDataService._cool_off_symbols[symbol] = time.time() + MarketDataService.COOL_OFF_DURATION
                 df_disk = MarketDataService._load_from_disk(symbol, tf)
                 if df_disk is not None and not df_disk.empty:
-                    return df_disk.tail(count), "INR", None
-                return pd.DataFrame(), "INR", "Yahoo Finance Rate Limit exceeded. Please wait 2-5 minutes."
+                    return df_disk.tail(count), "INR", None, "cache"
+                return pd.DataFrame(), "INR", "Yahoo Finance Rate Limit exceeded. Please wait 15 minutes.", "error"
             
             # General fallback for any exception
             df_disk = MarketDataService._load_from_disk(symbol, tf)
             if df_disk is not None and not df_disk.empty:
-                return df_disk.tail(count), "INR", None
+                return df_disk.tail(count), "INR", None, "cache"
                 
-            return pd.DataFrame(), "INR", f"Data Error: {err_msg}"
+            return pd.DataFrame(), "INR", f"Data Error: {err_msg}", "error"
