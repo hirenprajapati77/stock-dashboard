@@ -539,8 +539,8 @@ function updateUI(data, isBackground = false) {
         const tfLabel = document.getElementById('chart-tf-label');
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
-            const tf = data.meta.timeframe || '15m';
-            tfLabel.textContent = `${tf} SESSION`;
+            const tf = data.meta.tf || data.meta.timeframe || '15m';
+            tfLabel.textContent = `${tf.toUpperCase()} SESSION`;
         }
 
 
