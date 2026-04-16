@@ -15,7 +15,7 @@ class FyersService:
     # Primary BASE_URL (api-t1) is preferred for login page in some accounts
     BASE_URL = "https://api-t1.fyers.in/api/v3"
     # Production data endpoint
-    DATA_URL = "https://api.fyers.in/data" 
+    DATA_URL = "https://api-t1.fyers.in/data" 
     # Fallback endpoint for token exchange (api-t1 is often the required endpoint for V3)
     AUTH_FALLBACK_URL = "https://api-t1.fyers.in/api/v3"
     
@@ -324,6 +324,7 @@ class FyersService:
                 # Since DATA_URL is already https://api.fyers.in/data, we can just replace the base
                 proxy_base = fyers_config.auth_proxy_url.rstrip('/')
                 url = f"{proxy_base}/data/history"
+                headers["x-target-host"] = "api-t1.fyers.in"
                 print(f"Fetching Fyers data via proxy: {url}")
             
             res = requests.get(url, params=params, headers=headers, timeout=timeout)

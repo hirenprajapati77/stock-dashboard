@@ -404,39 +404,29 @@ class ScreenerService:
             if str(sector) in cls.SECTOR_INDEX_BY_KEY
         ]
 
-        # 1. Fetch data for all symbols and sectors using MarketDataService (Threaded)
-        print(f"DEBUG: Fetching {len(all_symbols)} stocks and {len(sector_indices)} sectors for Screener via MarketDataService...", flush=True)
+        # 1. Fetch data for all symbols and sectors using MarketDataService (Batch)
+        print(f"DEBUG: Fetching {len(all_symbols)} stocks and {len(sector_indices)} sectors for Screener via Batch...", flush=True)
         stock_batch_data = {}
         sector_batch_data = {}
         
         from app.services.market_data import MarketDataService
         
-        # Combine all targets for a single thread pool pass
+        # Combine all targets for a single batch pass
         all_targets = all_symbols + sector_indices
         
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-                future_to_symbol = {
-                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_tf, count=200): sym 
-                    for sym in all_targets
-                }
-                
-                for future in concurrent.futures.as_completed(future_to_symbol):
-                    sym = future_to_symbol[future]
-                    try:
-                        df, currency, err, _ = future.result()
-                        if df is not None and not df.empty:
-                            # Standardize column names to lowercase
-                            df.columns = [c.lower() for c in df.columns]
-                            if sym in sector_indices:
-                                sector_batch_data[sym] = df
-                            else:
-                                stock_batch_data[sym] = df
-                    except Exception as e:
-                        print(f"DEBUG: Failed to fetch {sym} in ScreenerService: {e}")
-
+            batch_results = MarketDataService.get_ohlcv_batch(all_targets, normalized_tf, count=200)
+            
+            for sym, res in batch_results.items():
+                df, currency, err, source = res
+                if df is not None and not df.empty:
+                    # columns and timezones are handled by batch method
+                    if sym in sector_indices:
+                        sector_batch_data[sym] = df
+                    else:
+                        stock_batch_data[sym] = df
         except Exception as e:
-            print(f"ERROR: Threaded data fetch failed in screener: {e}", flush=True)
+            print(f"ERROR: Batch data fetch failed in screener: {e}", flush=True)
 
         if not stock_batch_data:
             print("WARNING: No stock data fetched for screener via MarketDataService. Using fallback.", flush=True)
@@ -771,22 +761,18 @@ class ScreenerService:
             return []
 
         # 1. Fetch data for filtered symbols ONLY using MarketDataService
-        print(f"DEBUG: Fetching data for {len(filtered_symbols)} early setups (filtered from {len(all_symbols)}) using MarketDataService...")
+        print(f"DEBUG: Fetching data for {len(filtered_symbols)} early setups (filtered from {len(all_symbols)}) via Batch...")
         stock_batch_data = {}
         from app.services.market_data import MarketDataService
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_symbol = {
-                executor.submit(MarketDataService.get_ohlcv, symbol, normalized_tf): symbol 
-                for symbol in filtered_symbols
-            }
-            for future in concurrent.futures.as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    df, currency, err, _ = future.result()
-                    if df is not None and not df.empty:
-                        stock_batch_data[symbol] = df
-                except Exception as e:
-                    print(f"ERROR: Failed to fetch {symbol} for early setups: {e}")
+        
+        try:
+            batch_results = MarketDataService.get_ohlcv_batch(filtered_symbols, normalized_tf)
+            for symbol, res in batch_results.items():
+                df, currency, err, source = res
+                if df is not None and not df.empty:
+                    stock_batch_data[symbol] = df
+        except Exception as e:
+            print(f"ERROR: Failed to fetch batch data for early setups: {e}")
 
         if not stock_batch_data:
             return []

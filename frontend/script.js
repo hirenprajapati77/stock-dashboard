@@ -752,6 +752,21 @@ function updateHeroDecisionStrip(data) {
     const hSl = document.getElementById('hero-sl');
     const hTarget = document.getElementById('hero-target');
     const hRR = document.getElementById('hero-rr');
+    const hSignal = document.getElementById('hero-signal-badge');
+
+    const side = data.summary?.side || data.strategy?.side || data.side || 'LONG';
+    const isAvoid = action.includes('AVOID') || action === 'WAIT' || action === 'HOLD';
+    
+    if (hSignal) {
+        if (isAvoid) {
+            hSignal.textContent = 'WAIT';
+            hSignal.className = 'mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest bg-gray-800 text-gray-500 uppercase';
+        } else {
+            const label = side === 'LONG' ? 'BUY' : 'SELL';
+            hSignal.textContent = label;
+            hSignal.className = `mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest uppercase ${side === 'LONG' ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.4)]'}`;
+        }
+    }
 
     if (hEntry) hEntry.textContent = formatWithCurrency(data.setup?.entry || data.summary?.entry_price || data.meta.cmp, currency);
     if (hSl) hSl.textContent = formatWithCurrency(data.setup?.sl || data.summary?.stop_loss, currency);
@@ -810,11 +825,16 @@ function drawLevelsOnChart(levels, fullData = null) {
     // 1. Chart Header Action Tag (Primary Feedback)
     const headerAction = document.getElementById('chart-header-action');
     if (headerAction && fullData) {
+        const side = fullData.summary?.side || fullData.strategy?.side || fullData.side || 'LONG';
         const isEntry = action.includes('BUY') || action.includes('ENTRY');
+        const isAvoid = action.includes('AVOID') || action === 'WAIT' || action === 'HOLD';
+        
+        const displayAction = isAvoid ? action : `${side} | ${action}`;
+
         headerAction.innerHTML = `
             <div class="px-3 py-1 bg-white/5 border border-white/5 rounded-lg flex items-center gap-2">
                 <span class="${isEntry ? 'text-green-400' : 'text-amber-400'} animate-pulse text-[10px]">●</span>
-                <span class="text-[9px] font-black text-white tracking-widest uppercase">${action}</span>
+                <span class="text-[9px] font-black text-white tracking-widest uppercase">${displayAction}</span>
             </div>
         `;
         headerAction.classList.remove('hidden');

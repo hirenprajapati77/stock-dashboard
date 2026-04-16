@@ -89,24 +89,40 @@ class SREngine:
 
         breakout = cmp > nearest_res if nearest_res else False
 
-        # --- STOP & TARGET ---
-        if nearest_sup:
-            stop_loss = nearest_sup - (atr * 0.5)
-        else:
-            stop_loss = cmp * 0.98
+        # --- SIDE & DIRECTIONAL BIAS ---
+        # Rule: Side depends on whether we are bouncing off Support or breaking Resistance
+        dist_to_sup = (cmp - nearest_sup) / nearest_sup if nearest_sup else 1.0
+        dist_to_res = (nearest_res - cmp) / cmp if nearest_res else 1.0
+        
+        # Default Side
+        side = "LONG"
+        if dist_to_res < dist_to_sup and not breakout:
+            # If price is closer to Resistance and not breaking out, bias might be SHORT (rejection)
+            # but we only flip to SHORT if the trend is weak or bearish
+            if regime in ["RANGE", "WEAK_TREND"] or InsightEngine.get_ema_bias(df) == "Caution":
+                side = "SHORT"
 
-        if breakout and len(resistances) > 1:
-            target = resistances[1]['price']
-        elif nearest_res:
-            target = nearest_res
-        else:
-            target = cmp * 1.05
+        # --- STOP & TARGET (Dynamic) ---
+        if side == "LONG":
+            stop_loss = nearest_sup - (atr * 0.5) if nearest_sup else cmp * 0.98
+            if breakout and len(resistances) > 1:
+                target = resistances[1]['price']
+            elif nearest_res:
+                target = nearest_res
+            else:
+                target = cmp * 1.05
+        else: # SHORT
+            stop_loss = nearest_res + (atr * 0.5) if nearest_res else cmp * 1.02
+            if nearest_sup:
+                target = nearest_sup
+            else:
+                target = cmp * 0.95
 
-        rr = (target - cmp) / (cmp - stop_loss) if (cmp - stop_loss) > 0 else 0
+        rr = (abs(target - cmp)) / (abs(cmp - stop_loss)) if abs(cmp - stop_loss) > 0 else 0
 
-        # Fake Breakout Detector (kept from previous version)
+        # Fake Breakout Detector
         false_break = (
-            breakout and
+            breakout and side == "LONG" and
             len(df) >= 2 and
             df['close'].iloc[-1] < df['high'].iloc[-2]
         )
@@ -116,36 +132,48 @@ class SREngine:
         # -------------------------
         score = 0
 
-        # Breakout
-        if breakout and regime != "RANGE":
-            score += 20
+        # Breakout / Momentum
+        if breakout and side == "LONG":
+            score += 20 if regime != "RANGE" else 10
+        
+        # Proximity / Bounce Bonus (New)
+        if side == "LONG" and dist_to_sup <= 0.015:
+            score += 15 # Bounce setup
+        elif side == "SHORT" and dist_to_res <= 0.015:
+            score += 15 # Resistance rejection setup
+
+        # Trend Bonus (New)
+        if regime in ["STRONG_UPTREND", "UPTREND"] and side == "LONG":
+            score += 15
+        elif regime in ["STRONG_DOWNTREND", "DOWNTREND"] and side == "SHORT":
+            score += 15
 
         # Retest
         if retest:
-            score += 15
+            score += 10
 
         # Volume
-        if vol_ratio >= 2:
-            score += 15
-        elif vol_ratio >= 1.5:
+        if vol_ratio >= 1.5:
             score += 10
+        elif vol_ratio >= 1.2: # Lowered threshold for normal markets
+            score += 5
 
-        # Trend Strength
+        # Trend Strength (ADX)
         if adx >= 25:
-            score += 15
-        elif adx >= 18:
             score += 10
+        elif adx >= 18:
+            score += 5
 
         # Risk Reward
-        if rr >= 2:
+        if rr >= 1.5:
             score += 15
-        elif rr >= 1.5:
+        elif rr >= 1.2:
             score += 10
 
         # Sector Alignment
-        if sector_state == "LEADING":
-            score += 15
-        elif sector_state == "IMPROVING":
+        if sector_state == "LEADING" and side == "LONG":
+            score += 10
+        elif sector_state == "LAGGING" and side == "SHORT":
             score += 10
 
         confidence = min(score, 100)
@@ -159,22 +187,21 @@ class SREngine:
             confidence = min(confidence, 55)
 
         # -------------------------
-        # STATUS LOGIC
+        # STATUS LOGIC (Relaxed Thresholds)
         # -------------------------
-        if confidence >= 80:
+        if confidence >= 75:
             status = "STRONG_ENTRY"
-        elif confidence >= 65:
+        elif confidence >= 60:
             status = "ENTRY_READY"
-        elif confidence >= 50:
-            status = "WATCHLIST"
         else:
-            status = "AVOID"
+            status = "WATCHLIST"
 
-        bias = "BULLISH" if breakout else "RANGE"
+        bias = "BULLISH" if (breakout or regime == "STRONG_UPTREND") else "BEARISH" if regime == "STRONG_DOWNTREND" else "RANGE"
         grade = MarketRegimeEngine.get_grade(confidence)
 
         return {
             "bias": bias,
+            "side": side,
             "entryStatus": status,
             "stopLoss": round(stop_loss, 2),
             "target": round(target, 2),

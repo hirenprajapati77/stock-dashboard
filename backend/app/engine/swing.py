@@ -146,72 +146,66 @@ class SwingEngine:
 
         if structure == "BULLISH":
             score += 20
+        elif structure == "NEUTRAL" and adx >= 20:
+            score += 10 # Trend continuation candidate
 
         if ema_aligned:
             score += 15
 
         if htf_aligned:
-            score += 15
+            score += 10
 
         if pullback_quality:
             score += 15
 
         if adx >= 25:
-            score += 15
+            score += 10
         elif adx >= 18:
+            score += 5
+
+        if vol_ratio >= 1.2: # Relaxed from 1.5
             score += 10
 
-        if vol_ratio >= 1.5:
-            score += 10
-
-        if rr >= 2:
+        if rr >= 1.5: # Relaxed from 2
             score += 10
 
         if sector_state == "LEADING":
-            score += 15
-        elif sector_state == "IMPROVING":
             score += 10
+        elif sector_state == "IMPROVING":
+            score += 5
 
-        # Regime penalty (kept from previous version)
+        # Regime penalty (Reduced and made conditional)
         if regime in ["RANGE", "WEAK_TREND"]:
-            score -= 15
+            if adx < 20:
+                score -= 5 # Only penalize if truly sideways
+            else:
+                score += 5 # Counter-trend or mean reversion possible
+
+        # Trend Bonus (New)
+        if regime in ["STRONG_UPTREND", "UPTREND"] and structure == "BULLISH":
+            score += 10
 
         confidence = min(max(score, 0), 100)
 
-        # Target modification for metrics integration
-        is_blue_sky = False
-        sorted_res = sorted([r for r in resistances if r['price'] > cmp], key=lambda x: x['price'])
-        if sorted_res:
-            res_target = sorted_res[0]['price']
-            # Only use resistance target if it's better than 2R
-            if res_target > target:
-                 target = res_target
-        else:
-            is_blue_sky = True
-
-        if is_blue_sky:
-            confidence = min(confidence, 60)
-
-        # Liquidity Filter (kept from previous version)
+        # Liquidity Filter
         if avg_vol < 200_000:
             confidence = min(confidence, 55)
 
         # -------------------------
-        # STATUS LOGIC
+        # STATUS LOGIC (Relaxed Thresholds)
         # -------------------------
-        if confidence >= 80:
+        if confidence >= 75:
             status = "STRONG_ENTRY"
-        elif confidence >= 65:
+        elif confidence >= 60:
             status = "ENTRY_READY"
-        elif confidence >= 50:
-            status = "WATCHLIST"
         else:
-            status = "AVOID"
+            status = "WATCHLIST"
 
         grade = MarketRegimeEngine.get_grade(confidence)
 
         return {
             "bias": structure,
+            "side": "LONG" if structure == "BULLISH" else "SHORT",
             "entryStatus": status,
             "stopLoss": round(stop_loss, 2),
             "target": round(target, 2),

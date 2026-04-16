@@ -159,6 +159,7 @@ class FibonacciEngine:
 
         return {
             "bias": "BULLISH" if is_uptrend else "BEARISH",
+            "side": "LONG" if is_uptrend else "SHORT",
             "entryStatus": status,
             "confidence": confidence,
             "stopLoss": round(sl_price, 2),

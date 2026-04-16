@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "1W"
+    },
+    "timestamp": "2026-04-14T09:28:03.251334"
+  }
+]

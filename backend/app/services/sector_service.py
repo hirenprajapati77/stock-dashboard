@@ -137,29 +137,22 @@ class SectorService:
         
         unique_symbols = list(set(all_sector_symbols + all_cons_symbols))
         
-        # 1. Fetch data for all symbols using MarketDataService (Fyers-first + Proxy)
+        # 1. Fetch data for all symbols using MarketDataService Batch
         batch_data = {}
         try:
-            print(f"DEBUG: Fetching data for {len(unique_symbols)} symbols via MarketDataService (Threaded)...", flush=True)
+            print(f"DEBUG: Fetching data for {len(unique_symbols)} symbols via MarketDataService Batch...", flush=True)
             from app.services.market_data import MarketDataService
             
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                # Map timeframe to days count if needed, but get_ohlcv handles defaults well
-                future_to_symbol = {
-                    executor.submit(MarketDataService.get_ohlcv, sym, normalized_timeframe, count=60): sym 
-                    for sym in unique_symbols
-                }
-                
-                for future in concurrent.futures.as_completed(future_to_symbol):
-                    sym = future_to_symbol[future]
-                    try:
-                        df, currency, err = future.result()
-                        if df is not None and not df.empty:
-                            # Standardize column names to lowercase
-                            df.columns = [c.lower() for c in df.columns]
-                            batch_data[sym] = df
-                    except Exception as e:
-                        print(f"DEBUG: Failed to fetch {sym} in SectorService: {e}")
+            batch_results = MarketDataService.get_ohlcv_batch(unique_symbols, normalized_timeframe, count=60)
+            
+            for sym, res in batch_results.items():
+                df, currency, err, source = res
+                if df is not None and not df.empty:
+                    # columns are handles by batch method but let's be sure of case
+                    df.columns = [c.lower() for c in df.columns]
+                    batch_data[sym] = df
+        except Exception as e:
+            print(f"DEBUG: Failed to fetch batch data in SectorService: {e}")
 
             if not batch_data:
                 print(f"Warning: No data fetched for sectors via MarketDataService. Trying fallback.", flush=True)
