@@ -83,7 +83,8 @@ class FundamentalScreener:
                 return None
 
             # --- PHASE 2: Data Extraction ---
-            df, _, _ = MarketDataService.get_ohlcv(ticker_sym, "1D")
+            res_ohlcv = MarketDataService.get_ohlcv(ticker_sym, "1D")
+            df = res_ohlcv[0] if res_ohlcv else None
             latest_price = 0
             if df is not None and not df.empty:
                 latest_price = float(df['close'].iloc[-1])
@@ -218,6 +219,14 @@ class FundamentalScreener:
 
         print(f"[FundamentalScreener] Running fresh screen on {len(symbols)} symbols...")
         results = []
+
+        # ── Pre-warm OHLCV cache in one batch to speed up individual workers ──
+        try:
+            from app.services.market_data import MarketDataService
+            print(f"[FundamentalScreener] Pre-warming OHLCV cache for {len(symbols)} symbols...")
+            MarketDataService.get_ohlcv_batch(symbols, "1D")
+        except Exception as e:
+            print(f"[FundamentalScreener] Pre-warm failed: {e}")
 
         is_render = os.getenv("RENDER") is not None
         max_workers = 3 if is_render else 10

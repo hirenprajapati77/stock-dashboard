@@ -256,6 +256,121 @@ class MarketDataService:
             return None
 
     @staticmethod
+    def get_ohlcv_batch(symbols, tf="1D", count=200):
+        """
+        Fetches OHLCV data for multiple symbols in a batch using yfinance.download.
+        This is significantly faster than single-ticker fetches for large lists.
+        """
+        if not symbols:
+            return {}
+
+        normalized_symbols = [MarketDataService.normalize_symbol(s) for s in symbols]
+        unique_normalized = list(set(normalized_symbols))
+        
+        results = {}
+        to_fetch = []
+        
+        # 1. Check Memory Cache
+        now = time.time()
+        for sym in unique_normalized:
+            cache_key = f"{sym}_{tf}_{count}_True"
+            if cache_key in MarketDataService._ohlcv_cache:
+                entry = MarketDataService._ohlcv_cache[cache_key]
+                if (now - entry['timestamp']) < MarketDataService.CACHE_TTL:
+                    results[sym] = (entry['df'].copy(), entry['currency'], None, "cache")
+                    continue
+            
+            # Check Disk Cache if not in memory or expired
+            df_disk = MarketDataService._load_from_disk(sym, tf)
+            if df_disk is not None and not df_disk.empty:
+                results[sym] = (df_disk.tail(count), "INR", None, "cache")
+                # Pre-fill memory cache
+                MarketDataService._ohlcv_cache[cache_key] = {
+                    'df': df_disk, 'currency': 'INR', 'timestamp': now, 'source': 'cache'
+                }
+                continue
+                
+            to_fetch.append(sym)
+
+        if not to_fetch:
+            # Return mapped to original input symbols
+            final_map = {}
+            for original, norm in zip(symbols, normalized_symbols):
+                if norm in results:
+                    final_map[original] = results[norm]
+            return final_map
+
+        # 2. Map TF/Interval
+        interval_map = {"5m": "5m", "15m": "15m", "1H": "60m", "1D": "1d", "1W": "1wk", "1M": "1mo"}
+        interval = interval_map.get(tf, "1d")
+        
+        period_map = {"5m": "7d", "15m": "30d", "1H": "180d", "1D": "1y", "1W": "2y", "1M": "5y"}
+        period = period_map.get(tf, "1y")
+
+        # 3. Batch Fetch via Yahoo Finance
+        print(f"DEBUG: [MarketData] Batch fetching {len(to_fetch)} symbols from Yahoo ({tf})...")
+        try:
+            # yfinance.download is much faster for batch
+            # We use group_by='ticker' for easy splitting
+            data = yf.download(
+                tickers=to_fetch,
+                period=period,
+                interval=interval,
+                group_by='ticker',
+                threads=True,
+                progress=False
+            )
+            
+            for sym in to_fetch:
+                try:
+                    # Multi-index handle
+                    if len(to_fetch) > 1:
+                        if sym not in data.columns.levels[0]:
+                            continue
+                        df = data[sym].copy()
+                    else:
+                        df = data.copy()
+                        
+                    if df.empty: continue
+                    
+                    # Clean up
+                    df.dropna(how='all', inplace=True)
+                    if df.empty: continue
+                    
+                    # Normalize timezones (fix warning)
+                    if hasattr(df.index, 'tz') and df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
+                        
+                    # Standardize column names
+                    df.rename(columns={
+                        'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'
+                    }, inplace=True)
+                    
+                    # Save to caches
+                    MarketDataService._save_to_disk(sym, tf, df)
+                    cache_key = f"{sym}_{tf}_{count}_True"
+                    MarketDataService._ohlcv_cache[cache_key] = {
+                        'df': df, 'currency': 'INR', 'timestamp': time.time(), 'source': 'yahoo_batch'
+                    }
+                    
+                    results[sym] = (df.tail(count), "INR", None, "yahoo_batch")
+                except Exception as sym_err:
+                    print(f"DEBUG: [MarketData] Error parsing {sym} in batch: {sym_err}")
+                    
+        except Exception as e:
+            print(f"ERROR: [MarketData] Yahoo Batch Fetch failed: {e}")
+
+        # Final mapping to original symbols
+        final_map = {}
+        for original, norm in zip(symbols, normalized_symbols):
+            if norm in results:
+                final_map[original] = results[norm]
+            else:
+                final_map[original] = (None, "INR", "Failed to fetch data", "error")
+        
+        return final_map
+
+    @staticmethod
     def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
         """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.

@@ -309,19 +309,27 @@ class ZoneEngine:
         # --- SAFE VOLUME RATIO ---
         vol_mean = df['volume'].tail(20).mean()
         vol_ratio = float(df['volume'].iloc[-1] / vol_mean) if vol_mean > 0 else 1
+        avg_vol = float(df['volume'].tail(20).mean())
 
-        # --- FILTER DEMAND ZONES ---
-        demand_zones = [
-            z for z in zones
-            if z.get('type') == 'DEMAND' and z.get('price', 0) < cmp
-        ]
+        # --- FILTER ZONES ---
+        demand_zones = sorted(
+            [z for z in zones if z.get('type') == 'DEMAND' and z.get('price', 0) < cmp],
+            key=lambda x: x.get('price', 0), reverse=True
+        )
+        supply_zones = sorted(
+            [z for z in zones if z.get('type') == 'SUPPLY' and z.get('price', 0) > cmp],
+            key=lambda x: x.get('price', 0)
+        )
 
-        demand_zones = sorted(demand_zones, key=lambda x: x.get('price', 0), reverse=True)
-
-        if not demand_zones:
+        # -------------------------
+        # DECIDE SIDE: LONG vs SHORT
+        # If no demand zone available, try a SHORT setup from supply zone
+        # -------------------------
+        if not demand_zones and not supply_zones:
             return {
                 "bias": "NEUTRAL",
-                "entryStatus": "AVOID",
+                "side": "NEUTRAL",
+                "entryStatus": "WATCHLIST",
                 "stopLoss": round(cmp * 0.95, 2),
                 "target": round(cmp * 1.05, 2),
                 "riskReward": 0,
@@ -336,6 +344,96 @@ class ZoneEngine:
                 }
             }
 
+        # Determine active side
+        use_short = False
+        if not demand_zones:
+            use_short = True
+        elif supply_zones:
+            # If price is closer to supply than demand, prefer SHORT
+            dist_to_demand = (cmp - demand_zones[0].get('price', cmp)) / cmp
+            dist_to_supply = (supply_zones[0].get('price', cmp) - cmp) / cmp
+            if dist_to_supply < dist_to_demand and regime in ["RANGE", "WEAK_TREND", "STRONG_DOWNTREND", "DOWNTREND"]:
+                use_short = True
+
+        if use_short:
+            # ---- SHORT / SUPPLY SETUP ----
+            zone = supply_zones[0]
+            price_low = zone.get('price_low', zone.get('price', cmp))
+            price_high = zone.get('price_high', zone.get('price', cmp))
+            strength = zone.get('strength', 1)
+
+            stop_loss = price_high + (atr * 0.3 if atr > 0 else cmp * 0.01)
+            target = cmp - (stop_loss - cmp) * 2  # 2R target to the downside
+            rr = (cmp - target) / (stop_loss - cmp) if (stop_loss - cmp) > 0 else 0
+            zone_width = price_high - price_low
+
+            score = 0
+            if strength >= 2:
+                score += 20
+            if zone_width <= atr and atr > 0:
+                score += 15
+            if adx >= 20:
+                score += 15
+            if vol_ratio >= 1.5:
+                score += 15
+            elif vol_ratio >= 1.2:
+                score += 7
+            if rr >= 2:
+                score += 15
+            elif rr >= 1.5:
+                score += 8
+            if sector_state in ["LAGGING", "DETERIORATING"]:
+                score += 15
+            if regime in ["STRONG_DOWNTREND", "DOWNTREND"]:
+                score += 10
+
+            confidence = min(score, 100)
+            if avg_vol < 200_000:
+                confidence = min(confidence, 55)
+
+            if confidence >= 75:
+                status = "STRONG_ENTRY"
+            elif confidence >= 60:
+                status = "ENTRY_READY"
+            else:
+                status = "WATCHLIST"
+
+            grade = MarketRegimeEngine.get_grade(int(confidence))
+            touches = zone.get('touched', 0)
+            freshness = "FRESH" if touches == 0 else "TESTED"
+            vol_spike = vol_ratio >= 1.5
+
+            impulse_idx = zone.get('creation_idx')
+            departure_strength = 0
+            if impulse_idx is not None and impulse_idx < len(df):
+                row = df.iloc[impulse_idx]
+                body = abs(row['close'] - row['open'])
+                departure_strength = (body / atr * 100) if atr > 0 else 0
+
+            return {
+                "bias": "BEARISH",
+                "side": "SHORT",
+                "entryStatus": status,
+                "stopLoss": round(stop_loss, 2),
+                "target": round(target, 2),
+                "riskReward": round(rr, 2),
+                "confidence": confidence,
+                "grade": grade,
+                "nearest_support": demand_zones[0].get('price') if demand_zones else None,
+                "nearest_resistance": zone.get('price'),
+                "additionalMetrics": {
+                    "regime": regime,
+                    "zoneWidth": round(zone_width, 2),
+                    "adx": round(adx, 2),
+                    "volRatio": round(vol_ratio, 2),
+                    "freshness": freshness,
+                    "departureStrength": round(departure_strength, 2),
+                    "zoneRange": f"{price_low:.1f}-{price_high:.1f}",
+                    "volSpike": vol_spike
+                }
+            }
+
+        # ---- LONG / DEMAND SETUP ----
         zone = demand_zones[0]
 
         price_low = zone.get('price_low', zone.get('price', cmp))
@@ -353,7 +451,7 @@ class ZoneEngine:
 
         zone_width = price_high - price_low
 
-        # --- SIMPLE SCORING ---
+        # --- SCORING (Calibrated: 75/60/40) ---
         score = 0
 
         if strength >= 2:
@@ -367,23 +465,35 @@ class ZoneEngine:
 
         if vol_ratio >= 1.5:
             score += 15
+        elif vol_ratio >= 1.2:
+            score += 7
 
         if rr >= 2:
             score += 15
+        elif rr >= 1.5:
+            score += 8
 
         if sector_state in ["LEADING", "IMPROVING"]:
             score += 15
 
+        if regime in ["STRONG_UPTREND", "UPTREND"]:
+            score += 10
+
         confidence = min(score, 100)
+
+        # Liquidity filter
+        if avg_vol < 200_000:
+            confidence = min(confidence, 55)
+
         grade = MarketRegimeEngine.get_grade(int(confidence))
 
-        # --- STATUS ---
+        # --- STATUS (Calibrated Thresholds) ---
         if confidence >= 75:
+            status = "STRONG_ENTRY"
+        elif confidence >= 60:
             status = "ENTRY_READY"
-        elif confidence >= 50:
-            status = "WATCHLIST"
         else:
-            status = "AVOID"
+            status = "WATCHLIST"
 
         # --- NEW METRICS FOR FRONTEND ---
         touches = zone.get('touched', 0)
@@ -399,17 +509,12 @@ class ZoneEngine:
 
         vol_spike = vol_ratio >= 1.5
 
-        # Supply zones for nearest resistance
-        supply_zones = [
-            z for z in zones
-            if z.get('type') == 'SUPPLY' and z.get('price', 0) > cmp
-        ]
-        supply_zones = sorted(supply_zones, key=lambda x: x.get('price', 0))
         nearest_resistance = supply_zones[0].get('price') if supply_zones else None
         nearest_support = zone.get('price')
 
         return {
             "bias": "BULLISH",
+            "side": "LONG",
             "entryStatus": status,
             "stopLoss": round(stop_loss, 2),
             "target": round(target, 2),

@@ -544,6 +544,7 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             "summary": {
                 "trade_signal": str(strategy_result.get("entryStatus", strategy_result.get("signal", "HOLD"))),
                 "trade_signal_reason": strategy_result.get("bias", "Neutral bias"),
+                "side": strategy_result.get("side", "LONG"),
                 "confidence": int(strategy_result.get("confidence", 50)),
                 "nearest_support": ns,
                 "nearest_resistance": nr,
