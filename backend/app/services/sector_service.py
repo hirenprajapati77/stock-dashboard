@@ -197,36 +197,35 @@ class SectorService:
                 sector_close_col = "close" if "close" in s_df.columns else "Close"
                 sector_close = s_df[sector_close_col]
                 
-                # Align data - FORCE timezone naive to avoid comparison errors
+                # Align data - FORCE timezone naive and ROUND to 1min for perfect alignment
                 s_naive = sector_close.copy()
                 b_naive = benchmark_data.copy()
                 
                 # Robust conversion to naive DatetimeIndex
                 try:
-                    s_naive.index = pd.to_datetime(s_naive.index, utc=True).tz_localize(None)
-                    b_naive.index = pd.to_datetime(b_naive.index, utc=True).tz_localize(None)
+                    s_naive.index = pd.to_datetime(s_naive.index, utc=True).tz_localize(None).round('1min')
+                    b_naive.index = pd.to_datetime(b_naive.index, utc=True).tz_localize(None).round('1min')
                 except Exception as e:
                     print(f"WARN: Timezone normalization fallback for {name}: {e}")
-                    if hasattr(s_naive.index, 'tz'): s_naive.index = s_naive.index.tz_localize(None)
-                    if hasattr(b_naive.index, 'tz'): b_naive.index = b_naive.index.tz_localize(None)
+                    if hasattr(s_naive.index, 'tz'): s_naive.index = s_naive.index.tz_localize(None).round('1min')
+                    if hasattr(b_naive.index, 'tz'): b_naive.index = b_naive.index.tz_localize(None).round('1min')
+
+                # Deduplicate and align
+                s_naive = s_naive[~s_naive.index.duplicated(keep='last')].sort_index()
+                b_naive = b_naive[~b_naive.index.duplicated(keep='last')].sort_index()
 
                 combined = pd.DataFrame({
                     'sector': s_naive,
                     'benchmark': b_naive
-                }).dropna()
+                })
                 
-                if combined.empty:
-                    # Timezone naive fallback
-                    s_tmp, b_tmp = sector_close.copy(), benchmark_data.copy()
-                    if hasattr(s_tmp.index, 'tz'): s_tmp.index = s_tmp.index.tz_localize(None)
-                    if hasattr(b_tmp.index, 'tz'): b_tmp.index = b_tmp.index.tz_localize(None)
-                    combined = pd.DataFrame({'sector': s_tmp, 'benchmark': b_tmp}).dropna()
+                # Double check alignment and handle overlaps
+                combined = combined.interpolate(method='linear').dropna()
 
+                
                 if combined.empty: continue
                 
                 # RS and momentum rules:
-                # NEW: rs = sector_return - benchmark_return (Difference-based to avoid division explosions)
-                # momentum = rs(current) - rs(previous)
                 lookback_bars = cls.RETURN_LOOKBACK_BARS_BY_TIMEFRAME.get(normalized_timeframe, 1)
                 combined['sector_return'] = combined['sector'].pct_change(periods=lookback_bars)
                 combined['benchmark_return'] = combined['benchmark'].pct_change(periods=lookback_bars)
@@ -236,12 +235,14 @@ class SectorService:
                 combined['rm'] = combined['rs'].diff()
                 
                 # Phase 1: Sector Acceleration
-                # 5-day rolling RS to smooth noise
-                combined['rs_5d'] = combined['rs'].rolling(5).sum()
-                # Acceleration = rate of change of the 5d RS (diff is cleaner than comparison to mean)
-                combined['acc_raw'] = combined['rs_5d'].diff()
+                # 5-day rolling RS to smooth noise (relaxed min_periods)
+                combined['rs_5d'] = combined['rs'].rolling(5, min_periods=1).sum()
+                # Acceleration = rate of change of the 5d RS
+                combined['acc_raw'] = combined['rs_5d'].diff().fillna(0)
                 
-                combined = combined.dropna(subset=['rs', 'rm', 'acc_raw'])
+                # Final cleanup - keep as much data as possible
+                combined = combined.dropna(subset=['rs'])
+
 
                 # History (last 30)
                 history = combined.tail(30)

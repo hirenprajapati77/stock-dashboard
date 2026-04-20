@@ -10,8 +10,10 @@ from app.services.fyers_service import FyersService
 
 import requests
 import json as json_lib # Avoid conflict with possible local json var
+from concurrent.futures import ThreadPoolExecutor
 
 class MarketDataService:
+
     # Removed custom session as it conflicts with newer yfinance/curl_cffi requirements on Render
 
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
@@ -302,107 +304,42 @@ class MarketDataService:
                     final_map[original] = results[norm]
             return final_map
 
-        # 2. Map TF/Interval
-        interval_map = {"5m": "5m", "15m": "15m", "1H": "60m", "1D": "1d", "1W": "1wk", "1M": "1mo"}
-        interval = interval_map.get(tf, "1d")
+        # 2. Parallel Fetch using the hardened get_ohlcv method
+        print(f"DEBUG: [MarketData] Parallel batch fetching {len(unique_normalized)} symbols...", flush=True)
         
-        period_map = {"5m": "7d", "15m": "30d", "1H": "180d", "1D": "1y", "1W": "2y", "1M": "5y"}
-        period = period_map.get(tf, "1y")
-
-        # 3. Batch Fetch via Yahoo Finance
-        print(f"DEBUG: [MarketData] Batch fetching {len(to_fetch)} symbols from Yahoo ({tf})...")
-        try:
-            # yfinance.download is much faster for batch
-            # Optimization: Use limited threads locally to avoid YFRateLimitError
-            # Render has its own limits, but locally 2-4 is safer than unrestricted parallel
-            max_threads = 2 if not os.getenv("RENDER") else None
+        # We use a moderate thread count to avoid overwhelming the Fyers/Yahoo APIs
+        # but enough to keep the UI responsive.
+        max_workers = 10 if os.getenv("RENDER") else 5
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Create a mapping of future to norm_symbol
+            future_to_sym = {
+                executor.submit(MarketDataService.get_ohlcv, norm_sym, tf, count): norm_sym 
+                for norm_sym in unique_normalized
+            }
             
-            data = yf.download(
-                tickers=to_fetch,
-                period=period,
-                interval=interval,
-                group_by='ticker',
-                threads=max_threads if max_threads is not None else True,
-                progress=False,
-                timeout=15
-            )
-            
-            if data is None or data.empty:
-                raise Exception("Yahoo returned empty batch results (Rate Limit?)")
-
-            for sym in to_fetch:
+            for future in future_to_sym:
+                norm_sym = future_to_sym[future]
                 try:
-                    # Multi-index handle
-                    if len(to_fetch) > 1:
-                        if sym not in data.columns.levels[0]:
-                            # Try to load from disk if missing from batch
-                            disk_df = MarketDataService._load_from_disk(sym, tf)
-                            if disk_df is not None:
-                                results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
-                            continue
-                        df = data[sym].copy()
+                    df, currency, err, source = future.result()
+                    if df is not None and not df.empty:
+                        results[norm_sym] = (df, currency, err, source)
                     else:
-                        # yfinance group_by='ticker' returns MultiIndex even for 1 symbol
-                        if isinstance(data.columns, pd.MultiIndex):
-                            if sym in data.columns.levels[0]:
-                                df = data[sym].copy()
-                            else:
-                                # Try disk fallback
-                                disk_df = MarketDataService._load_from_disk(sym, tf)
-                                if disk_df is not None:
-                                    results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
-                                continue
-                        else:
-                            df = data.copy()
-                        
-                    if df.empty: continue
-                    
-                    # Clean up
-                    df.dropna(how='all', inplace=True)
-                    if df.empty: continue
-                    
-                    # Normalize timezones (fix warning)
-                    if hasattr(df.index, 'tz') and df.index.tz is not None:
-                        df.index = df.index.tz_localize(None)
-                        
-                    # Standardize column names
-                    df.rename(columns={
-                        'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'
-                    }, inplace=True)
-                    
-                    # Save to caches
-                    MarketDataService._save_to_disk(sym, tf, df)
-                    cache_key = f"{sym}_{tf}_{count}_True"
-                    MarketDataService._ohlcv_cache[cache_key] = {
-                        'df': df, 'currency': 'INR', 'timestamp': time.time(), 'source': 'yahoo_batch'
-                    }
-                    
-                    results[sym] = (df.tail(count), "INR", None, "yahoo_batch")
-                except Exception as sym_err:
-                    print(f"DEBUG: [MarketData] Error parsing {sym} in batch: {sym_err}")
-                    # Try disk fallback for this specific symbol
-                    disk_df = MarketDataService._load_from_disk(sym, tf)
-                    if disk_df is not None:
-                        results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
-                    
-        except Exception as e:
-            print(f"ERROR: [MarketData] Yahoo Batch Fetch failed: {e}. Falling back to disk cache.")
-            # Emergency fallback: Load EVERYTHING from disk if batch failed entirely
-            for sym in to_fetch:
-                if sym not in results:
-                    disk_df = MarketDataService._load_from_disk(sym, tf)
-                    if disk_df is not None:
-                        results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
+                        results[norm_sym] = (None, "INR", err or "Failed to fetch data", "error")
+                except Exception as e:
+                    print(f"ERROR: [MarketData] Parallel fetch failed for {norm_sym}: {e}")
+                    results[norm_sym] = (None, "INR", str(e), "error")
 
-        # Final mapping to original symbols
+        # 3. Final mapping back to original input symbols
         final_map = {}
         for original, norm in zip(symbols, normalized_symbols):
             if norm in results:
                 final_map[original] = results[norm]
             else:
-                final_map[original] = (None, "INR", "Failed to fetch data", "error")
+                final_map[original] = (None, "INR", "Failed to resolve data", "error")
         
         return final_map
+
 
     @staticmethod
     def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
