@@ -3,6 +3,7 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
+import os
 import time
 from functools import lru_cache
 from app.services.fyers_service import FyersService
@@ -311,25 +312,47 @@ class MarketDataService:
         print(f"DEBUG: [MarketData] Batch fetching {len(to_fetch)} symbols from Yahoo ({tf})...")
         try:
             # yfinance.download is much faster for batch
-            # We use group_by='ticker' for easy splitting
+            # Optimization: Use limited threads locally to avoid YFRateLimitError
+            # Render has its own limits, but locally 2-4 is safer than unrestricted parallel
+            max_threads = 2 if not os.getenv("RENDER") else None
+            
             data = yf.download(
                 tickers=to_fetch,
                 period=period,
                 interval=interval,
                 group_by='ticker',
-                threads=True,
-                progress=False
+                threads=max_threads if max_threads is not None else True,
+                progress=False,
+                timeout=15
             )
             
+            if data is None or data.empty:
+                raise Exception("Yahoo returned empty batch results (Rate Limit?)")
+
             for sym in to_fetch:
                 try:
                     # Multi-index handle
                     if len(to_fetch) > 1:
                         if sym not in data.columns.levels[0]:
+                            # Try to load from disk if missing from batch
+                            disk_df = MarketDataService._load_from_disk(sym, tf)
+                            if disk_df is not None:
+                                results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
                             continue
                         df = data[sym].copy()
                     else:
-                        df = data.copy()
+                        # yfinance group_by='ticker' returns MultiIndex even for 1 symbol
+                        if isinstance(data.columns, pd.MultiIndex):
+                            if sym in data.columns.levels[0]:
+                                df = data[sym].copy()
+                            else:
+                                # Try disk fallback
+                                disk_df = MarketDataService._load_from_disk(sym, tf)
+                                if disk_df is not None:
+                                    results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
+                                continue
+                        else:
+                            df = data.copy()
                         
                     if df.empty: continue
                     
@@ -356,9 +379,19 @@ class MarketDataService:
                     results[sym] = (df.tail(count), "INR", None, "yahoo_batch")
                 except Exception as sym_err:
                     print(f"DEBUG: [MarketData] Error parsing {sym} in batch: {sym_err}")
+                    # Try disk fallback for this specific symbol
+                    disk_df = MarketDataService._load_from_disk(sym, tf)
+                    if disk_df is not None:
+                        results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
                     
         except Exception as e:
-            print(f"ERROR: [MarketData] Yahoo Batch Fetch failed: {e}")
+            print(f"ERROR: [MarketData] Yahoo Batch Fetch failed: {e}. Falling back to disk cache.")
+            # Emergency fallback: Load EVERYTHING from disk if batch failed entirely
+            for sym in to_fetch:
+                if sym not in results:
+                    disk_df = MarketDataService._load_from_disk(sym, tf)
+                    if disk_df is not None:
+                        results[sym] = (disk_df.tail(count), "INR", None, "disk_fallback")
 
         # Final mapping to original symbols
         final_map = {}

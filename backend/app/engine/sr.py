@@ -81,6 +81,8 @@ class SREngine:
         avg_vol = float(df['volume'].tail(20).mean())
         adx = InsightEngine.get_adx(df)
         retest = InsightEngine.detect_retest(df, supports + resistances)
+        is_hammer = InsightEngine.detect_hammer(df)
+        engulfing = InsightEngine.detect_engulfing(df)
         atr = ZoneEngine.calculate_atr(df).iloc[-1]
         regime = MarketRegimeEngine.detect_regime(df)
 
@@ -136,11 +138,15 @@ class SREngine:
         if breakout and side == "LONG":
             score += 20 if regime != "RANGE" else 10
         
-        # Proximity / Bounce Bonus (New)
+        # Proximity / Bounce Bonus (Enhanced)
         if side == "LONG" and dist_to_sup <= 0.015:
-            score += 15 # Bounce setup
+            score += 15 # Proximity
+            if is_hammer or engulfing == "Bullish":
+                score += 10 # Candle confirmation
         elif side == "SHORT" and dist_to_res <= 0.015:
-            score += 15 # Resistance rejection setup
+            score += 15 # Proximity
+            if engulfing == "Bearish":
+                score += 10 # Candle confirmation
 
         # Trend Bonus (New)
         if regime in ["STRONG_UPTREND", "UPTREND"] and side == "LONG":
@@ -187,11 +193,11 @@ class SREngine:
             confidence = min(confidence, 55)
 
         # -------------------------
-        # STATUS LOGIC (Relaxed Thresholds)
+        # STATUS LOGIC (Further Relaxed)
         # -------------------------
-        if confidence >= 75:
+        if confidence >= 70:
             status = "STRONG_ENTRY"
-        elif confidence >= 60:
+        elif confidence >= 55:
             status = "ENTRY_READY"
         else:
             status = "WATCHLIST"

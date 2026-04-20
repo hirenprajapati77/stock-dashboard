@@ -17,6 +17,10 @@ class TradeDecisionService:
         for hit in hits or []:
             row = dict(hit)
             
+            # 0. Capture Engine Recommendation (if any)
+            engine_status = str(row.get("entryStatus") or row.get("entryTag") or "WATCHLIST").upper()
+            engine_side = str(row.get("side") or "LONG").upper()
+            
             # 1. Compute Trade Score and Decision
             decision_data = cls.compute_trade_score(row, market_phase)
             row.update(decision_data)
@@ -24,17 +28,30 @@ class TradeDecisionService:
             # 2. Build Execution Plan (Original logic, kept for compatibility)
             plan = cls.build_plan(row)
             row["executionPlan"] = plan
-            row["tradeDecisionTag"] = decision_data.get("action", plan.get("tradeTag", "WATCHLIST"))
+            
+            # 3. Dynamic Side Detection Alignment
+            row["side"] = engine_side
+            
+            # 4. Final Decision Mapping (Respecting Engine + Decision Logic)
+            # If engine is very confident (STRONG_ENTRY), we elevate WATCH to BUY
+            final_action = decision_data.get("action", "OBSERVE")
+            if engine_status == "STRONG_ENTRY" and final_action in ["WATCHLIST", "MONITOR", "ANALYZING"]:
+                final_action = "BUY"
+                row["reasonTags"] = list(set(row.get("reasonTags", []) + ["Engine Strong"]))[:4]
+            
+            row["tradeDecisionTag"] = final_action
+            row["action"] = final_action
 
-            # 3. AI Insights & Commentary (Phase 2 Enhancement)
+            # 5. AI Insights & Commentary (Phase 2 Enhancement)
             ai_context = {
                 "entityType": "stock",
                 "symbol": row.get("symbol"),
                 "currentQuadrant": row.get("sectorState", "NEUTRAL"),
-                "RS": row.get("volRatio", 1.0), # Temporary placeholder for RS in stock context
+                "RS": row.get("volRatio", 1.0), 
                 "RM": 0.05 if row.get("momentumStrength") == "STRONG" else 0.0,
                 "setupType": row.get("technical", {}).get("setupType", "MOMENTUM_HIT"),
-                "qualityScore": row.get("score", 50)
+                "qualityScore": row.get("score", 50),
+                "side": engine_side
             }
             row["aiCommentary"] = AICommentaryService.generate_commentary(ai_context)
             
@@ -44,13 +61,16 @@ class TradeDecisionService:
     @classmethod
     def compute_trade_score(cls, hit: dict[str, Any], market_phase: str = "OPEN") -> dict[str, Any]:
         """
-        Decision Engine v2.0
-        Computes a 0-100 score based on user-defined weights.
+        Decision Engine v2.1 (Recalibrated)
+        Computes a 0-100 score with relaxed thresholds and bounce support.
         """
         tech = hit.get("technical") or {}
         insights = hit.get("insights") or {}
         summary = hit.get("summary") or {}
         
+        # 0. Entry Data
+        entry = cls._f(hit.get("price") or summary.get("cmp") or hit.get("meta", {}).get("cmp"))
+
         # 1. Trend Strength (ADX): Weight 20
         adx = cls._f(hit.get("adx") or tech.get("adx") or insights.get("adx"))
         trend_score = 0
@@ -58,16 +78,21 @@ class TradeDecisionService:
         elif adx > 15: trend_score = 10
         else: trend_score = 5
         
-        # 2. Setup Quality: Weight 20
+        # 2. Setup Quality: Weight 25 (Increased from 20)
         retest = bool(hit.get("retest") or tech.get("retest") or insights.get("retest"))
         breakout = bool(tech.get("isBreakout") or insights.get("breakout"))
+        
+        # New: Bounce detection (Price near level + reversal volume)
+        is_bounce = False
+        dist_to_sup = cls._f(hit.get("nearest_support_dist") or (hit.get("nearest_support") and entry > 0 and abs(entry - hit["nearest_support"])/entry))
+        if dist_to_sup > 0 and dist_to_sup <= 0.015:
+            is_bounce = True
+
         setup_score = 0
-        if retest and breakout: setup_score = 20
-        elif retest or breakout: setup_score = 15
-        elif not retest and not breakout:
-            # FORCE NO TRADE if both are missing
-            setup_score = 0
-        else: setup_score = 5
+        if retest and breakout: setup_score = 25
+        elif retest or breakout: setup_score = 20
+        elif is_bounce: setup_score = 15 # Bounce counts as a valid setup
+        else: setup_score = 5 # Relaxed from 0: Observation is worth something
         
         # 3. Volume: Weight 15
         vol_ratio = cls._f(hit.get("volRatio") or hit.get("volume_ratio") or tech.get("volRatio"))
@@ -77,15 +102,14 @@ class TradeDecisionService:
         else: vol_score = 5
         
         # 4. Risk-Reward: Weight 15
-        entry = cls._f(hit.get("price") or summary.get("cmp") or hit.get("meta", {}).get("cmp"))
         sl = cls._f(hit.get("stopLoss") or summary.get("stop_loss"))
         tgt = cls._f(hit.get("target") or summary.get("target"))
         
         rr = 0
-        if entry > 0 and sl > 0 and entry > sl:
-            risk = entry - sl
-            reward = tgt - entry if tgt > entry else (risk * 2) 
-            rr = reward / risk if risk > 0 else 0
+        if entry > 0 and sl > 0 and abs(entry - sl) > 0.0001:
+            risk = abs(entry - sl)
+            reward = abs(tgt - entry) if tgt > 0 else (risk * 2) 
+            rr = reward / risk
             
         rr_score = 0
         if rr >= 2.0: rr_score = 15
@@ -93,19 +117,11 @@ class TradeDecisionService:
         elif rr >= 1.0: rr_score = 5
         else: rr_score = 0  # RR < 1 is a major penalty
         
-        # 5. Support/Resistance Proximity: Weight 10
-        s0 = cls._f(summary.get("nearest_support") or hit.get("nearest_support"))
-        r0 = cls._f(summary.get("nearest_resistance") or hit.get("nearest_resistance"))
-        
+        # 5. Support/Resistance Proximity (Integrated into S/R score): Weight 10
         sr_score = 5 # Neutral start
-        if s0 > 0 and entry > 0:
-            dist_s = (entry - s0) / entry
-            if dist_s < 0.02: sr_score += 5 # Near support (positive)
-        if r0 > 0 and entry > 0:
-            dist_r = (r0 - entry) / entry
-            if dist_r < 0.02: sr_score -= 5 # Near resistance (negative)
-        sr_score = max(0, min(10, sr_score))
-
+        if is_bounce: sr_score = 10 
+        elif retest: sr_score = 8
+        
         # 6. Momentum: Weight 10
         momentum_strength = str(tech.get("momentumStrength") or "WEAK").upper()
         mo_score = 10 if momentum_strength == "STRONG" else 5 if momentum_strength == "MODERATE" else 2
@@ -114,42 +130,52 @@ class TradeDecisionService:
         vol_high = bool(tech.get("volHigh"))
         vola_score = 5 if vol_high else 10 # Prefer stable volatility for setups
 
-        # Calculate final normalized score (Weight total: 20+20+15+15+10+10+10 = 100)
+        # Calculate final normalized score
         final_score = trend_score + setup_score + vol_score + rr_score + sr_score + mo_score + vola_score
         final_score = min(100.0, float(final_score))
         
-        # Action Mapping & Safety Rules
-        action = "AVOID"
-        if not retest and not breakout:
-            action = "AVOID" # Strict rule: No setup = No trade
-        elif rr < 1.0:
-            action = "AVOID" # Strict rule: RR < 1 = Avoid
-        elif final_score >= 80:
+        # Action Mapping & Safety Rules (RECALIBRATED for Responsiveness)
+        action = "MONITOR"
+        if rr > 0 and rr < 1.0:
+            action = "OBSERVE" # Poor RR is still a major caution
+        elif final_score >= 75:
             action = "STRONG BUY"
-        elif final_score >= 70:
-            action = "BUY"
         elif final_score >= 60:
-            action = "WATCH"
+            action = "BUY"
+        elif final_score >= 45:
+            action = "WATCHLIST"
+        elif final_score >= 35:
+            action = "MONITOR"
         else:
-            action = "AVOID"
+            action = "OBSERVE"
         
         # Tags (max 4)
         tags = []
-        if action == "AVOID":
-            if rr < 1.0: tags.append("Poor RR")
-            if not retest and not breakout: tags.append("No Setup")
-            if final_score < 60: tags.append("Weak Metrics")
+        if action == "OBSERVE" or action == "MONITOR":
+            if rr > 0 and rr < 1.0: tags.append("Poor RR")
+            if final_score < 35: tags.append("Weak Metrics")
         else:
             if retest: tags.append("Retest Confirmed")
             if breakout: tags.append("Breakout Confirmed")
+            if is_bounce: tags.append("Bounce Found")
             if vol_score >= 15: tags.append("Volume Strong")
             if trend_score >= 20: tags.append("Strong Trend")
-            if rr_score >= 15: tags.append("High RR")
+
+        # Factors for UI
+        factors = [
+            {"label": "Trend Strength", "value": f"+{trend_score}%", "positive": trend_score >= 15},
+            {"label": "Setup Quality", "value": f"+{setup_score}%", "positive": setup_score >= 15},
+            {"label": "Volume Profile", "value": f"+{vol_score}%", "positive": vol_score >= 10},
+            {"label": "Risk-Reward", "value": f"+{rr_score}%", "positive": rr_score >= 10},
+            {"label": "S/R Focus", "value": f"+{sr_score}%", "positive": sr_score >= 8},
+            {"label": "Momentum", "value": f"+{mo_score}%", "positive": mo_score >= 8},
+            {"label": "Volatility", "value": f"+{vola_score}%", "positive": vola_score >= 10},
+        ]
             
         # Market Phase Overrides
         if action in ["STRONG BUY", "BUY"]:
             if market_phase == "CLOSED":
-                action = "AVOID"
+                action = "OBSERVE"
                 tags.append("Market Closed")
             elif market_phase == "POST_MARKET":
                 action = "ANALYSIS ONLY"

@@ -867,6 +867,8 @@ class ScreenerService:
 
     @classmethod
     def _save_fallback(cls, data: List[Dict], timeframe: str):
+        if not data:
+            return
         try:
             import json
             from pathlib import Path

@@ -229,7 +229,7 @@ class FundamentalScreener:
             print(f"[FundamentalScreener] Pre-warm failed: {e}")
 
         is_render = os.getenv("RENDER") is not None
-        max_workers = 3 if is_render else 10
+        max_workers = 1 if is_render else 10
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {

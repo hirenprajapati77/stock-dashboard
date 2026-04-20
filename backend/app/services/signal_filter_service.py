@@ -40,7 +40,7 @@ class SignalFilterService:
         return cls.annotate_many([hit])[0]
 
     @classmethod
-    def annotate_many(cls, hits: list[dict[str, Any]], high_cap_ratio: float = 0.25) -> list[dict[str, Any]]:
+    def annotate_many(cls, hits: list[dict[str, Any]], high_cap_ratio: float = 0.40) -> list[dict[str, Any]]:
         """
         Batch annotation with separation guardrails:
         - Conditional HIGH gating
@@ -170,9 +170,9 @@ class SignalFilterService:
 
         if force_low or force_low_lagging_1d:
             category = "LOW"
-        elif score >= 84 and high_gate:
+        elif score >= 80 and high_gate:
             category = "HIGH PROBABILITY"
-        elif score >= 60:
+        elif score >= 55:
             category = "MEDIUM"
         else:
             category = "LOW"
