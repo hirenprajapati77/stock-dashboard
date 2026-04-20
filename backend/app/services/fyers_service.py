@@ -51,6 +51,11 @@ class FyersService:
             f.write(token)
 
     @classmethod
+    def is_active(cls) -> bool:
+        """Returns True if the Fyers access token is present in memory."""
+        return cls._access_token is not None and len(cls._access_token) > 20
+
+    @classmethod
     def _normalize_redirect_uri(cls, uri: str) -> str:
         return fyers_config.normalize_redirect_url(uri)
 

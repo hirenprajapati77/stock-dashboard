@@ -27,6 +27,12 @@ class MarketIntelligence {
                 <span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
                 <span class="text-red-500 font-bold">SYNC ERROR</span>
             `;
+        } else if (source === 'expired') {
+            this.hitsSyncStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                <span class="text-red-500 font-bold">SESSION EXPIRED</span>
+            `;
+            this.hitsSyncStatus.title = "Fyers session expired. Click CONNECT to refresh.";
         } else {
             this.hitsSyncStatus.innerHTML = `
                 <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>

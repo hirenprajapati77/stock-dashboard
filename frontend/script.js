@@ -1353,7 +1353,9 @@ async function fetchIntelligence() {
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
-                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
+                // If Fyers is reported as inactive by backend, override source to 'expired'
+                const effectiveSource = (hitsData.is_fyers_active === false) ? 'expired' : (hitsData.source || 'live');
+                intelligenceApp.updateHits(hitsData.data, effectiveSource);
             }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
                 intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
