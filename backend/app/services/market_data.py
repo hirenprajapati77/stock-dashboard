@@ -307,9 +307,9 @@ class MarketDataService:
         # 2. Parallel Fetch using the hardened get_ohlcv method
         print(f"DEBUG: [MarketData] Parallel batch fetching {len(unique_normalized)} symbols...", flush=True)
         
-        # We use a moderate thread count to avoid overwhelming the Fyers/Yahoo APIs
-        # but enough to keep the UI responsive.
-        max_workers = 10 if os.getenv("RENDER") else 5
+        # CRITICAL: We use a low thread count (3) to avoid overwhelming Yahoo Finance 
+        # and triggering IP-based rate limits, especially for large sector batches.
+        max_workers = 3
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Create a mapping of future to norm_symbol
@@ -385,57 +385,65 @@ class MarketDataService:
         elif tf == "1W": period = "2y"
         elif tf == "1M": period = "5y"
         
-        # 1.5 Try Fyers first if logged in
+        # 1.5 Try Fyers first if session is active
         try:
-            # Check if symbol is in cool-off for Fyers as well (optional, but keep it simple)
-            # Map Yahoo/internal symbols to Fyers-specific symbol formats
-            fyers_sym = symbol
-            if ":" not in symbol:
-                # 1. Index Symbol Mapping
-                INDEX_MAP = {
-                    "^NSEI": "NSE:NIFTY50-INDEX",
-                    "^NSEBANK": "NSE:NIFTYBANK-INDEX",
-                    "^CNXIT": "NSE:NIFTYIT-INDEX",
-                    "^CNXPHARMA": "NSE:NIFTYPHARMA-INDEX",
-                    "^CNXFMCG": "NSE:NIFTYFMCG-INDEX",
-                    "^CNXAUTO": "NSE:NIFTYAUTO-INDEX",
-                    "^CNXENERGY": "NSE:NIFTYENERGY-INDEX",
-                    "^CNXMETAL": "NSE:NIFTYMETAL-INDEX",
-                    "^CNXREALTY": "NSE:NIFTYREALTY-INDEX",
-                    "^CNXPSUBANK": "NSE:NIFTYPSUBANK-INDEX",
-                    "^CNXMDCP50": "NSE:NIFTYMIDCAP50-INDEX",
-                    "^BSESN": "BSE:SENSEX-INDEX"
-                }
+            if FyersService.is_active():
+                # Map internal symbols to Fyers-specific formats
+                fyers_sym = symbol
+                if ":" not in symbol:
+                    INDEX_MAP = {
+                        "^NSEI": "NSE:NIFTY50-INDEX",
+                        "^NSEBANK": "NSE:NIFTYBANK-INDEX",
+                        "^CNXIT": "NSE:NIFTYIT-INDEX",
+                        "^CNXPHARMA": "NSE:NIFTYPHARMA-INDEX",
+                        "^CNXFMCG": "NSE:NIFTYFMCG-INDEX",
+                        "^CNXAUTO": "NSE:NIFTYAUTO-INDEX",
+                        "^CNXENERGY": "NSE:NIFTYENERGY-INDEX",
+                        "^CNXMETAL": "NSE:NIFTYMETAL-INDEX",
+                        "^CNXREALTY": "NSE:NIFTYREALTY-INDEX",
+                        "^CNXPSUBANK": "NSE:NIFTYPSUBANK-INDEX"
+                    }
+                    if symbol in INDEX_MAP:
+                        fyers_sym = INDEX_MAP[symbol]
+                    else:
+                        # Map stock symbols (remove .NS/.BO and add -EQ)
+                        clean_sym = symbol.replace(".NS", "").replace(".BO", "")
+                        fyers_sym = f"NSE:{clean_sym}-EQ"
                 
-                if symbol in INDEX_MAP:
-                    fyers_sym = INDEX_MAP[symbol]
+                # Fetch Fyers Data with 8s timeout to keep batch moving
+                print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 8s)...", flush=True)
+                fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
+                
+                if fyers_df is not None and not fyers_df.empty:
+                    print(f"DEBUG: [MarketData] SUCCESS: Fetched {symbol} from Fyers. Rows: {len(fyers_df)}", flush=True)
+                    # Normalize columns and index
+                    fyers_df.columns = [c.lower() for c in fyers_df.columns]
+                    if hasattr(fyers_df.index, 'tz') and fyers_df.index.tz is not None:
+                        fyers_df.index = fyers_df.index.tz_localize(None)
+                    
+                    fyers_df = fyers_df.tail(count)
+                    
+                    # Store in caches
+                    MarketDataService._ohlcv_cache[cache_key] = {
+                        'df': fyers_df.copy(),
+                        'currency': 'INR',
+                        'timestamp': time.time(),
+                        'source': 'fyers'
+                    }
+                    MarketDataService._save_to_disk(symbol, tf, fyers_df)
+                    return fyers_df, "INR", None, "fyers"
+                
+                # Handle specific Fyers errors for debugging
+                if fyers_err and "permission" in str(fyers_err).lower():
+                    print(f"WARNING: [MarketData] Fyers PERMISSION error for {symbol}. Falling back to Yahoo.", flush=True)
+                elif fyers_err == "Fyers request timed out":
+                    print(f"WARNING: [MarketData] Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
                 else:
-                    # 2. Standard Stock Mapping
-                    fyers_sym = f"NSE:{symbol.replace('.NS', '').replace('.BO', '')}-EQ"
-            
-            # Increased timeout - Fyers needs more than 2s sometimes on Render
-            print(f"DEBUG: [MarketData] Requesting {fyers_sym} from Fyers (Timeout: 8s)...", flush=True)
-            fyers_df, fyers_err = FyersService.get_ohlcv(fyers_sym, tf, timeout=8)
-            
-            if fyers_df is not None and not fyers_df.empty:
-                print(f"DEBUG: [MarketData] SUCCESS: Fetched {symbol} from Fyers. Rows: {len(fyers_df)}", flush=True)
-                fyers_df = fyers_df.tail(count)
-                MarketDataService._save_to_disk(symbol, tf, fyers_df)
-                return fyers_df, "INR", None, "fyers"
-            
-            # Handle Fyers failures
-            if fyers_err and "permission" in str(fyers_err).lower():
-                print(f"WARNING: [MarketData] Fyers PERMISSION error for {symbol}. Falling back to Yahoo immediately.", flush=True)
-            elif fyers_err == "Fyers request timed out":
-                print(f"WARNING: [MarketData] Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
-            elif fyers_err and "not logged in" in str(fyers_err).lower():
-                print(f"DEBUG: [MarketData] Fyers not logged in. Using Yahoo fallback for {symbol}.", flush=True)
-            else:
-                print(f"DEBUG: [MarketData] FYERS FAILED for {fyers_sym}: {fyers_err}. Falling back to Yahoo...", flush=True)
+                    print(f"DEBUG: [MarketData] FYERS FAILED for {fyers_sym}: {fyers_err}. Falling back to Yahoo...", flush=True)
 
-                
         except Exception as fe:
             print(f"DEBUG: [MarketData] Fyers integration exception: {fe}. Falling back to Yahoo.", flush=True)
+
 
         # 1.6 Check Cool-off for Yahoo Finance
         if symbol in MarketDataService._cool_off_symbols:

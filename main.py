@@ -903,12 +903,14 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
                 key=lambda x: x["count"], reverse=True
             )
 
+        from app.services.fyers_service import FyersService
         return {
             "status": "success",
             "count": len(enriched),
             "data": enriched,
             "sectorConcentration": sector_concentration,
             "source": source,
+            "is_fyers_active": FyersService.is_active(),
             "timestamp": datetime.now().strftime("%H:%M:%S")
         }
     except Exception as e:
@@ -918,7 +920,13 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
              from app.services.screener_service import ScreenerService as MomentumScreener
              fallback = MomentumScreener._load_fallback("1D" if tf == "Daily" else tf)
              if fallback:
-                 return {"status": "success", "count": len(fallback), "data": fallback, "source": "fallback"}
+                 return {
+                     "status": "success", 
+                     "count": len(fallback), 
+                     "data": fallback, 
+                     "source": "fallback",
+                     "is_fyers_active": False
+                 }
         except:
              pass
 
