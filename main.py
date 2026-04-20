@@ -398,15 +398,18 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             df, currency, error, source_type = await asyncio.wait_for(primary_task, timeout=14.0)
             
             # Map source_type to standardized UI labels
+            # If df is not empty, we proceed with whatever source we have (live or cache)
             source = source_type if source_type != "error" else "fallback"
             
             if df.empty:
-                return {"status": "error", "message": error or f"No data found for {symbol}.", "source": "error"}
+                return {"status": "error", "message": error or f"No data found for {symbol}. (API Rate Limit)", "source": "error"}
+            
         except asyncio.TimeoutError:
-            print(f"CRITICAL: Primary data fetch timed out for {symbol} after 14s. Backend is overloaded or downstream APIs are stalled.")
+            print(f"CRITICAL: Primary data fetch timed out for {symbol} after 14s.")
             return {"status": "error", "message": "Market data fetch timed out. Please retry."}
             
         cmp = float(df['close'].iloc[-1])
+
         
         # 3. Await Secondary Data (with short residual timeout)
         # We give secondary tasks 3 more seconds or until they finish.
@@ -862,7 +865,14 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
         from app.services.trade_tracking_service import TradeTrackingService
 
         screener_res = MomentumScreener.get_screener_data(timeframe=tf, force=force)
-        raw_hits = screener_res.get("hits", []) if isinstance(screener_res, dict) else screener_res
+        
+        # Consistent Handling for the new Dict response from ScreenerService
+        if isinstance(screener_res, dict):
+            raw_hits = screener_res.get("hits", [])
+            source = screener_res.get("source", "live")
+        else:
+            raw_hits = screener_res
+            source = "fallback" # If it returned a list, it's the old fallback path
         
         if not raw_hits:
              # Fallback if service returns empty list
@@ -876,18 +886,8 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
         
         TradeTrackingService.log_trades(enriched)
         
-        # Detect source
-        source = "live"
-        
-        # If screener_res is a list, it means it returned from _load_fallback directly
-        if isinstance(screener_res, list):
-            source = "fallback"
-        elif isinstance(screener_res, dict) and screener_res.get("source") == "fallback":
-            source = "fallback"
-        elif not enriched:
-            # Check if all items are from previous sessions
-            if enriched and not any(h.get("isLatestSession", False) for h in enriched):
-                source = "fallback"
+        # Extraction and enrichment complete
+
 
         # Extract Sector Concentration from service if available, else compute locally
         sector_concentration = []

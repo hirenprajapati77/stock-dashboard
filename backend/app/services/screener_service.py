@@ -430,7 +430,13 @@ class ScreenerService:
 
         if not stock_batch_data:
             print("WARNING: No stock data fetched for screener via MarketDataService. Using fallback.", flush=True)
-            return cls._load_fallback(normalized_tf)
+            fb_list = cls._load_fallback(normalized_tf)
+            return {
+                "hits": fb_list,
+                "sector_concentration": cls._calculate_sector_concentration(fb_list),
+                "source": "fallback"
+            }
+
 
         sector_by_symbol = {
             symbol: sector
@@ -704,12 +710,19 @@ class ScreenerService:
             fallback_data = cls._load_fallback(normalized_tf)
             if fallback_data:
                 print(f"DEBUG: 0 hits found live, returning fallback EOD data for {normalized_tf}")
-                return fallback_data
+                return {
+                    "hits": fallback_data,
+                    "sector_concentration": cls._calculate_sector_concentration(fallback_data),
+                    "source": "fallback"
+                }
+
         
         return {
             "hits": hits,
-            "sector_concentration": cls._calculate_sector_concentration(hits) if hits else []
+            "sector_concentration": cls._calculate_sector_concentration(hits) if hits else [],
+            "source": "live"
         }
+
 
     @classmethod
     def get_early_breakout_setups(cls, timeframe: str = "1D", limit: int = 5) -> List[Dict]:
