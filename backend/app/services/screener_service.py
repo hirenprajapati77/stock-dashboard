@@ -383,8 +383,12 @@ class ScreenerService:
             cls._cache.get("data") and   # Must have results
             cls._cache.get("timeframe") == normalized_tf and 
             (current_time - float(cls._cache.get("timestamp") or 0.0)) < ttl):
-            print(f"DEBUG: Serving screener data from cache for {normalized_tf}")
-            return cls._cache["data"] # type: ignore
+            print(f"DEBUG: Serving screener data from memory cache for {normalized_tf}")
+            return {
+                "hits": cls._cache["data"],
+                "sector_concentration": cls._cache.get("sector_concentration", []),
+                "source": "cached"
+            }
 
         config = cls.TIMEFRAME_MAP.get(normalized_tf, cls.TIMEFRAME_MAP["1D"])
         rule = cls.RULES_BY_TF.get(normalized_tf, cls.RULES_BY_TF["1D"])
