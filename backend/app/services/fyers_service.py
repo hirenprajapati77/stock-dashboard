@@ -305,7 +305,8 @@ class FyersService:
             elif fyers_tf in ["30", "60", "120", "240"]:
                 days = 180 # 180 days for hourly
             else:
-                days = 730 # 2 years for Daily and above
+                days = 365  # Fyers limit is 366 days for Daily and above
+
             range_from = time.strftime("%Y-%m-%d", time.localtime(now - (days * 86400)))
 
         fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"

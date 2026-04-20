@@ -83,6 +83,8 @@ class MarketIntelligence {
 
     updateSectors(sectorData, alerts, source = 'live') {
         this.updateSyncStatus(source);
+        this._renderIndustryHeatmap(sectorData || {});
+
         if (!this.sectorList) return;
         this.lastSectorData = sectorData;
         this.allSectors = sectorData || {};
@@ -221,10 +223,12 @@ class MarketIntelligence {
 
         this._renderHitsTable();
 
+
         if (window.renderActionableSectors) {
             window.renderActionableSectors(sectorData);
         }
     }
+
 
     updateEarlySetups(setups) {
         this.earlySetups = Array.isArray(setups) ? setups : [];

@@ -70,8 +70,9 @@ class MarketDataService:
         # 2. Not an index (doesn't start with ^)
         # 3. Purely alphanumeric (or hyphen if it doesn't have a colon)
         # 4. No colon (Fyers style)
-        if "." not in symbol and ":" not in symbol and not symbol.startswith("^") and symbol.replace("-", "").isalnum():
+        if "." not in symbol and ":" not in symbol and not symbol.startswith("^") and all(c.isalnum() or c in "-&" for c in symbol):
             symbol = f"{symbol}.NS"
+
             
         print(f"DEBUG: Symbol Mapping: {original_symbol} -> {symbol}")
         return symbol
