@@ -345,7 +345,7 @@ async function fetchData(isBackground = false) {
 
             // If we have existing data and it's a background update or rate limit, 
             // DON'T show the giant blocking overlay. Just update status indicator.
-            const hasData = !!window.lastReceivedData;
+
             
             if (hasData && (isBackground || isRateLimit)) {
                 console.warn(`Data sync rate-limited for ${symbol}. Keeping existing data visible.`);
