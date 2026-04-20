@@ -337,8 +337,11 @@ async function fetchData(isBackground = false) {
             
             const sLab = document.getElementById('chart-symbol-label');
             const tfLab = document.getElementById('chart-tf-label');
+            const hasData = !!window.lastReceivedData;
+            
             if (sLab) sLab.textContent = symbol;
-            if (tfLab) tfLab.textContent = `${tf} - SYNC ERROR`;
+            if (tfLab) tfLab.textContent = `${tf} - ${hasData ? 'CACHED' : 'SYNC ERROR'}`;
+
 
             // If we have existing data and it's a background update or rate limit, 
             // DON'T show the giant blocking overlay. Just update status indicator.

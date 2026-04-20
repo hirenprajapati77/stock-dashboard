@@ -486,12 +486,15 @@ class MarketDataService:
                 return fyers_df, "INR", None, "fyers"
             
             # Handle Fyers failures
-            if fyers_err == "Fyers request timed out":
+            if fyers_err and "permission" in str(fyers_err).lower():
+                print(f"WARNING: [MarketData] Fyers PERMISSION error for {symbol}. Falling back to Yahoo immediately.", flush=True)
+            elif fyers_err == "Fyers request timed out":
                 print(f"WARNING: [MarketData] Fyers timed out for {symbol} after 8s. Falling back to Yahoo.", flush=True)
-            elif "not logged in" in str(fyers_err).lower():
+            elif fyers_err and "not logged in" in str(fyers_err).lower():
                 print(f"DEBUG: [MarketData] Fyers not logged in. Using Yahoo fallback for {symbol}.", flush=True)
             else:
                 print(f"DEBUG: [MarketData] FYERS FAILED for {fyers_sym}: {fyers_err}. Falling back to Yahoo...", flush=True)
+
                 
         except Exception as fe:
             print(f"DEBUG: [MarketData] Fyers integration exception: {fe}. Falling back to Yahoo.", flush=True)
@@ -641,10 +644,11 @@ class MarketDataService:
             if df.empty:
                 df_disk = MarketDataService._load_from_disk(symbol, tf)
                 if df_disk is not None and not df_disk.empty:
-                    print(f"DEBUG: Returning persistent cache for {symbol}")
-                    return df_disk.tail(count), "INR", None, "cache" # Pretend it's success to unblock UI
+                    print(f"DEBUG: Returning persistent cache for {symbol} (Live fetch returned empty)")
+                    return df_disk.tail(count), "INR", None, "cache"
                 
-                return pd.DataFrame(), "INR", f"No data found for {symbol}. (Possible Yahoo Finance Rate Limit - please wait 2-5 minutes)", "error"
+                return pd.DataFrame(), "INR", f"No data found for {symbol}. (Possible Yahoo Finance Rate Limit)", "error"
+
                 
             df.columns = [c.lower() for c in df.columns]
 

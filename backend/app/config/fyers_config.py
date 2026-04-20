@@ -10,7 +10,8 @@ def normalize_redirect_url(url: str) -> str:
 
 # Fyers API Credentials
 app_id = os.environ.get("FYERS_APP_ID", "XAST342P8T-100")
-secret_id = os.environ.get("FYERS_SECRET_ID", "Q5G3DG890Y")
+secret_id = os.environ.get("FYERS_SECRET_ID", "U5RHOQ1292")
+
 
 # Auto-detect redirect URL based on environment
 # Set FYERS_REDIRECT_URL env var on Render to your production URL

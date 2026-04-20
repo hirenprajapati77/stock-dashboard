@@ -331,6 +331,10 @@ class FyersService:
             if res.status_code == 401:
                 cls._access_token = None  # Clear stale token
                 return None, "Fyers Token Expired (401) — Please reconnect"
+            
+            if res.status_code == 403:
+                return None, "Fyers Permission Error (403): Additional scope required (Quotes/Market Data)"
+
             response = res.json()
             if response.get("s") == "ok":
                 df = pd.DataFrame(response.get("candles"), columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -338,8 +342,15 @@ class FyersService:
                 df.set_index("timestamp", inplace=True)
                 return df, None
             err_msg = response.get("message", f"Fyers Data Error: {response}")
+            
+            # If the response explicitly mentions permission or token, clear it
+            if "permission" in str(err_msg).lower() or "token" in str(err_msg).lower():
+                 if "invalid" in str(err_msg).lower():
+                     cls._access_token = None
+
             print(f"DEBUG: [Fyers] Data API response (HTTP {res.status_code}): {response}", flush=True)
             return None, err_msg
+
         except requests.exceptions.Timeout:
             return None, "Fyers request timed out"
         except Exception as e:
