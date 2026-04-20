@@ -151,17 +151,24 @@ class SectorService:
                     # columns are handles by batch method but let's be sure of case
                     df.columns = [c.lower() for c in df.columns]
                     batch_data[sym] = df
-        except Exception as e:
-            print(f"DEBUG: Failed to fetch batch data in SectorService: {e}")
-
+            
             if not batch_data:
                 print(f"Warning: No data fetched for sectors via MarketDataService. Trying fallback.", flush=True)
                 data, alerts = cls._load_fallback(timeframe)
+                # Ensure the data items have status='fallback' for UI reporting
+                if data:
+                    for s_name in data:
+                        if isinstance(data[s_name], dict):
+                            data[s_name]["status"] = "fallback"
                 return data, alerts
         except Exception as e:
             print(f"CRITICAL: Sector fetch failed: {e}. Trying fallback.", flush=True)
-            data, alerts = cls._load_fallback(timeframe)
-            if data: return data, alerts
+            data, alerts = cls._load_fallback(timeframe, error_msg=str(e))
+            if data:
+                for s_name in data:
+                    if isinstance(data[s_name], dict):
+                        data[s_name]["status"] = "fallback"
+                return data, alerts
             return {}, []
 
 
@@ -474,6 +481,8 @@ class SectorService:
 
     @classmethod
     def _save_fallback(cls, data, alerts, timeframe):
+        if not data:
+            return
         try:
             fallback_path = Path(__file__).parent.parent / "data" / "sector_fallback.json"
             fallback_path.parent.mkdir(parents=True, exist_ok=True)

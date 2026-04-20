@@ -65,21 +65,7 @@ class TailLogHandler:
 audit_tail = TailLogHandler(maxlen=2000)
 sys.stdout = audit_tail
 
-# Runtime Dependency Check for stubborn Render environments
-def ensure_dependencies():
-    needed = ["pyarrow", "fastparquet"]
-    for pkg in needed:
-        try:
-            __import__(pkg)
-        except ImportError:
-            print(f"INFO: Installing missing dependency {pkg} at runtime...", flush=True)
-            try:
-                import subprocess
-                subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-            except Exception as e:
-                print(f"ERROR: Failed to install {pkg}: {e}")
-
-ensure_dependencies()
+# Startup modules
 from fastapi import FastAPI, Query, Response, Request, Depends, HTTPException, status, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -124,6 +110,13 @@ async def lifespan(app: FastAPI):
                 # 2. Warm up screener cache
                 print("[Warmup] Pre-warming screener cache...", flush=True)
                 ScreenerService.get_screener_data()
+
+            # Throttled Warmup: Wait 60s for server to stabilize on Render before heavy data fetch
+            if os.getenv("RENDER"):
+                print("[Warmup] Render environment detected. Sleeping 60s for stabilization...", flush=True)
+                await asyncio.sleep(60)
+            else:
+                await asyncio.sleep(5) # Small local delay
 
             await asyncio.to_thread(_sync_warmup)
             print(f"[Warmup] Done in {time.time() - t0:.1f}s")
@@ -824,9 +817,15 @@ async def get_sector_rotation(tf: str = "1D"):
         from app.services.sector_service import SectorService
         data, alerts = SectorService.get_rotation_data(days=60, timeframe=tf)
         
+        # Determine source
         source = "live"
+        
+        # SectorService uses a specific flag for hardcoded fallback, check its structure
+        # Or check if data was loaded from disk fallback
         if not data:
             source = "error"
+        elif any(s.get("status") == "fallback" for s in data.values()):
+            source = "fallback"
 
         return {
             "status": "success",
@@ -877,10 +876,18 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
         
         TradeTrackingService.log_trades(enriched)
         
-        # Detect if this is fallback data (if all items are old)
+        # Detect source
         source = "live"
-        if enriched and not any(h.get("isLatestSession", False) for h in enriched):
+        
+        # If screener_res is a list, it means it returned from _load_fallback directly
+        if isinstance(screener_res, list):
             source = "fallback"
+        elif isinstance(screener_res, dict) and screener_res.get("source") == "fallback":
+            source = "fallback"
+        elif not enriched:
+            # Check if all items are from previous sessions
+            if enriched and not any(h.get("isLatestSession", False) for h in enriched):
+                source = "fallback"
 
         # Extract Sector Concentration from service if available, else compute locally
         sector_concentration = []

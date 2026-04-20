@@ -180,6 +180,10 @@ class SwingEngine:
                 score -= 5 # Only penalize if truly sideways
             else:
                 score += 5 # Counter-trend or mean reversion possible
+        
+        # Pullback Bonus (Specific for Swing)
+        if pullback_quality and structure == "BULLISH":
+            score += 10 # Extra weight for swing pullback setups
 
         # Trend Bonus (New)
         if regime in ["STRONG_UPTREND", "UPTREND"] and structure == "BULLISH":
@@ -192,11 +196,11 @@ class SwingEngine:
             confidence = min(confidence, 55)
 
         # -------------------------
-        # STATUS LOGIC (Relaxed Thresholds)
+        # STATUS LOGIC (Further Relaxed)
         # -------------------------
-        if confidence >= 75:
+        if confidence >= 70:
             status = "STRONG_ENTRY"
-        elif confidence >= 60:
+        elif confidence >= 55:
             status = "ENTRY_READY"
         else:
             status = "WATCHLIST"

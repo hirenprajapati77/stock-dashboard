@@ -386,14 +386,18 @@ class ZoneEngine:
                 score += 15
             if regime in ["STRONG_DOWNTREND", "DOWNTREND"]:
                 score += 10
+            
+            # Freshness Bonus (Institutional)
+            if zone.get('touched', 0) == 0:
+                score += 10
 
             confidence = min(score, 100)
             if avg_vol < 200_000:
                 confidence = min(confidence, 55)
 
-            if confidence >= 75:
+            if confidence >= 70:
                 status = "STRONG_ENTRY"
-            elif confidence >= 60:
+            elif confidence >= 55:
                 status = "ENTRY_READY"
             else:
                 status = "WATCHLIST"
@@ -478,6 +482,11 @@ class ZoneEngine:
 
         if regime in ["STRONG_UPTREND", "UPTREND"]:
             score += 10
+        
+        # Freshness Bonus (Institutional)
+        touches = zone.get('touched', 0)
+        if touches == 0:
+            score += 10
 
         confidence = min(score, 100)
 
@@ -488,15 +497,14 @@ class ZoneEngine:
         grade = MarketRegimeEngine.get_grade(int(confidence))
 
         # --- STATUS (Calibrated Thresholds) ---
-        if confidence >= 75:
+        if confidence >= 70:
             status = "STRONG_ENTRY"
-        elif confidence >= 60:
+        elif confidence >= 55:
             status = "ENTRY_READY"
         else:
             status = "WATCHLIST"
 
         # --- NEW METRICS FOR FRONTEND ---
-        touches = zone.get('touched', 0)
         freshness = "FRESH" if touches == 0 else "TESTED"
         
         # Departure strength: candle body size / ATR
