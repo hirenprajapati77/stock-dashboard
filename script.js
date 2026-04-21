@@ -44,17 +44,20 @@ async function checkFyersStatus() {
             const loginBtn = document.getElementById('fyers-login-btn');
             if (loginBtn) {
                 loginBtn.textContent = 'ONLINE';
-                loginBtn.classList.remove('text-blue-400');
+                loginBtn.classList.remove('text-blue-400', 'text-yellow-400');
                 loginBtn.classList.add('text-green-400');
             }
         } else {
-            if (dot) dot.className = 'w-2 h-2 rounded-full bg-gray-600';
-            if (text) text.textContent = 'Offline';
+            const isExpired = result.data?.last_auth_debug?.message?.includes("Token Expired") || result.data?.last_auth_debug?.detail?.includes("401");
+            
+            if (dot) dot.className = `w-2 h-2 rounded-full ${isExpired ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.7)]' : 'bg-gray-600'}`;
+            if (text) text.textContent = isExpired ? 'Expired' : 'Offline';
+            
             const loginBtn = document.getElementById('fyers-login-btn');
             if (loginBtn) {
-                loginBtn.textContent = 'CONNECT';
-                loginBtn.classList.add('text-blue-400');
-                loginBtn.classList.remove('text-green-400');
+                loginBtn.textContent = isExpired ? 'RECONNECT' : 'CONNECT';
+                loginBtn.classList.remove('text-green-400', 'text-blue-400', 'text-yellow-400');
+                loginBtn.classList.add(isExpired ? 'text-yellow-400' : 'text-blue-400');
             }
         }
     } catch (e) {
@@ -313,6 +316,10 @@ async function fetchData(isBackground = false) {
                     liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> YAHOO LIVE';
                     liveIndicator.className = 'flex items-center gap-1 text-[9px] text-blue-400 font-bold';
                     liveIndicator.title = "Live data from Yahoo Finance";
+                } else if (data.source === 'expired') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></span> SESSION EXPIRED';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
+                    liveIndicator.title = "Fyers session expired. Please reconnect for live data.";
                 } else if (data.source === 'cache' || data.source === 'fallback') {
                     liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> OFFLINE CACHE';
                     liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
@@ -351,12 +358,21 @@ async function fetchData(isBackground = false) {
                     }
                     errDiv.classList.remove('hidden');
                     
+                    const isExpired = error.message.includes("401");
                     errDiv.innerHTML = `
                         <div class="flex flex-col items-center gap-3">
-                            <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
-                            <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error'}</p>
-                            <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
-                            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+                            <span class="text-3xl">${isExpired ? '🔑' : (isRateLimit ? '⏳' : '❌')}</span>
+                            <p class="${isExpired || isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">
+                                ${isExpired ? 'Fyers Session Expired' : (isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error')}
+                            </p>
+                            <p class="text-xs text-gray-400 max-w-[280px]">
+                                ${isExpired ? 'Your Fyers access token has expired. Please reconnect to restore high-speed data flow.' : 
+                                  (isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message)}
+                            </p>
+                            <button onclick="${isExpired ? 'window.loginToFyers()' : 'window.fetchData()'}" 
+                                    class="mt-2 px-6 py-2 ${isExpired ? 'bg-yellow-600' : 'bg-indigo-600'} rounded-xl text-xs font-bold hover:opacity-80 transition-all shadow-lg">
+                                ${isExpired ? 'RECONNECT FYERS' : 'RETRY SYNC'}
+                            </button>
                         </div>
                     `;
                 }

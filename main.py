@@ -397,13 +397,24 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             # 14 seconds allows Fyers to fail (timeout 8s) and smoothly hit Yahoo Proxy fallback
             df, currency, error, source_type = await asyncio.wait_for(primary_task, timeout=14.0)
             
+            # SESSION EXPIRED DETECTION:
+            # If the primary provider (Fyers) reports token expired, make it transparent
+            is_expired = error and "Fyers Token Expired" in str(error)
+            
             # Map source_type to standardized UI labels
             # If df is not empty, we proceed with whatever source we have (live or cache)
-            source = source_type if source_type != "error" else "fallback"
+            source = "expired" if is_expired else (source_type if source_type != "error" else "fallback")
             
             if df.empty:
-                return {"status": "error", "message": error or f"No data found for {symbol}. (API Rate Limit)", "source": "error"}
-            
+                status_code = 401 if is_expired else 200
+                return JSONResponse(
+                    status_code=status_code,
+                    content={
+                        "status": "error", 
+                        "message": error or f"No data found for {symbol}. (API Rate Limit)", 
+                        "source": source
+                    }
+                )
         except asyncio.TimeoutError:
             print(f"CRITICAL: Primary data fetch timed out for {symbol} after 14s.")
             return {"status": "error", "message": "Market data fetch timed out. Please retry."}
@@ -904,7 +915,9 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
             )
 
         from app.services.fyers_service import FyersService
-        return {
+        is_expired = source == "expired"
+        
+        resp_data = {
             "status": "success",
             "count": len(enriched),
             "data": enriched,
@@ -913,6 +926,10 @@ async def get_momentum_hits(tf: str = "1D", force: bool = False):
             "is_fyers_active": FyersService.is_active(),
             "timestamp": datetime.now().strftime("%H:%M:%S")
         }
+        
+        if is_expired:
+            return JSONResponse(status_code=401, content=resp_data)
+        return resp_data
     except Exception as e:
         print(f"ERROR in get_momentum_hits: {e}")
         # Try emergency fallback load in the outer catch too

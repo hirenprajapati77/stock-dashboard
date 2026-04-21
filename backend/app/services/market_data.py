@@ -10,6 +10,8 @@ from app.services.fyers_service import FyersService
 
 import requests
 import json as json_lib # Avoid conflict with possible local json var
+import gc
+import collections
 from concurrent.futures import ThreadPoolExecutor
 
 class MarketDataService:
@@ -18,6 +20,7 @@ class MarketDataService:
 
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
     _ohlcv_cache = {}
+    MAX_CACHE_ITEMS = 50 # Prevent memory bloat on small instances
     CACHE_TTL = 300 # 5 minutes
     _cool_off_symbols = {} # symbol -> timestamp when cool-off ends
     COOL_OFF_DURATION = 900 # 15 minutes
@@ -304,31 +307,38 @@ class MarketDataService:
                     final_map[original] = results[norm]
             return final_map
 
-        # 2. Parallel Fetch using the hardened get_ohlcv method
-        print(f"DEBUG: [MarketData] Parallel batch fetching {len(unique_normalized)} symbols...", flush=True)
+        # 2. Parallel Fetch using the hardened get_ohlcv method in small chunks
+        # Chunking prevents holding 200+ futures/DataFrames in memory simultaneously
+        print(f"DEBUG: [MarketData] Chunked batch fetching {len(unique_normalized)} symbols...", flush=True)
         
-        # CRITICAL: We use a low thread count (3) to avoid overwhelming Yahoo Finance 
-        # and triggering IP-based rate limits, especially for large sector batches.
         max_workers = 3
+        CHUNK_SIZE = 20
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Create a mapping of future to norm_symbol
-            future_to_sym = {
-                executor.submit(MarketDataService.get_ohlcv, norm_sym, tf, count): norm_sym 
-                for norm_sym in unique_normalized
-            }
+        # Process in chunks to stay within Render 512MB limit
+        for i in range(0, len(unique_normalized), CHUNK_SIZE):
+            chunk = unique_normalized[i:i + CHUNK_SIZE]
+            print(f"DEBUG: [MarketData] Processing chunk {i//CHUNK_SIZE + 1} ({len(chunk)} symbols)", flush=True)
             
-            for future in future_to_sym:
-                norm_sym = future_to_sym[future]
-                try:
-                    df, currency, err, source = future.result()
-                    if df is not None and not df.empty:
-                        results[norm_sym] = (df, currency, err, source)
-                    else:
-                        results[norm_sym] = (None, "INR", err or "Failed to fetch data", "error")
-                except Exception as e:
-                    print(f"ERROR: [MarketData] Parallel fetch failed for {norm_sym}: {e}")
-                    results[norm_sym] = (None, "INR", str(e), "error")
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_sym = {
+                    executor.submit(MarketDataService.get_ohlcv, norm_sym, tf, count): norm_sym 
+                    for norm_sym in chunk
+                }
+                
+                for future in future_to_sym:
+                    norm_sym = future_to_sym[future]
+                    try:
+                        df, currency, err, source = future.result()
+                        if df is not None and not df.empty:
+                            results[norm_sym] = (df, currency, err, source)
+                        else:
+                            results[norm_sym] = (None, "INR", err or "Failed to fetch data", "error")
+                    except Exception as e:
+                        print(f"ERROR: [MarketData] Parallel fetch failed for {norm_sym}: {e}")
+                        results[norm_sym] = (None, "INR", str(e), "error")
+            
+            # Explicitly trigger GC after each chunk to release transient DataFrames
+            gc.collect()
 
         # 3. Final mapping back to original input symbols
         final_map = {}
@@ -615,7 +625,11 @@ class MarketDataService:
             is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY") or symbol.startswith("NSE:") or symbol.startswith("BSE:")
             currency = "INR" if is_inr else "USD"
             
-            # 2. Update Memory Cache
+            # 2. Update Memory Cache (with size-limiting)
+            if len(MarketDataService._ohlcv_cache) >= MarketDataService.MAX_CACHE_ITEMS:
+                # Simple clear when full to keep memory low
+                MarketDataService._ohlcv_cache.clear()
+
             MarketDataService._ohlcv_cache[cache_key] = {
                 'df': df.copy(),
                 'currency': currency,
