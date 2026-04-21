@@ -418,11 +418,13 @@ class ScreenerService:
         # Combine all targets for a single batch pass
         all_targets = all_symbols + sector_indices
         
+        last_err = None
         try:
             batch_results = MarketDataService.get_ohlcv_batch(all_targets, normalized_tf, count=200)
             
             for sym, res in batch_results.items():
                 df, currency, err, source = res
+                if err: last_err = err # Capture last error for diagnostic
                 if df is not None and not df.empty:
                     # columns and timezones are handled by batch method
                     if sym in sector_indices:
@@ -431,14 +433,17 @@ class ScreenerService:
                         stock_batch_data[sym] = df
         except Exception as e:
             print(f"ERROR: Batch data fetch failed in screener: {e}", flush=True)
+            last_err = str(e)
 
         if not stock_batch_data:
-            print("WARNING: No stock data fetched for screener via MarketDataService. Using fallback.", flush=True)
+            is_expired = last_err and "Fyers Token Expired" in str(last_err)
+            print(f"WARNING: No stock data fetched for screener (Expired: {is_expired}). Using fallback.", flush=True)
             fb_list = cls._load_fallback(normalized_tf)
             return {
                 "hits": fb_list,
                 "sector_concentration": cls._calculate_sector_concentration(fb_list),
-                "source": "fallback"
+                "source": "expired" if is_expired else "fallback",
+                "message": last_err if is_expired else None
             }
 
 
