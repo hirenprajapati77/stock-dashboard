@@ -63,6 +63,29 @@ class HistoricalPerformance(BaseModel):
     avg_rr: float
     confidence_accuracy: float
 
+class MarketRegimeType(Enum):
+    TRENDING = "TRENDING"
+    MEAN_REVERT = "MEAN_REVERT"
+    VOLATILE = "VOLATILE"
+    BREAKOUT_PHASE = "BREAKOUT_PHASE"
+
+class MarketRegime(BaseModel):
+    regime: MarketRegimeType
+    confidence: float
+    impact: Dict[str, bool]
+
+class EntryType(Enum):
+    MOMENTUM_ENTRY = "MOMENTUM"
+    RETEST_ENTRY = "RETEST"
+    EARLY_ENTRY = "EARLY"
+    LATE_ENTRY = "LATE"
+    NONE = "NONE"
+
+class ExitStrategy(BaseModel):
+    exit_strategy: str # TRAILING, STATIC, AGGRESSIVE
+    dynamic_targets: bool
+    early_exit_signal: bool
+
 class TradeDecision(BaseModel):
     symbol: str
     action: ActionType
@@ -75,10 +98,15 @@ class TradeDecision(BaseModel):
     quality: TradeQuality
     quality_score: float # 0-100
     entry_status: EntryStatus
+    entry_type: EntryType
     state: TradeState
     intent: TradeIntent
     allocation: Allocation
     market_context: MarketCondition
+    market_regime: MarketRegime
+    confluence_score: float
+    exit_strategy: ExitStrategy
+    narrative: str
     historical_performance: HistoricalPerformance
     validity: str
     reason: List[str]
