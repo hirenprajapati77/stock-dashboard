@@ -90,6 +90,11 @@ from app.services.fyers_socket_service import FyersSocketService
 from app.utils.market_calendar import MarketCalendar
 from app.config import fyers_config
 
+# Trade Decision Engine Imports
+from app.trade_engine.models import MarketContext, TradeDecision
+from app.trade_engine.trade_decision_service import TradeDecisionService
+from app.trade_engine.trade_builder import TradeBuilder
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1238,6 +1243,74 @@ async def get_index_page(user: Optional[str] = Depends(get_current_user)):
 async def get_audit_logs():
     """Hidden audit log that displays the trailing stdout logs."""
     return {"status": "success", "logs": list(audit_tail.logs)}
+
+@app.get("/api/v1/generate-trade")
+async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str = "SR"):
+    """
+    Production-grade Trade Decision Engine endpoint.
+    Converts market data into actionable 'BUY ABOVE / SELL BELOW' signals.
+    """
+    try:
+        # 1. Fetch Primary Data
+        norm_symbol = ConstituentService.normalize_symbol(symbol)
+        df, currency, error, source = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, tf)
+        
+        if df is None or df.empty:
+            raise HTTPException(status_code=400, detail=error or f"No data found for {symbol}")
+
+        # 2. Extract Key Metrics
+        from app.engine.insights import InsightEngine
+        from app.engine.zones import ZoneEngine
+        from app.engine.regime import MarketRegimeEngine
+        
+        cmp = float(df['close'].iloc[-1])
+        supports, resistances = await asyncio.to_thread(SREngine.calculate_sr_levels, df)
+        
+        # Mapping SR results to simple list of prices
+        support_prices = [s['price'] for s in supports]
+        resistance_prices = [r['price'] for r in resistances]
+        
+        atr_series = await asyncio.to_thread(ZoneEngine.calculate_atr, df)
+        atr = float(atr_series.iloc[-1]) if not atr_series.empty else cmp * 0.01
+        
+        adx = await asyncio.to_thread(InsightEngine.get_adx, df)
+        regime = await asyncio.to_thread(MarketRegimeEngine.detect_regime, df)
+        
+        # Map regime to simple trend
+        trend = "SIDEWAYS"
+        if "UPTREND" in regime: trend = "BULLISH"
+        elif "DOWNTREND" in regime: trend = "BEARISH"
+        
+        # 3. Create Market Context
+        context = MarketContext(
+            symbol=symbol,
+            price=cmp,
+            supports=support_prices,
+            resistances=resistance_prices,
+            atr=atr,
+            adx=adx,
+            trend=trend
+        )
+        
+        # 4. Generate Decision
+        decision = TradeDecisionService.generate_trade(context)
+        
+        # 5. Format Output
+        formatted_text = TradeBuilder.format_output(decision)
+        
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "decision": decision.dict(),
+            "recommendation": formatted_text
+        }
+        
+    except Exception as e:
+        print(f"Error in generate_trade_api: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
 
 # Mount Frontend - Robust Path Finding
 try:
