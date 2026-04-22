@@ -86,6 +86,8 @@ from app.engine.confidence import ConfidenceEngine
 from app.ai.engine import AIEngine
 
 from app.services.fyers_service import FyersService
+from app.services.fyers_socket_service import FyersSocketService
+from app.utils.market_calendar import MarketCalendar
 from app.config import fyers_config
 
 
@@ -102,6 +104,9 @@ async def lifespan(app: FastAPI):
                 from app.services.screener_service import ScreenerService
                 from app.services.constituent_service import ConstituentService
                 from app.services.fyers_service import FyersService
+                
+                # 0. Load existing token
+                FyersService.load_token()
                 
                 # 1. Warm up symbol master for search (NSE symbols)
                 print("[Warmup] Syncing Fyers symbol master...", flush=True)
@@ -123,8 +128,76 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[Warmup] Error: {e}")
 
+    # --- SAFETY SYNC LOOP (60s — corrects drift, populates OHLCV buffers) ---
+    async def safety_sync_loop():
+        """
+        Runs every 60s. Performs a full intelligence cycle to:
+        1. Populate _realtime_buffers for new symbols (so WebSocket can update them).
+        2. Correct any drift from missed WebSocket ticks.
+        3. Acts as the sole data source when WebSocket is disconnected.
+        Does NOT overwrite valid real-time data if it is more recent than the sync.
+        """
+        SYNC_INTERVAL = 60.0
+        from app.services.screener_service import ScreenerService
+        import time
+        print("[SafetySync] 60s safety sync loop started.", flush=True)
+        while True:
+            try:
+                if MarketCalendar.is_market_open():
+                    last_rt = ScreenerService._intelligence_cache.get("last_updated")
+                    if last_rt:
+                        age = (datetime.now() - last_rt).total_seconds()
+                        # Only run full scan if last real-time update was > 45s ago
+                        # (meaning WebSocket is inactive or stale)
+                        if age < 45:
+                            await asyncio.sleep(SYNC_INTERVAL)
+                            continue
+                    await asyncio.to_thread(ScreenerService.update_intelligence_cycle, timeframe="1D")
+                    # Populate realtime buffers from latest batch data
+                    _populate_realtime_buffers(ScreenerService)
+                else:
+                    print("[SafetySync] Market closed. Skipping sync.", flush=True)
+            except Exception as e:
+                print(f"[SafetySync] Error: {e}", flush=True)
+            await asyncio.sleep(SYNC_INTERVAL)
+
+    def _populate_realtime_buffers(ScreenerService):
+        """Seeds the real-time OHLCV buffers from latest screener batch data."""
+        try:
+            from app.services.market_data import MarketDataService
+            for sym_data in ScreenerService._intelligence_cache.get("data", []):
+                symbol = sym_data.get("symbol", "")
+                if not symbol or symbol in ScreenerService._realtime_buffers:
+                    continue  # Already has a live buffer; don't overwrite
+                # Try to get cached OHLCV from market data layer
+                yf_sym = symbol + ".NS"
+                df = MarketDataService._ohlcv_cache.get(yf_sym)
+                if df is not None and not df.empty:
+                    ScreenerService._realtime_buffers[symbol] = df.tail(100).copy()
+        except Exception as e:
+            print(f"[SafetySync] Buffer populate error: {e}", flush=True)
+
+    # --- WEBSOCKET STREAMING SERVICE ---
+    async def start_websocket_service():
+        """Starts FyersSocketService after warmup completes."""
+        await asyncio.sleep(70)  # Wait for warmup + first sync
+        from app.services.screener_service import ScreenerService
+        # Build Fyers-format symbol list from screener constituents
+        try:
+            from app.services.constituent_service import ConstituentService
+            symbols_raw = ConstituentService.get_nifty100_symbols()
+            # Convert to Fyers format: SBIN -> NSE:SBIN-EQ
+            fyers_symbols = [f"NSE:{s.replace('.NS','').replace('.BO','')}-EQ" for s in symbols_raw if s]
+            print(f"[FyersSocket] Registering {len(fyers_symbols)} symbols for streaming.", flush=True)
+            await FyersSocketService.start(symbols=fyers_symbols)
+        except Exception as e:
+            print(f"[FyersSocket] Startup error: {e}", flush=True)
+
+    asyncio.create_task(safety_sync_loop())
+    asyncio.create_task(start_websocket_service())
     asyncio.create_task(_warmup())
     yield
+    await FyersSocketService.stop()
 
 
 # Authentication Constants
@@ -864,72 +937,84 @@ async def get_sector_rotation(tf: str = "1D"):
             pass
         return {"status": "error", "message": str(e), "source": "error"}
 
+@app.get("/api/v1/health/intelligence", dependencies=[Depends(login_required)])
+async def get_intelligence_health():
+    """
+    HEALTH MONITORING ENDPOINT
+    Returns real-time engine telemetry, WebSocket streaming metrics, and market status.
+    """
+    from app.services.screener_service import ScreenerService
+    health = ScreenerService.get_health_metrics()
+
+    # Merge in WebSocket streaming metrics
+    ws_metrics = FyersSocketService.get_metrics()
+    health["websocket"] = {
+        "connected": ws_metrics.get("connected", False),
+        "reconnect_count": ws_metrics.get("reconnect_count", 0),
+        "total_ticks": ws_metrics.get("total_ticks", 0),
+        "total_batches": ws_metrics.get("total_batches", 0),
+        "last_error": ws_metrics.get("last_error"),
+    }
+
+    # Merge in market session status
+    health["market_status"] = MarketCalendar.get_market_status()
+
+    return _json_serializable(health)
+
+@app.get("/api/v1/intelligence", dependencies=[Depends(login_required)])
+async def get_intelligence():
+    """
+    PRECOMPUTED INTELLIGENCE ENDPOINT (Target: <100ms)
+    Returns the latest signals from the background engine.
+    """
+    from app.services.screener_service import ScreenerService
+    status = ScreenerService.get_intelligence_status()
+    
+    # Return warming state if no data yet
+    if status["status"] == "warming":
+        return JSONResponse(status_code=202, content={"status": "warming", "message": "Intelligence engine is calculating initial signals..."})
+    
+    return _json_serializable({
+        "status": "success",
+        "last_updated": status["last_updated"],
+        "count": len(status["data"]),
+        "data": status["data"]
+    })
+
 @app.get("/api/v1/momentum-hits", dependencies=[Depends(login_required)])
 async def get_momentum_hits(tf: str = "1D", force: bool = False):
     """
-    Returns stocks with momentum hits (price and volume acceleration).
+    INSTANT MOMENTUM HITS (REFACTORED)
+    Now serves from precomputed background cache.
     """
     try:
-        from app.services.screener_service import ScreenerService as MomentumScreener
+        from app.services.screener_service import ScreenerService
         from app.services.signal_filter_service import SignalFilterService
         from app.services.trade_decision_service import TradeDecisionService
-        from app.services.trade_tracking_service import TradeTrackingService
-
-        screener_res = MomentumScreener.get_screener_data(timeframe=tf, force=force)
         
-        # Consistent Handling for the new Dict response from ScreenerService
-        if isinstance(screener_res, dict):
-            raw_hits = screener_res.get("hits", [])
-            source = screener_res.get("source", "live")
-        else:
-            raw_hits = screener_res
-            source = "fallback" # If it returned a list, it's the old fallback path
+        # 1. Fetch from Background Cache (Instant)
+        status = ScreenerService.get_intelligence_status()
         
-        if not raw_hits:
-             # Fallback if service returns empty list
-             pass
-             
+        if status["status"] == "warming" and not status["data"]:
+            return JSONResponse(status_code=202, content={"status": "warming", "message": "Warming up..."})
+            
+        raw_hits = status["data"]
+        
+        # 2. Add filters and decisions (Lightweight/No OHLCV fetch)
+        # Note: All heavy Pandas work with OHLCV happened in the background
         filtered = SignalFilterService.annotate_many(raw_hits)
         
         from app.services.market_status_service import MarketStatusService
         market_status = MarketStatusService.get_market_status()
         enriched = TradeDecisionService.annotate_many(filtered, market_phase=market_status["market_phase"])
         
-        TradeTrackingService.log_trades(enriched)
-        
-        # Extraction and enrichment complete
-
-
-        # Extract Sector Concentration from service if available, else compute locally
-        sector_concentration = []
-        if isinstance(screener_res, dict) and "sector_concentration" in screener_res:
-            sector_concentration = screener_res["sector_concentration"]
-        else:
-            sector_counts: dict = {}
-            for h in enriched:
-                sk = h.get("sector", "OTHER")
-                sector_counts[sk] = sector_counts.get(sk, 0) + 1
-            sector_concentration = sorted(
-                [{"sector": k, "count": v} for k, v in sector_counts.items()],
-                key=lambda x: x["count"], reverse=True
-            )
-
-        from app.services.fyers_service import FyersService
-        is_expired = source == "expired"
-        
-        resp_data = {
+        return _json_serializable({
             "status": "success",
             "count": len(enriched),
             "data": enriched,
-            "sectorConcentration": sector_concentration,
-            "source": source,
-            "is_fyers_active": FyersService.is_active(),
-            "timestamp": datetime.now().strftime("%H:%M:%S")
-        }
-        
-        if is_expired:
-            return JSONResponse(status_code=401, content=resp_data)
-        return resp_data
+            "source": "background_engine",
+            "timestamp": status["last_updated"]
+        })
     except Exception as e:
         print(f"ERROR in get_momentum_hits: {e}")
         # Try emergency fallback load in the outer catch too

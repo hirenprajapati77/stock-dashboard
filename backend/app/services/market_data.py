@@ -140,17 +140,42 @@ class MarketDataService:
     def _load_from_disk(symbol, tf):
         try:
             path = MarketDataService._get_cache_path(symbol, tf)
-            if path.exists():
-                df = pd.read_csv(path)
-                if not df.empty and 'timestamp' in df.columns:
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df.set_index('timestamp', inplace=True)
-                elif not df.empty and df.columns[0] == 'Unnamed: 0':
-                    # Sometimes pandas saves index as Unnamed: 0
-                    df.rename(columns={'Unnamed: 0': 'timestamp'}, inplace=True)
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df.set_index('timestamp', inplace=True)
+            if not path.exists():
+                return None
+            
+            df = pd.read_csv(path)
+            if df.empty:
                 return df
+            
+            # Normalize column names for detection
+            cols = [str(c).lower() for c in df.columns]
+            
+            if 'timestamp' in cols:
+                idx = cols.index('timestamp')
+                df.set_index(df.columns[idx], inplace=True)
+            elif 'date' in cols:
+                idx = cols.index('date')
+                df.set_index(df.columns[idx], inplace=True)
+            elif df.columns[0] == 'Unnamed: 0':
+                df.set_index(df.columns[0], inplace=True)
+            
+            # Ensure index is DatetimeIndex
+            if not isinstance(df.index, pd.DatetimeIndex):
+                try:
+                    df.index = pd.to_datetime(df.index)
+                except:
+                    pass
+            
+            # Ensure all data columns are lowercase
+            df.columns = [c.lower() for c in df.columns]
+            df.index.name = 'timestamp'
+            df.sort_index(inplace=True)
+            
+            # Final normalization for daily data
+            if tf in ["1D", "DAILY"] and isinstance(df.index, pd.DatetimeIndex):
+                df.index = df.index.normalize()
+                
+            return df
         except Exception as e:
             print(f"DEBUG: Failed to load {symbol} from disk: {e}")
         return None
@@ -309,15 +334,17 @@ class MarketDataService:
 
         # 2. Parallel Fetch using the hardened get_ohlcv method in small chunks
         # Chunking prevents holding 200+ futures/DataFrames in memory simultaneously
-        print(f"DEBUG: [MarketData] Chunked batch fetching {len(unique_normalized)} symbols...", flush=True)
+        total_start = time.time()
+        print(f"DEBUG: [MarketData] Starting fresh batch fetch for {len(to_fetch)} symbols. (Total: {len(unique_normalized)})", flush=True)
         
-        max_workers = 3
+        max_workers = 5 # Increased from 3
         CHUNK_SIZE = 20
         
         # Process in chunks to stay within Render 512MB limit
-        for i in range(0, len(unique_normalized), CHUNK_SIZE):
-            chunk = unique_normalized[i:i + CHUNK_SIZE]
-            print(f"DEBUG: [MarketData] Processing chunk {i//CHUNK_SIZE + 1} ({len(chunk)} symbols)", flush=True)
+        for i in range(0, len(to_fetch), CHUNK_SIZE):
+            chunk = to_fetch[i:i + CHUNK_SIZE]
+            chunk_start = time.time()
+            print(f"DEBUG: [MarketData] Processing chunk {i//CHUNK_SIZE + 1} ({len(chunk)} symbols)...", flush=True)
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_sym = {
@@ -328,17 +355,24 @@ class MarketDataService:
                 for future in future_to_sym:
                     norm_sym = future_to_sym[future]
                     try:
-                        df, currency, err, source = future.result()
+                        # Lower timeout for individual fetches within a batch to prevent one slow symbol from hanging everything
+                        df, currency, err, source = future.result(timeout=25) 
                         if df is not None and not df.empty:
                             results[norm_sym] = (df, currency, err, source)
                         else:
-                            results[norm_sym] = (None, "INR", err or "Failed to fetch data", "error")
+                            results[norm_sym] = (None, "INR", err or "Empty Data", "error")
                     except Exception as e:
                         print(f"ERROR: [MarketData] Parallel fetch failed for {norm_sym}: {e}")
                         results[norm_sym] = (None, "INR", str(e), "error")
             
+            chunk_dur = time.time() - chunk_start
+            print(f"DEBUG: [MarketData] Chunk {i//CHUNK_SIZE + 1} completed in {chunk_dur:.2f}s.", flush=True)
+
             # Explicitly trigger GC after each chunk to release transient DataFrames
             gc.collect()
+            
+        total_dur = time.time() - total_start
+        print(f"DEBUG: [MarketData] Complete batch fetch finished in {total_dur:.2f}s for {len(to_fetch)} items.", flush=True)
 
         # 3. Final mapping back to original input symbols
         final_map = {}
@@ -577,7 +611,11 @@ class MarketDataService:
                                 df.at[last_idx, col_high] = max(df.at[last_idx, col_high], cmp)
                                 df.at[last_idx, col_low] = min(df.at[last_idx, col_low], cmp)
                             else:
-                                new_idx = pd.Timestamp.now().floor("min")
+                                if tf in ["1D", "DAILY"]:
+                                    new_idx = pd.Timestamp.now().normalize()
+                                else:
+                                    new_idx = pd.Timestamp.now().floor("min")
+                                
                                 new_row = {
                                     col_close: cmp,
                                     col_high: cmp,
@@ -620,6 +658,9 @@ class MarketDataService:
                 resample_logic = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                 offset = '15min' if tf == "75m" else '0min'
                 df = df.resample(resample_map[tf], offset=offset).agg(resample_logic).dropna()
+            
+            if tf in ["1D", "DAILY"] and isinstance(df.index, pd.DatetimeIndex):
+                df.index = df.index.normalize()
             
             df = df.tail(count)
             is_inr = symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^NSE") or symbol.startswith("^CNX") or symbol.startswith("NIFTY") or symbol.startswith("NSE:") or symbol.startswith("BSE:")
