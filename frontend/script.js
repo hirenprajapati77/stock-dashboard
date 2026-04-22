@@ -326,7 +326,11 @@ async function fetchData(isBackground = false) {
     } catch (error) {
         console.error("Fetch failed:", error);
 
-        const isRateLimit = error.message.includes("Rate Limit") || error.message.includes("Too Many Requests") || error.message.includes("No data found");
+        const errLower = error.message.toLowerCase();
+        const isRateLimit = errLower.includes("rate limit") || 
+                           errLower.includes("too many requests") || 
+                           errLower.includes("no data found") || 
+                           errLower.includes("rate-limited");
         
         // Show error UI if NOT background, OR if it's a critical rate limit error
         if (!isBackground || isRateLimit) {

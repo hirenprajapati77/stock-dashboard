@@ -493,11 +493,13 @@ class MarketDataService:
         if symbol in MarketDataService._cool_off_symbols:
             cool_off_end = MarketDataService._cool_off_symbols[symbol]
             if time.time() < cool_off_end:
-                print(f"DEBUG: [MarketData] Symbol {symbol} is in COOL-OFF. Returning disk cache.", flush=True)
+                print(f"DEBUG: [MarketData] Symbol {symbol} is in COOL-OFF. Checking disk cache...", flush=True)
                 df_disk = MarketDataService._load_from_disk(symbol, tf)
                 if df_disk is not None and not df_disk.empty:
                     return df_disk.tail(count), "INR", None, "cache"
-                return pd.DataFrame(), "INR", f"Symbol {symbol} is temporarily rate-limited. Please wait.", "error"
+                
+                # If disk is also empty, we return a more descriptive error for the UI
+                return pd.DataFrame(), "INR", f"Symbol {symbol} is temporarily rate-limited and no cached data exists. Please wait.", "error"
             else:
                 # Cool-off expired
                 MarketDataService._cool_off_symbols.pop(symbol, None)
