@@ -1,13 +1,14 @@
-from .models import TradeDecision, ActionType, SetupState
+from .models import TradeDecision, ActionType
 
 class TradeBuilder:
     """
-    V4 Trade Formatter — Full Intelligence Output.
+    V5 Trade Formatter — Full Execution Edge Output.
     """
 
     @staticmethod
     def format_output(decision: TradeDecision) -> str:
         symbol = decision.symbol
+        grade = decision.meta_score.trade_grade
         state_label = f"({decision.setup.value} {decision.setup_state.value})"
 
         output = f"📈 {symbol} {state_label}\n\n"
@@ -18,21 +19,25 @@ class TradeBuilder:
             output += f"SL: {decision.stop_loss}\n"
             output += f"TARGET: {' / '.join(map(str, decision.targets))}\n\n"
 
-        output += f"STATUS: {decision.state_message}\n"
-        output += f"CONFIDENCE: {int(decision.confidence)}%\n"
-        output += f"QUALITY: {decision.quality.value}\n"
-        output += f"INTENT: {decision.intent.value}\n\n"
-        output += f"ENTRY TYPE: {decision.entry_type.value}\n"
-        output += f"EXIT: {decision.exit_strategy.exit_strategy} Strategy\n\n"
+        output += f"CONFIDENCE: {decision.confidence}% | META SCORE: {decision.meta_score.meta_score} ({grade})\n"
+        output += f"ENTRY: {decision.entry_type.value} | EXIT: {decision.exit_strategy.exit_strategy}\n\n"
+
         output += f"MARKET: {decision.market_context.market_bias.capitalize()} ({decision.market_regime.regime.value})\n"
-        output += f"CONFLUENCE: {int(decision.confluence_score)}/100\n"
-        output += f"CAPITAL: {int(decision.allocation.capital_percent)}% allocation\n\n"
-        output += f"📝 {decision.narrative}\n"
+        if decision.liquidity.nearest_liquidity_target:
+            output += f"LIQUIDITY TARGET: {decision.liquidity.nearest_liquidity_target}\n"
+        output += f"ORDERFLOW: {decision.microstructure.orderflow_signal} ({decision.microstructure.momentum_quality})\n\n"
+
+        output += f"CAPITAL: {int(decision.allocation.capital_percent)}% | SESSION: {decision.session}\n"
+        output += f"RISK STATUS: {decision.drawdown_status.status}\n"
+        if decision.scaling.scaling_allowed:
+            output += f"SCALING: Add at {decision.scaling.add_position_level} (max {decision.scaling.max_additions}x)\n"
+
+        output += f"\n📝 {decision.narrative}\n"
 
         if decision.warnings:
             output += "\n⚠️ WARNINGS:\n"
             for w in decision.warnings:
-                output += f"- {w}\n"
+                output += f"  - {w}\n"
 
         output += f"\n🎯 NEXT: {decision.next_action}"
         return output

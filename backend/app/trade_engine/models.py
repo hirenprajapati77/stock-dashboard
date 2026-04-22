@@ -86,6 +86,30 @@ class ExitStrategy(BaseModel):
     dynamic_targets: bool
     early_exit_signal: bool
 
+class Microstructure(BaseModel):
+    orderflow_signal: str         # ABSORPTION, MOMENTUM, EXHAUSTION, NEUTRAL
+    momentum_quality: str         # STRONG, WEAK
+    confidence_adjustment: float
+
+class Liquidity(BaseModel):
+    nearest_liquidity_target: Optional[float]
+    liquidity_strength: str       # HIGH, MEDIUM, LOW
+    distance_to_liquidity: float  # pct
+
+class Scaling(BaseModel):
+    scaling_allowed: bool
+    add_position_level: Optional[float]
+    max_additions: int
+
+class DrawdownStatus(BaseModel):
+    status: str    # SAFE, WARNING, STOP
+    action: str    # CONTINUE, REDUCE, HALT
+
+class MetaScore(BaseModel):
+    meta_score: float
+    trade_grade: str              # A+, A, B, C, D
+    final_decision: str           # EXECUTE, WATCH, REJECT
+
 class TradeDecision(BaseModel):
     symbol: str
     action: ActionType
@@ -94,9 +118,9 @@ class TradeDecision(BaseModel):
     entry: float
     stop_loss: float
     targets: List[float]
-    confidence: float # 0-100
+    confidence: float             # 0-100
     quality: TradeQuality
-    quality_score: float # 0-100
+    quality_score: float          # 0-100
     entry_status: EntryStatus
     entry_type: EntryType
     state: TradeState
@@ -104,8 +128,13 @@ class TradeDecision(BaseModel):
     allocation: Allocation
     market_context: MarketCondition
     market_regime: MarketRegime
+    microstructure: Microstructure
+    liquidity: Liquidity
     confluence_score: float
     exit_strategy: ExitStrategy
+    meta_score: MetaScore
+    scaling: Scaling
+    drawdown_status: DrawdownStatus
     narrative: str
     historical_performance: HistoricalPerformance
     validity: str
@@ -113,9 +142,10 @@ class TradeDecision(BaseModel):
     warnings: List[str]
     next_action: str
     option_strike: Optional[str] = None
-    option_strategy: str = "SAFE" # MOMENTUM, SAFE, AGGRESSIVE
+    option_strategy: str = "SAFE"
     risk_reward: float
     state_message: str
+    session: str = "MID"
 
 class MarketContext(BaseModel):
     symbol: str
