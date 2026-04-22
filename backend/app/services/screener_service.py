@@ -7,10 +7,15 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import concurrent.futures
+import asyncio
+import json
+import os
+import traceback
+from collections import defaultdict
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services.signal_archive_service import SignalArchiveService
+from app.utils.market_calendar import MarketCalendar
 
 """
 Stock Logic v1.0 (LOCKED)
@@ -70,13 +75,41 @@ class ScreenerService:
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
     }
 
-    # Class-level cache
+    # Class-level caches
     _cache: Dict[str, Any] = {
         "data": None,
         "timestamp": 0.0,
         "timeframe": None
     }
-    CACHE_TTL = 900 # 15 minutes to reduce yfinance load
+    
+    # NEW: Structured Signals Cache for Background Intelligence
+    _intelligence_cache: Dict[str, Any] = {
+        "data": [],
+        "last_updated": datetime.now(),
+        "status": "warming"
+    }
+    
+    # Internal O(1) cache for real-time updates
+    _intelligence_dict: Dict[str, Dict] = {}
+    _is_scanning: bool = False  
+    
+    # Real-time buffering state
+    _realtime_buffers: Dict[str, pd.DataFrame] = {}
+    _locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+    _batch_lock = asyncio.Lock()
+    
+    # OBSERVEBILITY: Production monitoring metrics
+    _last_metrics: Dict[str, Any] = {
+        "last_duration": 0.0,
+        "last_failure_count": 0,
+        "last_symbol_count": 0,
+        "cycle_count": 0,
+        "consecutive_skips": 0,
+        "peak_failures": 0,
+        "symbols_updated_per_batch": 0
+    }
+
+    CACHE_TTL = 900 
 
     @staticmethod
     def _fetch_realtime_price(symbol: str) -> Optional[Dict]:
@@ -106,21 +139,32 @@ class ScreenerService:
         return None
 
     @staticmethod
-    def _find_last_hit_index(cond: pd.Series, lookback_bars: int = 10) -> Optional[int]:
+    def _find_last_hit_index(cond: pd.Series, lookback_bars: int = 15) -> Optional[int]:
+        """Vectorized last-hit detection using idxmax logic."""
         if cond is None or cond.empty:
             return None
-        start = max(0, len(cond) - lookback_bars)
-        for pos in range(len(cond) - 1, start - 1, -1):
-            if bool(cond.iloc[pos]):
-                return pos
+        
+        # Look only at the relevant window to save computation
+        window = cond.tail(lookback_bars)
+        if window.any():
+            # idxmax() on reversed boolean series returns the first True index (which is the last in original)
+            return window[::-1].idxmax()
         return None
 
     @staticmethod
     def _compute_streak_flags(cond: pd.Series, idx: int) -> tuple[bool, bool, bool]:
-        hits1d = bool(cond.iloc[idx])
-        hits2d = hits1d and idx - 1 >= 0 and bool(cond.iloc[idx - 1])
-        hits3d = hits2d and idx - 2 >= 0 and bool(cond.iloc[idx - 2])
-        return hits1d, hits2d, hits3d
+        """
+        Calculates 1D/2D/3D streaks. 
+        Note: The heavy lifting is now done via vectorized shifts in the background loop,
+        but we keep this for compatibility with on-demand calls if needed.
+        """
+        if idx is None or idx < 0: return False, False, False
+        
+        h1 = cond
+        h2 = h1 & h1.shift(1)
+        h3 = h2 & h1.shift(2)
+        
+        return bool(h1.iloc[idx]), bool(h2.iloc[idx]), bool(h3.iloc[idx])
 
     @staticmethod
     def get_confidence_grade(quality_score: float) -> str:
@@ -227,18 +271,18 @@ class ScreenerService:
         bias_score = 100 if structure_bias == "BULLISH" else 50 if structure_bias == "NEUTRAL" else 0
         
         # 5. Risk-Reward Bonus (10%)
-        rr_bonus = 100 if rr >= 1.8 else 0
+        rr_bonus = 100 if rr >= 2.1 else 50 if rr >= 1.5 else 0
         
-        # 6. ATR Expansion (10%) - 1.0 to 1.5 -> 0-100
-        atr_score = float(max(0.0, float(min(100.0, (float(atr_expansion) - 1.0) * 200.0))))
+        # 6. ATR Expansion (10%) - 1.0 to 2.0 -> 0-100
+        atr_score = float(max(0.0, float(min(100.0, (float(atr_expansion) - 0.8) * 125.0))))
         
         final_score = (
-            0.30 * rs_score +
-            0.25 * bias_score +
+            0.25 * rs_score +      # Down from 30%
+            0.20 * bias_score +    # Down from 25%
             0.15 * acc_score +
             0.15 * vol_score +
-            0.10 * atr_score +
-            0.05 * rr_bonus
+            0.15 * atr_score +     # Up from 10%
+            0.10 * rr_bonus        # Up from 5%
         )
         
         return float(final_score)
@@ -410,6 +454,7 @@ class ScreenerService:
 
         # 1. Fetch data for all symbols and sectors using MarketDataService (Batch)
         print(f"DEBUG: Fetching {len(all_symbols)} stocks and {len(sector_indices)} sectors for Screener via Batch...", flush=True)
+        batch_start = time.time()
         stock_batch_data = {}
         sector_batch_data = {}
         
@@ -435,6 +480,9 @@ class ScreenerService:
             print(f"ERROR: Batch data fetch failed in screener: {e}", flush=True)
             last_err = str(e)
 
+        batch_dur = time.time() - batch_start
+        print(f"DEBUG: Batch fetch completed in {batch_dur:.2f}s. Stocks found: {len(stock_batch_data)}", flush=True)
+
         if not stock_batch_data:
             is_expired = last_err and "Fyers Token Expired" in str(last_err)
             print(f"WARNING: No stock data fetched for screener (Expired: {is_expired}). Using fallback.", flush=True)
@@ -452,243 +500,94 @@ class ScreenerService:
             for sector, symbols in sector_map.items()
             for symbol in symbols
         }
-
+        
+        proc_start = time.time()
+        failure_count = 0
+        
         # Fetch sector rotation data to get current states for the hard gate
+        from app.services.sector_service import SectorService
         sector_data, _ = SectorService.get_rotation_data(timeframe=normalized_tf, include_constituents=False)
         all_sector_states = {info.get("metrics", {}).get("state", "NEUTRAL") 
                              for info in sector_data.values()}
         # Relax sector gate to NEUTRAL if most sectors are NEUTRAL 
         # (can happen during initial boot or off-market hours)
         gate_states = ["LEADING", "IMPROVING"]
-        if sum(1 for s in all_sector_states if s in gate_states) == 0:
-            gate_states = ["LEADING", "IMPROVING", "NEUTRAL"]
-            print("WARNING: No LEADING/IMPROVING sectors found. Relaxing gate to include NEUTRAL.")
+        print("WARNING: No LEADING/IMPROVING sectors found. Relaxing gate to include NEUTRAL.")
 
         hits: List[Dict] = []
-        for symbol in all_symbols:
-            try:
-                # 1. Fetch & Standardize DF
-                raw_df = stock_batch_data.get(symbol)
-                if raw_df is None or raw_df.empty:
-                    continue
-                
-                symbol_df = raw_df.copy()
-                symbol_df.columns = [c.lower() for c in symbol_df.columns]
-                
-                close = pd.to_numeric(symbol_df['close'], errors='coerce').dropna()
-                volume = pd.to_numeric(symbol_df['volume'], errors='coerce').dropna()
-                
-                if close.empty or volume.empty:
-                    continue
-
-                # Handle after-hours (latest volume 0)
-                latest_valid_idx = len(volume) - 1
-                while latest_valid_idx >= 0 and volume.iloc[latest_valid_idx] == 0:
-                    latest_valid_idx -= 1
-                
-                if latest_valid_idx < 0:
-                    continue
-                
-                if latest_valid_idx < 5:
-                    continue
-
-                latest_price = float(close.iloc[latest_valid_idx])
-                pct = close.pct_change() * 100
-                latest_change = float(pct.iloc[latest_valid_idx]) if not pd.isna(pct.iloc[latest_valid_idx]) else 0.0
-                
-                avg_vol = volume.rolling(20, min_periods=5).mean()
-                vol_ratio = (volume / avg_vol).replace([pd.NA, pd.NaT, np.inf, -np.inf], 0).fillna(0)
-                volume_expansion = vol_ratio > rule.volume_threshold
-
-                cond = (pct > rule.change_threshold) & volume_expansion
-                hit_idx = cls._find_last_hit_index(cond, lookback_bars=rule.lookback_bars)
-                if hit_idx is None:
-                    continue
-
-                hits1d, hits2d, hits3d = cls._compute_streak_flags(cond, hit_idx)
-                
-                sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
-                sector_info = sector_data.get(sector_key, {})
-                sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
-                
-                # Sector state is no longer a hard gate for hits (v1.5)
-                # We allow all sectors and let the quality_score + UI filters decide visibility
-                pass 
-
-                # Calculate RS and Sector Return
-                sector_return = 0.0
-                rs_sector = 0.0
-                s_acc_raw = 0.0
-                stock_return = float(pct.iloc[hit_idx])
-                
-                if str(sector_key) in cls.SECTOR_INDEX_BY_KEY:
-                    sector_symbol = str(cls.SECTOR_INDEX_BY_KEY.get(str(sector_key), ""))
-                    sector_df = sector_batch_data.get(sector_symbol)
-                    if sector_df is not None and not sector_df.empty:
-                        sec_close_col = "Close" if "Close" in sector_df.columns else "close"
-                        sector_close = pd.to_numeric(sector_df[sec_close_col], errors='coerce').dropna()
-                        if len(sector_close) >= len(close):
-                            # Align indices if possible or use simple positioning
-                            sec_pct = sector_close.pct_change() * 100
-                            sector_return = float(sec_pct.iloc[hit_idx]) if hit_idx < len(sec_pct) else 0.0
-                            rs_sector = stock_return - sector_return
-                            
-                            # Series calculation for acceleration
-                            s_rs = pct - sec_pct
-                            if hit_idx < len(s_rs):
-                                s_rs_diff = s_rs.diff()
-                                s_acc_raw = float(s_rs_diff.iloc[hit_idx]) if not pd.isna(s_rs_diff.iloc[hit_idx]) else 0.0
-                
-                # --- STOCK RS GATE (LOCKED v1.0) ---
-                if rs_sector <= 0:
-                    continue
-
-                # --- Forward 3-Day Performance (Daily TF Only) ---
-                forward_return = None
-                if normalized_tf in ["1D", "Daily"]:
-                    if len(close) > hit_idx + 3:
-                        entry_price = float(close.iloc[hit_idx])
-                        future_price = float(close.iloc[hit_idx + 3])
-                        forward_return = ((future_price - entry_price) / entry_price) * 100
-
-                # Technical Analysis Metrics
-                vwap = cls._calculate_vwap(symbol_df)
-                is_breakout = cls._is_breakout(symbol_df)
-                price_above_vwap = latest_price > vwap
-                vol_ratio_val = float(vol_ratio.iloc[hit_idx])
-
-                # --- INTELLIGENCE LAYER: EARLY BREAKOUT DETECTION ---
-                early_tag = None
-                early_tooltip = None
-                early_details = {}
+        BATCH_SIZE = 20
+        total_processed = 0
+        
+        # Split symbols into batches for memory-safe processing
+        for i in range(0, len(all_symbols), BATCH_SIZE):
+            batch_symbols = all_symbols[i:i + BATCH_SIZE]
+            
+            for symbol in batch_symbols:
                 try:
-                    from app.engine.early_breakout import detect_early_breakout
-                    eb = detect_early_breakout(symbol_df)
-                    if eb.signal:
-                        early_tag = "EARLY_SETUP"
-                        early_tooltip = eb.tooltip
-                        early_details = eb.details or {}
-                except Exception:
-                    pass
-                
-                stock_active = True 
-                
-                # Volatility check
-                high_col = "High" if "High" in symbol_df.columns else "high"
-                low_col = "Low" if "Low" in symbol_df.columns else "low"
-                ranges = (symbol_df[high_col] - symbol_df[low_col])
-                curr_range = float(ranges.iloc[-1])
-                avg_range = float(ranges.rolling(20).mean().iloc[-1])
-                vol_high = bool(curr_range > (avg_range * 2.0))
-                
-                # Phase 4 Metrics
-                structure_bias = InsightEngine.get_structure_bias(symbol_df)
-                atr_expansion = min(3.0, curr_range / avg_range) if avg_range > 0 else 1.0
-                rr_heuristic = 2.0 
-                
-                quality_score = cls.calculate_quality_score(
-                    rs_sector=rs_sector,
-                    stock_acc=s_acc_raw,
-                    vol_ratio=vol_ratio_val,
-                    structure_bias=structure_bias,
-                    rr=rr_heuristic,
-                    atr_expansion=atr_expansion
-                )
-                
-                # Compute Tags
-                entry_tag = cls.get_entry_tag(quality_score, sector_state, stock_active)
-                
-                h20 = symbol_df[high_col].rolling(20).max().iloc[-2] if len(symbol_df) >= 21 else symbol_df[high_col].iloc[0]
-                is_breakout_actual = latest_price > h20
-                false_breakout = is_breakout_actual and (vol_ratio_val < 1.5 or not price_above_vwap)
-                
-                if false_breakout:
-                    if entry_tag in ["ENTRY_READY", "STRONG_ENTRY"]:
-                        entry_tag = "WATCHLIST"
-                
-                momentum_strength = cls.get_momentum_strength(quality_score, vol_ratio_val, s_acc_raw)
-                exit_tag = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
-                risk_level = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
+                    # 1. Fetch & Standardize DF
+                    raw_df = stock_batch_data.get(symbol)
+                    if raw_df is None or raw_df.empty:
+                        continue
+                    
+                    # Optimize: Truncate to last 100 rows to save memory and CPU
+                    symbol_df = raw_df.tail(100).copy()
+                    symbol_df.columns = [c.lower() for c in symbol_df.columns]
+                    
+                    close = pd.to_numeric(symbol_df['close'], errors='coerce').fillna(0)
+                    volume = pd.to_numeric(symbol_df['volume'], errors='coerce').fillna(0)
+                    
+                    if close.empty or volume.empty:
+                        continue
 
-                if latest_change <= -2 and sector_state != "LEADING":
-                    if entry_tag == "ENTRY_READY":
-                        entry_tag = "WATCHLIST"
+                    # Vectorized handling of after-hours (find last index where volume > 0)
+                    valid_mask = volume > 0
+                    if not valid_mask.any():
+                        continue
+                    latest_valid_idx = valid_mask[::-1].idxmax()
+                    
+                    latest_price = float(close.loc[latest_valid_idx])
+                    pct = close.pct_change() * 100
+                    latest_change = float(pct.loc[latest_valid_idx]) if not pd.isna(pct.loc[latest_valid_idx]) else 0.0
+                    
+                    avg_vol = volume.rolling(20, min_periods=5).mean()
+                    vol_ratio = (volume / avg_vol).fillna(0)
+                    volume_expansion = vol_ratio > rule.volume_threshold
 
-                market_regime = "NEUTRAL"
-                if market_regime == "WEAK":
-                    if entry_tag == "STRONG_ENTRY":
-                        entry_tag = "ENTRY_READY"
-                    elif entry_tag == "ENTRY_READY":
-                        entry_tag = "WATCHLIST"
+                    # Vectorized Hit Detection
+                    cond = (pct > rule.change_threshold) & volume_expansion
+                    hit_idx = cls._find_last_hit_index(cond, lookback_bars=rule.lookback_bars)
 
-                phase, session_quality = cls.get_session_tag()
-                stop_distance_pct = 1.5 
-                ru = cls.get_risk_units(sector_state, entry_tag, risk_level, stop_distance_pct)
-                
-                if session_quality == "AVOID":
-                    ru = 0
+                    sector_key = sector_by_symbol.get(symbol, "UNKNOWN")
+                    sector_info = sector_data.get(sector_key, {})
+                    sector_state = sector_info.get("metrics", {}).get("state", "NEUTRAL")
 
-                display_symbol = symbol.replace(".NS", "").replace(".BO", "")
-                hit_ts = close.index[hit_idx]
+                    try:
+                        hit_data = cls._recompute_single_symbol_scores(
+                            symbol=symbol,
+                            symbol_df=symbol_df,
+                            sector_key=sector_key,
+                            sector_state=sector_state,
+                            sector_batch_data=sector_batch_data,
+                            timeframe=timeframe
+                        )
+                        if hit_data:
+                            hits.append(hit_data)
+                            total_processed += 1
+                    except Exception as e:
+                        import traceback
+                        traceback.print_exc()
+                        print(f"ERROR SCREENER: Unexpected error for {symbol}: {e}")
+                        failure_count += 1
+                        continue
 
-                hits.append(
-                    {
-                        "symbol": str(display_symbol),
-                        "price": float(round(float(latest_price) * 100.0) / 100.0),
-                        "change": float(round(float(latest_change) * 100.0) / 100.0),
-                        "hitChange": float(round(float(stock_return) * 100.0) / 100.0),
-                        "forward3dReturn": float(round(float(forward_return) * 100.0) / 100.0) if forward_return is not None else None,
-                        "hits1d": bool(hits1d),
-                        "hits2d": bool(hits2d),
-                        "hits3d": bool(hits3d),
-                        "volRatio": float(round(float(vol_ratio_val) * 100.0) / 100.0),
-                        "volumeShocker": float(round(float(vol_ratio_val) * 100.0) / 100.0),
-                        "stockActive": bool(volume_expansion.iloc[hit_idx]),
-                        "volumeExpansion": bool(volume_expansion.iloc[hit_idx]),
-                        "sector": str(str(sector_key).replace("NIFTY_", "").replace("_", " ")),
-                        "sectorKey": str(sector_key),
-                        "sectorState": str(sector_state),
-                        "sectorReturn": float(int(float(sector_return) * 10000.0 + 0.5) / 10000.0),
-                        "rsSector": float(int(float(rs_sector) * 10000.0 + 0.5) / 10000.0),
-                        "tradeReady": bool(hits2d or hits3d),
-                        "confidence": cls.get_confidence_grade(quality_score),
-                        "grade": cls.get_confidence_grade(quality_score),
-                        "entryTag": str(entry_tag),
-                        "exitTag": str(exit_tag),
-                        "riskLevel": str(risk_level),
-                        "riskUnits": float(ru),
-                        "session": {
-                            "phase": str(phase),
-                            "quality": str(session_quality)
-                        },
-                        "technical": {
-                            "vwap": float(int(float(vwap) * 100.0 + 0.5) / 100.0),
-                            "isBreakout": bool(is_breakout),
-                            "isFalseBreakout": bool(false_breakout),
-                            "aboveVWAP": bool(price_above_vwap),
-                            "volHigh": bool(vol_high),
-                            "stopDistance": float(int(float(stop_distance_pct) * 100.0 + 0.5) / 100.0),
-                            "qualityScore": float(int(float(quality_score) * 100.0 + 0.5) / 100.0),
-                            "structureBias": str(structure_bias),
-                            "atrExpansion": float(int(float(atr_expansion) * 100.0 + 0.5) / 100.0),
-                            "institutionalActivity": cls.get_smart_money_tier(vol_ratio_val),
-                            "momentumStrength": str(momentum_strength),
-                            "earlyBreakoutSignal": bool(early_tag == "EARLY_SETUP"),
-                            "earlyTag": early_tag,
-                            "earlyTooltip": early_tooltip,
-                            "earlyDetails": early_details,
-                            "setupType": cls._identify_setup_type(symbol_df, vol_ratio_val),
-                        },
-                        "asOf": str(close.index[latest_valid_idx]),
-                        "hitAsOf": str(hit_ts),
-                        "isLatestSession": bool(hit_idx == latest_valid_idx),
-                    }
-                )
-            except Exception as e:
-                print(f"ERROR SCREENER: Unexpected error for {symbol}: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+                except Exception as e:
+                    print(f"ERROR SCREENER: Outer error for {symbol}: {e}")
+                    failure_count += 1
+                    continue
+
+            # Memory safeguard: Trigger GC after each batch
+            import gc
+            gc.collect()
 
         if hits:
             try:
@@ -698,8 +597,29 @@ class ScreenerService:
             except Exception as e:
                 print(f"Batch real_time verify skipped/failed: {e}")
 
-        hits.sort(key=lambda row: (row["hits3d"], row["hits2d"], row["rsSector"], row["volRatio"]), reverse=True)
+        proc_dur = time.time() - proc_start
+        print(f"DEBUG: Processed scoring calculations in {proc_dur:.2f}s. Total symbols: {total_processed}, Failures: {failure_count}", flush=True)
+
+        # Update Internal O(1) Dictionary
+        for h in hits:
+            cls._intelligence_dict[h["symbol"]] = h
+            
+        # Atomic Cache Swap (shallow copy of list)
+        cls._intelligence_cache = {
+            "data": list(cls._intelligence_dict.values()),
+            "last_updated": datetime.now(),
+            "status": "ready"
+        }
+
+        # Update Metrics
+        cls._last_metrics["last_failure_count"] = failure_count
+        cls._last_metrics["last_symbol_count"] = total_processed
+        cls._last_metrics["peak_failures"] = max(cls._last_metrics["peak_failures"], failure_count)
         
+        # SPIKE DETECTION: Warn if failures jump suddenly (e.g. > 10 symbols)
+        if failure_count > 10:
+            print(f"FAILURE SPIKE ALERT: [Intelligence] {failure_count} symbols failed in current cycle.", flush=True)
+
         # Update Cache only if hits exist, otherwise keep previous valid data
         if hits:
             cls._cache = {
@@ -708,6 +628,14 @@ class ScreenerService:
                 "timeframe": normalized_tf,
                 "sector_concentration": cls._calculate_sector_concentration(hits)
             }
+            
+            # Update Signals Cache for sub-100ms API response
+            cls._intelligence_cache = {
+                "data": hits,
+                "last_updated": datetime.now(),
+                "status": "ready"
+            }
+            
             # Archive Signals (V6: Persistent historical signals)
             if normalized_tf == "1D":
                 SignalArchiveService.archive_signals(hits)
@@ -726,11 +654,15 @@ class ScreenerService:
                 }
 
         
-        return {
-            "hits": hits,
-            "sector_concentration": cls._calculate_sector_concentration(hits) if hits else [],
-            "source": "live"
-        }
+    @classmethod
+    def update_intelligence_cycle(cls, timeframe: str = "1D"):
+        """
+        Safety Sync Entry Point: Performs a full forced scan to refresh signals
+        and correct any drift from WebSocket ticks.
+        """
+        print(f"[Intelligence] Starting background sync cycle for {timeframe}...", flush=True)
+        return cls.get_screener_data(timeframe=timeframe, force=True)
+
 
 
     @classmethod
@@ -1098,3 +1030,369 @@ class ScreenerService:
                     "sectorAccuracy": {}
                 }
             }
+    @classmethod
+    def get_health_metrics(cls):
+        """Aggregates deep health metrics for the intelligence engine."""
+        status_info = cls.get_intelligence_status()
+        
+        return {
+            "status": status_info["status"],
+            "last_updated": status_info["last_updated"],
+            "last_cycle_duration": round(cls._last_metrics["last_duration"], 2),
+            "symbols_processed": cls._last_metrics["last_symbol_count"],
+            "failure_count": cls._last_metrics["last_failure_count"],
+            "skipped_cycles": cls._last_metrics["consecutive_skips"],
+            "total_cycles": cls._last_metrics["cycle_count"],
+            "memory_mb": cls._get_memory_usage_mb(),
+            "symbols_updated_per_batch": cls._last_metrics["symbols_updated_per_batch"]
+        }
+
+    @classmethod
+    def _get_memory_usage_mb(cls) -> float:
+        """Lightweight memory usage check for 512MB environment safety."""
+        try:
+            import os
+            # Linux (Render) specific via resource module
+            try:
+                import resource
+                # ru_maxrss is in KB on Linux
+                return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0, 2)
+            except (ImportError, Exception):
+                # Fallback for Windows/Other or if resource is unavailable
+                pass
+            return 0.0
+        except Exception:
+            return 0.0
+
+    @classmethod
+    def get_intelligence_status(cls):
+        """Returns readiness status with Multi-Market support (Equity/Commodity)."""
+        status = cls._intelligence_cache.get("status", "warming")
+        last_updated = cls._intelligence_cache.get("last_updated", datetime.now())
+        
+        # Check if ANY relevant market is open
+        # We check based on the current symbols in cache or default segments
+        is_open = MarketCalendar.is_market_open()
+        
+        if not is_open and status != "warming":
+            status = "closed"
+        elif status == "ready":
+            # Stale Detection: Only if market is open
+            diff_seconds = (datetime.now() - last_updated).total_seconds()
+            if diff_seconds > 60: # Increased threshold for WebSocket stability
+                status = "stale"
+                
+                # RESTART RECOMMENDATION LOG: If stale for > 120s
+                if diff_seconds > 120:
+                    print(f"CRITICAL ALERT: [Intelligence] Engine has been STALE for {diff_seconds:.0f}s. Service restart recommended.", flush=True)
+
+        return {
+            "status": status,
+            "last_updated": last_updated.isoformat() if hasattr(last_updated, "isoformat") else str(last_updated),
+            "data": list(cls._intelligence_dict.values()) if cls._intelligence_dict else cls._intelligence_cache.get("data", [])
+        }
+
+
+
+    # -----------------------------------------------------------------------
+    # REAL-TIME STREAMING METHODS (WebSocket Path)
+    # -----------------------------------------------------------------------
+
+    @classmethod
+    async def update_symbol_realtime(cls, symbol: str, price: float, volume: float):
+        """
+        Entry point for WebSocket ticks.
+        Called by FyersSocketService after 300ms coalescing; never called per-tick.
+        Uses per-symbol asyncio.Lock to prevent overlapping recomputation.
+        """
+        async with cls._locks[symbol]:
+            try:
+                df = cls._realtime_buffers.get(symbol)
+                if df is None or df.empty:
+                    return  # Buffer not yet populated; wait for next sync cycle
+
+                # Candle-aware OHLCV update (same-day vs new-day bar)
+                last_ts = df.index[-1]
+                now_ist = MarketCalendar.get_ist_now()
+                is_same_day = last_ts.date() == now_ist.date()
+
+                close_col = "close" if "close" in df.columns else "Close"
+                high_col  = "high"  if "high"  in df.columns else "High"
+                low_col   = "low"   if "low"   in df.columns else "Low"
+                vol_col   = "volume" if "volume" in df.columns else "Volume"
+
+                if is_same_day:
+                    df.at[last_ts, close_col] = price
+                    df.at[last_ts, high_col]  = max(float(df.at[last_ts, high_col]), price)
+                    df.at[last_ts, low_col]   = min(float(df.at[last_ts, low_col]), price)
+                    df.at[last_ts, vol_col]   = volume  # Fyers V3 sends cumulative day volume
+                else:
+                    # New trading day has started
+                    new_ts = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+                    new_row = pd.DataFrame([{
+                        close_col: price, high_col: price, low_col: price,
+                        vol_col: volume, "open": price
+                    }], index=[new_ts])
+                    updated = pd.concat([df, new_row])
+                    cls._realtime_buffers[symbol] = updated.tail(100)  # Strict 100-row cap
+
+                # Recompute signals from the updated buffer
+                hit_data = cls.recompute_symbol_signals(symbol)
+                if hit_data:
+                    # O(1) dict update
+                    cls._intelligence_dict[symbol] = hit_data
+                    # Shallow copy-on-write: replace the list reference atomically
+                    cls._intelligence_cache = {
+                        "data": list(cls._intelligence_dict.values()),
+                        "last_updated": datetime.now(),
+                        "status": "ready"
+                    }
+            except Exception as e:
+                print(f"ERROR: [Realtime] Failed to update {symbol}: {e}", flush=True)
+
+    @classmethod
+    def recompute_symbol_signals(cls, symbol: str) -> Optional[Dict]:
+        """
+        Lightweight single-symbol signal recomputation from its OHLCV memory buffer.
+        Uses the same scoring logic as the batch cycle via _recompute_single_symbol_scores.
+        """
+        df = cls._realtime_buffers.get(symbol)
+        if df is None or df.empty:
+            return None
+
+        existing = cls._intelligence_dict.get(symbol, {})
+        sector_key   = existing.get("sectorKey", "UNKNOWN")
+        sector_state = existing.get("sectorState", "NEUTRAL")
+
+        return cls._recompute_single_symbol_scores(
+            symbol=symbol,
+            symbol_df=df,
+            sector_key=sector_key,
+            sector_state=sector_state,
+            sector_batch_data=None,  # No sector data in real-time path; use cached state
+            timeframe="1D"
+        )
+
+    @classmethod
+    def _recompute_single_symbol_scores(
+        cls,
+        symbol: str,
+        symbol_df: pd.DataFrame,
+        sector_key: str,
+        sector_state: str,
+        sector_batch_data: Optional[Dict] = None,
+        timeframe: str = "1D"
+    ) -> Optional[Dict]:
+        """
+        CENTRALIZED scoring logic shared by both batch polling and WebSocket real-time paths.
+        Identical signal logic to what was previously inlined in get_screener_data.
+        """
+        from app.engine.insights import InsightEngine
+        from app.engine.early_breakout import detect_early_breakout
+
+        # --- 1. Setup ---
+        # Normalize index: Timezone-naive and sorted
+        normalized_tf = timeframe.upper()
+        try:
+            # Aggressive timezone stripping via list comprehension to handle mixed formats
+            symbol_df.index = pd.DatetimeIndex([pd.Timestamp(x).replace(tzinfo=None) for x in symbol_df.index])
+            
+            # Force normalization for daily
+            if normalized_tf in ["1D", "DAILY"]:
+                symbol_df.index = symbol_df.index.normalize()
+        except Exception as e:
+            print(f"DEBUG: Index normalization failed for {symbol}: {e}")
+            
+        close_col = "close" if "close" in symbol_df.columns else "Close"
+        vol_col   = "volume" if "volume" in symbol_df.columns else "Volume"
+        high_col  = "high"  if "high"  in symbol_df.columns else "High"
+        low_col   = "low"   if "low"   in symbol_df.columns else "Low"
+
+        close = pd.to_numeric(symbol_df[close_col], errors="coerce").ffill().dropna()
+        if len(close) < 20:
+            return None
+
+        latest_price   = float(close.iloc[-1])
+        latest_valid_idx = len(close) - 1
+        prev_close     = float(close.iloc[-2])
+        latest_change  = ((latest_price - prev_close) / prev_close) * 100
+
+        pct = close.pct_change() * 100
+        vol = pd.to_numeric(symbol_df[vol_col], errors="coerce").reindex(close.index).fillna(0)
+        avg_vol = vol.rolling(20).mean()
+        vol_ratio = (vol / avg_vol).fillna(0)
+        volume_expansion = vol_ratio > 1.5
+
+        # --- 2. Hit Detection ---
+        cond = (pct > 2.0) & volume_expansion
+        hit_idx = cls._find_last_hit_index(cond, lookback_bars=5)
+
+        # --- 3. Early Breakout Detection ---
+        early_tag, early_tooltip, early_details = None, None, {}
+        try:
+            eb = detect_early_breakout(symbol_df)
+            if eb.signal:
+                early_tag     = "EARLY_SETUP"
+                early_tooltip = eb.tooltip
+                early_details = eb.details or {}
+        except Exception:
+            pass
+
+        # GATE: must have either a momentum hit OR early setup
+        if hit_idx is None and early_tag != "EARLY_SETUP":
+            return None
+        if hit_idx is None:
+            hit_idx = close.index[latest_valid_idx]
+        
+        # Ensure hit_idx is normalized if timeframe is daily
+        if normalized_tf in ["1D", "DAILY"]:
+            try:
+                # Force to Timestamp object first, then normalize
+                hit_idx = pd.to_datetime(hit_idx).normalize()
+            except Exception:
+                pass
+
+        # Safe hit_pos calculation
+        try:
+            hit_pos = close.index.get_loc(hit_idx)
+            if isinstance(hit_pos, slice):
+                hit_pos = hit_pos.start
+            elif isinstance(hit_pos, np.ndarray):
+                hit_pos = hit_pos[0]
+        except KeyError:
+            # Manual fallback for index mismatches
+            matches = np.where(close.index == hit_idx)[0]
+            if len(matches) > 0:
+                hit_pos = int(matches[-1])
+            else:
+                # Try string-based matching as last resort
+                matches = np.where(close.index.astype(str).str.contains(str(hit_idx).split()[0]))[0]
+                if len(matches) > 0:
+                    hit_pos = int(matches[-1])
+                else:
+                    print(f"DEBUG: Absolute failure finding {hit_idx} in index for {symbol}")
+                    raise
+        
+        hits1d, hits2d, hits3d = cls._compute_streak_flags(cond, hit_pos)
+        stock_return  = float(pct.iloc[hit_pos])
+
+        # --- 4. Relative Strength ---
+        sector_return = 0.0
+        rs_sector     = 0.1
+        s_acc_raw     = 0.0
+
+        if sector_batch_data is not None and str(sector_key) in cls.SECTOR_INDEX_BY_KEY:
+            sector_symbol = str(cls.SECTOR_INDEX_BY_KEY.get(str(sector_key), ""))
+            sector_df = sector_batch_data.get(sector_symbol)
+            if sector_df is not None and not sector_df.empty:
+                # Normalize sector index
+                # Aggressive timezone stripping
+                try:
+                    sector_df.index = pd.DatetimeIndex([pd.Timestamp(x).replace(tzinfo=None) for x in sector_df.index])
+                    if normalized_tf in ["1D", "DAILY"]:
+                        sector_df.index = sector_df.index.normalize()
+                except:
+                    pass
+                
+                sec_close_col = "Close" if "Close" in sector_df.columns else "close"
+                sector_close  = pd.to_numeric(sector_df[sec_close_col], errors="coerce").dropna()
+                if len(sector_close) >= len(close):
+                    sec_pct = sector_close.pct_change() * 100
+                    if hit_pos < len(sec_pct):
+                        sector_return = float(sec_pct.iloc[hit_pos])
+                        rs_sector     = stock_return - sector_return
+                        s_rs          = pct - sec_pct
+                        if hit_pos < len(s_rs):
+                            s_rs_diff = s_rs.diff()
+                            s_acc_raw = float(s_rs_diff.iloc[hit_pos]) if not pd.isna(s_rs_diff.iloc[hit_pos]) else 0.0
+
+        if rs_sector <= 0 and early_tag != "EARLY_SETUP":
+            return None
+
+        # --- 5. Technical Metrics ---
+        normalized_tf    = timeframe.upper()
+        forward_return   = None
+        if normalized_tf in ["1D", "DAILY"] and len(close) > hit_pos + 3:
+            forward_return = ((float(close.iloc[hit_pos + 3]) - float(close.iloc[hit_pos])) / float(close.iloc[hit_pos])) * 100
+
+        vwap             = cls._calculate_vwap(symbol_df)
+        is_breakout      = cls._is_breakout(symbol_df)
+        price_above_vwap = latest_price > vwap
+        vol_ratio_val    = float(vol_ratio.iloc[hit_pos])
+
+        ranges     = symbol_df[high_col] - symbol_df[low_col]
+        curr_range = float(ranges.iloc[-1])
+        avg_range  = float(ranges.rolling(20).mean().iloc[-1])
+        vol_high   = bool(curr_range > avg_range * 2.0)
+
+        structure_bias = InsightEngine.get_structure_bias(symbol_df)
+        atr_expansion  = min(3.0, curr_range / avg_range) if avg_range > 0 else 1.0
+        quality_score  = cls.calculate_quality_score(rs_sector, s_acc_raw, vol_ratio_val, structure_bias, 2.0, atr_expansion)
+
+        entry_tag = cls.get_entry_tag(quality_score, sector_state, True)
+        h20 = symbol_df[high_col].rolling(20).max().iloc[-2] if len(symbol_df) >= 21 else symbol_df[high_col].iloc[0]
+        false_breakout = (latest_price > float(h20)) and (vol_ratio_val < 1.5 or not price_above_vwap)
+        if false_breakout and entry_tag in ["ENTRY_READY", "STRONG_ENTRY"]:
+            entry_tag = "WATCHLIST"
+
+        if latest_change <= -2 and sector_state != "LEADING" and entry_tag == "ENTRY_READY":
+            entry_tag = "WATCHLIST"
+
+        momentum_strength = cls.get_momentum_strength(quality_score, vol_ratio_val, s_acc_raw)
+        exit_tag          = cls.get_exit_tag(latest_price < vwap, vol_ratio_val < 0.8, sector_state)
+        risk_level        = cls.get_risk_level(sector_state, vol_ratio_val, vol_high)
+        phase, session_quality = cls.get_session_tag()
+        ru = cls.get_risk_units(sector_state, entry_tag, risk_level, 1.5)
+        if session_quality == "AVOID":
+            ru = 0
+
+        display_symbol = symbol.replace(".NS", "").replace(".BO", "")
+
+        return {
+            "symbol": str(display_symbol),
+            "price": float(round(latest_price, 2)),
+            "change": float(round(latest_change, 2)),
+            "hitChange": float(round(stock_return, 2)),
+            "forward3dReturn": float(round(forward_return, 2)) if forward_return is not None else None,
+            "hits1d": bool(hits1d),
+            "hits2d": bool(hits2d),
+            "hits3d": bool(hits3d),
+            "volRatio": float(round(vol_ratio_val, 2)),
+            "volumeShocker": float(round(vol_ratio_val, 2)),
+            "stockActive": bool(volume_expansion.iloc[hit_pos]),
+            "volumeExpansion": bool(vol_ratio_val > 1.5),
+            "sector": str(sector_key).replace("NIFTY_", "").replace("_", " "),
+            "sectorKey": str(sector_key),
+            "sectorState": str(sector_state),
+            "sectorReturn": float(round(sector_return, 4)),
+            "rsSector": float(round(rs_sector, 4)),
+            "tradeReady": bool(hits2d or hits3d),
+            "confidence": cls.get_confidence_grade(quality_score),
+            "grade": cls.get_confidence_grade(quality_score),
+            "entryTag": str(entry_tag),
+            "exitTag": str(exit_tag),
+            "riskLevel": str(risk_level),
+            "riskUnits": float(ru),
+            "session": {"phase": str(phase), "quality": str(session_quality)},
+            "technical": {
+                "vwap": float(round(vwap, 2)),
+                "isBreakout": bool(is_breakout),
+                "isFalseBreakout": bool(false_breakout),
+                "aboveVWAP": bool(price_above_vwap),
+                "volHigh": bool(vol_high),
+                "stopDistance": 1.5,
+                "qualityScore": float(round(quality_score, 2)),
+                "structureBias": str(structure_bias),
+                "atrExpansion": float(round(atr_expansion, 2)),
+                "institutionalActivity": cls.get_smart_money_tier(vol_ratio_val),
+                "momentumStrength": str(momentum_strength),
+                "earlyBreakoutSignal": bool(early_tag == "EARLY_SETUP"),
+                "earlyTag": early_tag,
+                "earlyTooltip": early_tooltip,
+                "earlyDetails": early_details,
+                "setupType": cls._identify_setup_type(symbol_df, vol_ratio_val),
+            },
+            "asOf": str(close.index[latest_valid_idx]),
+            "hitAsOf": str(close.index[hit_pos]),
+            "isLatestSession": bool(hit_pos == latest_valid_idx),
+        }

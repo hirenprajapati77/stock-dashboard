@@ -31,11 +31,14 @@ class FyersService:
 
     @classmethod
     def load_token(cls):
+        print(f"DEBUG: [Fyers] load_token called. Path: {fyers_config.token_file}", flush=True)
         if os.path.exists(fyers_config.token_file):
+            print(f"DEBUG: [Fyers] Token file exists.", flush=True)
             try:
                 with open(fyers_config.token_file, "r") as f:
-                    cls._access_token = f.read().strip()
-                print(f"[Fyers] Loaded token from {fyers_config.token_file} (Length: {len(cls._access_token) if cls._access_token else 0})", flush=True)
+                    content = f.read().strip()
+                    cls._access_token = content
+                print(f"[Fyers] Loaded token (Length: {len(cls._access_token) if cls._access_token else 0})", flush=True)
                 return bool(cls._access_token)
             except Exception as e:
                 print(f"[Fyers] Error loading token: {e}", flush=True)
@@ -49,6 +52,13 @@ class FyersService:
         os.makedirs(os.path.dirname(fyers_config.token_file), exist_ok=True)
         with open(fyers_config.token_file, "w") as f:
             f.write(token)
+
+    @classmethod
+    def get_access_token(cls) -> Optional[str]:
+        """Returns the current access token, loading it if necessary."""
+        if not cls._access_token:
+            cls.load_token()
+        return cls._access_token
 
     @classmethod
     def is_active(cls) -> bool:
