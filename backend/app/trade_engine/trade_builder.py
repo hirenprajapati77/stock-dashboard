@@ -1,25 +1,37 @@
-from .models import TradeDecision, ActionType, SetupType
+from .models import TradeDecision, ActionType, SetupState, TradeQuality
 from typing import List
 
 class TradeBuilder:
-    """Formats the Trade Decision into human-readable and structured outputs."""
+    """
+    Institution-grade Trade Formatter (JSON + Human Readable).
+    """
     
     @staticmethod
     def format_output(decision: TradeDecision) -> str:
         """
-        Generates the requested 📈 SYMBOL format.
+        Generates the requested 📈 SYMBOL format with State and Quality.
         """
-        if decision.action == ActionType.NO_TRADE:
-            return f"❌ {decision.symbol}: NO TRADE\nREASON: {', '.join(decision.reason)}"
-            
-        action_text = "BUY ABOVE" if decision.action == ActionType.BUY else "SELL BELOW"
-        targets_text = " / ".join([str(t) for t in decision.targets])
+        symbol = decision.symbol
+        state_label = f"({decision.setup.value} {decision.setup_state.value})"
         
-        output = f"📈 {decision.symbol} ({action_text})\n"
-        output += f"ENTRY: {decision.entry}\n"
-        output += f"SL: {decision.stop_loss}\n"
-        output += f"TARGET: {targets_text}\n"
-        output += f"CONFIDENCE: {int(decision.confidence * 100)}%\n"
-        output += f"STRIKE: {decision.option_strike or 'N/A'}"
+        # Header
+        output = f"📈 {symbol} {state_label}\n\n"
         
+        if decision.action != ActionType.NO_TRADE:
+            action_verb = "BUY ABOVE" if decision.action == ActionType.BUY else "SELL BELOW"
+            output += f"{action_verb}: {decision.entry}\n"
+            output += f"SL: {decision.stop_loss}\n"
+            output += f"TARGET: {' / '.join(map(str, decision.targets))}\n\n"
+        
+        # Status & Quality
+        output += f"STATUS: {decision.state_message}\n"
+        output += f"CONFIDENCE: {int(decision.confidence)}%\n"
+        output += f"QUALITY: {decision.quality.value} (Score: {int(decision.quality_score)})\n"
+        output += f"NEXT ACTION: {decision.next_action}\n"
+        
+        if decision.warnings:
+            output += f"\n⚠️ WARNINGS:\n"
+            for w in decision.warnings:
+                output += f"- {w}\n"
+                
         return output

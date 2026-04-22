@@ -1282,14 +1282,23 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         elif "DOWNTREND" in regime: trend = "BEARISH"
         
         # 3. Create Market Context
+        vol_ratio = await asyncio.to_thread(InsightEngine.get_volume_ratio, df)
+        
         context = MarketContext(
             symbol=symbol,
             price=cmp,
+            open=float(df['open'].iloc[-1]),
+            high=float(df['high'].iloc[-1]),
+            low=float(df['low'].iloc[-1]),
+            close=float(df['close'].iloc[-1]),
+            prev_close=float(df['close'].iloc[-2]) if len(df) > 1 else cmp,
             supports=support_prices,
             resistances=resistance_prices,
             atr=atr,
             adx=adx,
-            trend=trend
+            volume_ratio=vol_ratio,
+            trend=trend,
+            higher_tf_trend="NEUTRAL" # Can be updated with 1D/4H analysis if needed
         )
         
         # 4. Generate Decision
