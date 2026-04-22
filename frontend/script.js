@@ -547,7 +547,9 @@ function updateUI(data, isBackground = false) {
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
             const tf = data.meta.tf || data.meta.timeframe || '15m';
-            tfLabel.textContent = `${tf.toUpperCase()} SESSION`;
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+            const labelText = names[tf] || tf.toUpperCase();
+            tfLabel.textContent = `${labelText} SESSION`;
         }
 
 
@@ -1261,6 +1263,21 @@ window.onload = function () {
         document.getElementById('strategy-selector').addEventListener('change', () => {
             fetchData();
         });
+
+        document.getElementById('tf-selector').addEventListener('change', () => {
+            const tf = document.getElementById('tf-selector').value;
+            // Sync buttons if it's 5m or 15m
+            document.querySelectorAll('#intraday-tf-toggle button').forEach(btn => {
+                if (btn.dataset.tf === tf) {
+                    btn.classList.add('bg-blue-600', 'text-white');
+                    btn.classList.remove('text-gray-400');
+                } else {
+                    btn.classList.remove('bg-blue-600', 'text-white');
+                    btn.classList.add('text-gray-400');
+                }
+            });
+            fetchData();
+        });
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -1435,7 +1452,7 @@ window.setActiveTimeframe = function(tf) {
         // Update chart display
         const tfLabel = document.getElementById('chart-tf-label');
         if (tfLabel) {
-            const names = { '5m': '5 MIN', '15m': '15 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY' };
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
             tfLabel.textContent = names[tf] || tf.toUpperCase();
         }
         
