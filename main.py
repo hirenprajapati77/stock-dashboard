@@ -1302,7 +1302,7 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         )
         
         # 4. Generate Decision
-        decision = TradeDecisionService.generate_trade(context)
+        decision = TradeDecisionService.generate_trade(context, timeframe=tf)
         
         # 5. Format Output
         formatted_text = TradeBuilder.format_output(decision)

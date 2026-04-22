@@ -41,6 +41,28 @@ class TradeState(Enum):
     SL_HIT = "SL_HIT"
     CLOSED = "CLOSED"
 
+class MarketCondition(BaseModel):
+    market_trend: str # UP, DOWN, SIDEWAYS
+    market_bias: str # BULLISH, BEARISH, NEUTRAL
+    volatility: str # HIGH, NORMAL, LOW
+    strength: str # STRONG, WEAK
+    confidence_adjustment: float # +/- points
+
+class Allocation(BaseModel):
+    capital_percent: float
+    priority_rank: int
+    max_positions_allowed: int = 3
+
+class TradeIntent(Enum):
+    SCALP = "SCALP"
+    INTRADAY = "INTRADAY"
+    SWING = "SWING"
+
+class HistoricalPerformance(BaseModel):
+    setup_win_rate: float
+    avg_rr: float
+    confidence_accuracy: float
+
 class TradeDecision(BaseModel):
     symbol: str
     action: ActionType
@@ -54,6 +76,10 @@ class TradeDecision(BaseModel):
     quality_score: float # 0-100
     entry_status: EntryStatus
     state: TradeState
+    intent: TradeIntent
+    allocation: Allocation
+    market_context: MarketCondition
+    historical_performance: HistoricalPerformance
     validity: str
     reason: List[str]
     warnings: List[str]

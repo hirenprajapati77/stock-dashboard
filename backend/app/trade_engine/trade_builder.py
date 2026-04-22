@@ -3,14 +3,11 @@ from typing import List
 
 class TradeBuilder:
     """
-    Institution-grade Trade Formatter (JSON + Human Readable).
+    V3 Trade Formatter for Human-Readable Intelligence.
     """
     
     @staticmethod
     def format_output(decision: TradeDecision) -> str:
-        """
-        Generates the requested 📈 SYMBOL format with State and Quality.
-        """
         symbol = decision.symbol
         state_label = f"({decision.setup.value} {decision.setup_state.value})"
         
@@ -26,8 +23,12 @@ class TradeBuilder:
         # Status & Quality
         output += f"STATUS: {decision.state_message}\n"
         output += f"CONFIDENCE: {int(decision.confidence)}%\n"
-        output += f"QUALITY: {decision.quality.value} (Score: {int(decision.quality_score)})\n"
-        output += f"NEXT ACTION: {decision.next_action}\n"
+        output += f"QUALITY: {decision.quality.value}\n"
+        output += f"INTENT: {decision.intent.value}\n\n"
+        
+        # Capital & Market
+        output += f"CAPITAL: {int(decision.allocation.capital_percent)}% allocation\n"
+        output += f"MARKET: {decision.market_context.market_bias.capitalize()}\n"
         
         if decision.warnings:
             output += f"\n⚠️ WARNINGS:\n"
