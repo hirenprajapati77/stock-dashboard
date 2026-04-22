@@ -547,7 +547,9 @@ function updateUI(data, isBackground = false) {
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
             const tf = data.meta.tf || data.meta.timeframe || '15m';
-            tfLabel.textContent = `${tf.toUpperCase()} SESSION`;
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+            const labelText = names[tf] || tf.toUpperCase();
+            tfLabel.textContent = `${labelText} SESSION`;
         }
 
 
