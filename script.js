@@ -297,6 +297,8 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
+        if (!isBackground) showLoading();
+
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -337,6 +339,8 @@ async function fetchData(isBackground = false) {
         }
     } catch (error) {
         console.error("Fetch failed:", error);
+        
+        if (!isBackground) showError();
 
         const isRateLimit = error.message.includes("Rate Limit") || error.message.includes("Too Many Requests") || error.message.includes("No data found");
         
@@ -501,6 +505,295 @@ function formatWithCurrency(val, currency = 'INR') {
     const num = parseFloat(val);
     if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
     return `${currencySym}${val}`;
+}
+
+function toViewModel(data) {
+    const d = data?.decision || {};
+    return {
+        narrative: data?.narrative || "-",
+        executionSignal: d?.execution_signal || "-",
+        setupState: d?.setup_state || "-",
+        marketTrend: d?.market_context?.market_trend || "-",
+        marketBias: d?.market_context?.market_bias || "-",
+        regime: d?.market_regime?.regime || "-",
+        entryType: d?.entry_type || "-",
+        nextAction: d?.next_action || "-",
+        liquidity: d?.nearest_liquidity_target || "-",
+        orderflow: d?.microstructure?.orderflow_signal || "-",
+        allocation: d?.allocation?.capital_percent ?? 0,
+        drawdown: d?.drawdown_status?.status || "-",
+        riskRuin: d?.risk_of_ruin?.risk_level || "-",
+        score: d?.meta_score || d?.final_score || data?.score || 0
+    };
+}
+
+function getExecutionState(vm) {
+    if (vm.executionSignal === "EXECUTE") return "green";
+    if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return "yellow";
+    return "red";
+}
+
+function renderScore(vm) {
+    const scoreBadge = document.getElementById('ee-score-badge');
+    if (!scoreBadge || !vm.score) {
+        if (scoreBadge) scoreBadge.classList.add('hidden');
+        return;
+    }
+    
+    scoreBadge.classList.remove('hidden');
+    scoreBadge.innerText = `Score: ${vm.score}`;
+    
+    if (vm.score >= 85) {
+        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/30 text-green-400 border border-green-500/50 shadow-lg";
+    } else if (vm.score >= 65) {
+        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-900/30 text-yellow-400 border border-yellow-500/50 shadow-lg";
+    } else {
+        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-red-900/30 text-red-400 border border-red-500/50 shadow-lg";
+    }
+}
+
+let previousSignalState = null;
+
+function updateExecutionEdge(data) {
+    const panel = document.getElementById('execution-edge-panel');
+    if (!panel) return;
+
+    if (!data?.decision && !data?.narrative) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    panel.classList.remove('hidden');
+    const vm = toViewModel(data);
+
+    // Toast logic
+    if (previousSignalState === "FORMING" && vm.executionSignal === "EXECUTE") {
+        const sym = document.getElementById('symbol-input')?.value || 'Trade';
+        showToast(`🚀 ${sym} execution triggered!`, 'success');
+    }
+    previousSignalState = vm.executionSignal !== "-" ? vm.executionSignal : vm.setupState;
+
+    // Update Narrative
+    const narrativeEl = document.getElementById('ee-narrative');
+    if (narrativeEl) {
+        if (vm.executionSignal === "REJECT" || vm.executionSignal === "AVOID" || vm.setupState === "REJECT") {
+            narrativeEl.innerHTML = `<div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2 text-red-400 font-black uppercase text-base">
+                    <span>🚫</span> NO TRADE
+                </div>
+                <div class="text-sm text-gray-300 font-medium">
+                    <span class="text-gray-500 uppercase text-[10px] tracking-widest font-bold">Reason:</span> ${vm.nextAction !== "-" ? vm.nextAction : (vm.narrative !== "-" ? vm.narrative : "Conditions not met")}
+                </div>
+                <div class="text-[10px] text-gray-500 italic border-t border-gray-800/50 pt-2 mt-1">
+                    System filtered this setup for safety.
+                </div>
+            </div>`;
+        } else {
+            narrativeEl.innerText = vm.narrative;
+        }
+    }
+
+    // Execution State Badge
+    const stateColor = getExecutionState(vm);
+    const badgeEl = document.getElementById('ee-execution-badge');
+    if (badgeEl) {
+        badgeEl.innerText = vm.executionSignal !== "-" ? vm.executionSignal : (vm.setupState !== "-" ? vm.setupState : "WAITING");
+        badgeEl.className = `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border shadow-lg ${
+            stateColor === "green" ? "bg-green-900/30 text-green-400 border-green-500/50" :
+            stateColor === "yellow" ? "bg-yellow-900/30 text-yellow-400 border-yellow-500/50" :
+            "bg-red-900/30 text-red-400 border-red-500/50"
+        }`;
+    }
+    
+    renderScore(vm);
+
+    // Safely update DOM elements
+    const setTxt = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = val;
+    };
+
+    // Execution
+    setTxt('ee-signal', vm.executionSignal);
+    setTxt('ee-entry-type', vm.entryType);
+    setTxt('ee-next-action', vm.nextAction);
+
+    // Market Context
+    setTxt('ee-trend', vm.marketTrend);
+    setTxt('ee-bias', vm.marketBias);
+    setTxt('ee-regime', vm.regime.replace(/_/g, ' '));
+
+    // Flow & Liquidity
+    setTxt('ee-orderflow', vm.orderflow.replace(/_/g, ' '));
+    setTxt('ee-liquidity', typeof vm.liquidity === 'number' ? vm.liquidity.toFixed(2) : vm.liquidity);
+
+    // Risk
+    setTxt('ee-allocation', vm.allocation ? `${vm.allocation}%` : "-");
+    setTxt('ee-drawdown', vm.drawdown.replace(/_/g, ' '));
+    setTxt('ee-risk-ruin', vm.riskRuin.replace(/_/g, ' '));
+
+    // Confidence Bar
+    const confFill = document.getElementById('ee-confidence-fill');
+    const confVal = document.getElementById('ee-confidence-val');
+    if (confFill && confVal) {
+        confFill.style.width = `${vm.score}%`;
+        confVal.innerText = `${vm.score}%`;
+    }
+
+    updatePrimaryAction(vm);
+}
+
+function updatePrimaryAction(vm) {
+    const btn = document.getElementById("primary-action-btn");
+    if (!btn) return;
+    
+    if (vm.executionSignal === "EXECUTE") {
+        btn.innerText = "PLACE ORDER";
+        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-green-600 hover:bg-green-500 text-white shadow-green-900/50";
+        btn.onclick = () => showToast("Order placement simulated.", "info");
+    } else if (vm.setupState === "FORMING" || vm.executionSignal === "WATCH") {
+        btn.innerText = "SET ALERT";
+        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-yellow-600 hover:bg-yellow-500 text-white shadow-yellow-900/50";
+        btn.onclick = () => showToast("Alert set for setup completion.", "success");
+    } else {
+        btn.innerText = "SCAN NEXT";
+        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-red-600 hover:bg-red-500 text-white shadow-red-900/50";
+        btn.onclick = () => loadTopTrades();
+    }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `px-4 py-3 rounded-xl shadow-2xl border text-xs font-bold text-white flex items-center gap-3 transform transition-all duration-300 translate-y-10 opacity-0 ${
+        type === 'success' ? 'bg-green-900/80 border-green-500/50' :
+        type === 'warning' ? 'bg-yellow-900/80 border-yellow-500/50' :
+        type === 'error' ? 'bg-red-900/80 border-red-500/50' :
+        'bg-blue-900/80 border-blue-500/50'
+    }`;
+    
+    const icon = type === 'success' ? '✅' : type === 'warning' ? '⚠️' : type === 'error' ? '❌' : 'ℹ️';
+    toast.innerHTML = `<span class="text-base">${icon}</span> <span>${message}</span>`;
+    
+    container.appendChild(toast);
+    
+    requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-10', 'opacity-0');
+    });
+
+    setTimeout(() => {
+        toast.classList.add('translate-y-10', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+async function loadTopTrades() {
+    const panel = document.getElementById('top-trades-panel');
+    const list = document.getElementById('top-trades-list');
+    if (!panel || !list) return;
+
+    panel.classList.remove('hidden');
+    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Scanning market for top setups...</div>';
+
+    try {
+        const symbolsToScan = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"];
+        const results = [];
+        
+        await Promise.all(symbolsToScan.map(async (sym) => {
+            try {
+                const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.decision) {
+                        results.push({ symbol: sym, data: data });
+                    }
+                }
+            } catch (e) { console.warn("Scan failed for", sym); }
+        }));
+        
+        if (results.length === 0) {
+            list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scan failed or no data available.</div>';
+            return;
+        }
+
+        results.sort((a, b) => {
+            const getPriority = (d) => {
+                const sig = d.data.decision.execution_signal;
+                const state = d.data.decision.setup_state;
+                if (sig === "EXECUTE") return 3;
+                if (sig === "WATCH" || state === "FORMING") return 2;
+                return 1;
+            };
+            const pA = getPriority(a);
+            const pB = getPriority(b);
+            if (pA !== pB) return pB - pA;
+            
+            const sA = a.data.decision.meta_score || a.data.decision.final_score || 0;
+            const sB = b.data.decision.meta_score || b.data.decision.final_score || 0;
+            return sB - sA;
+        });
+
+        list.innerHTML = '';
+        results.slice(0, 5).forEach(item => {
+            const vm = toViewModel(item.data);
+            const stateColor = getExecutionState(vm);
+            
+            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : '🔴';
+            const actionHint = vm.executionSignal === 'EXECUTE' ? 'Ready' : (vm.setupState === 'FORMING' ? 'Forming' : 'Avoid');
+            
+            const card = document.createElement('div');
+            card.className = "min-w-[160px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-gray-600 transition-colors cursor-pointer group shrink-0";
+            card.onclick = () => {
+                document.getElementById('symbol-input').value = item.symbol;
+                fetchData(false);
+            };
+            
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <span class="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">${item.symbol}</span>
+                    <span class="text-[10px] font-bold text-gray-500">${vm.score}</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    <span>${badgeIcon}</span>
+                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-red-400'}">${vm.executionSignal !== '-' ? vm.executionSignal : vm.setupState}</span>
+                </div>
+                <div class="mt-1.5 text-[9px] text-gray-500 italic">
+                    ${actionHint}
+                </div>
+            `;
+            list.appendChild(card);
+            
+            if (vm.executionSignal === "EXECUTE") {
+                showToast(`🚀 New setup found: ${item.symbol}`, 'success');
+            }
+        });
+        
+    } catch (err) {
+        console.error("Scanner error", err);
+        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Error running scanner.</div>';
+    }
+}
+
+function showLoading() {
+    const badgeEl = document.getElementById('ee-execution-badge');
+    if (badgeEl) {
+        badgeEl.innerText = "LOADING...";
+        badgeEl.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-400 border border-gray-700 shadow-lg animate-pulse";
+    }
+    const scoreBadge = document.getElementById('ee-score-badge');
+    if (scoreBadge) scoreBadge.classList.add('hidden');
+}
+
+function showError() {
+    const badgeEl = document.getElementById('ee-execution-badge');
+    if (badgeEl) {
+        badgeEl.innerText = "ERROR";
+        badgeEl.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-red-900/30 text-red-400 border border-red-500/50 shadow-lg";
+    }
+    const scoreBadge = document.getElementById('ee-score-badge');
+    if (scoreBadge) scoreBadge.classList.add('hidden');
 }
 
 function updateUI(data, isBackground = false) {
@@ -687,6 +980,7 @@ function updateUI(data, isBackground = false) {
 
 
         // 9. Strategy Specific UI Toggles
+        updateExecutionEdge(data);
         updateStrategyUI(data);
 
     } catch (e) {

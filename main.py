@@ -1252,7 +1252,7 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
     """
     try:
         # 1. Fetch Primary Data
-        norm_symbol = ConstituentService.normalize_symbol(symbol)
+        norm_symbol = MarketDataService.normalize_symbol(symbol)
         df, currency, error, source = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, tf)
         
         if df is None or df.empty:
@@ -1284,6 +1284,10 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         # 3. Create Market Context
         vol_ratio = await asyncio.to_thread(InsightEngine.get_volume_ratio, df)
         
+        # ScanX Style: Daily Volume Comparison
+        df_daily, _, _, _ = await asyncio.to_thread(MarketDataService.get_ohlcv, norm_symbol, "1D")
+        daily_vol_ratio = await asyncio.to_thread(InsightEngine.get_daily_volume_ratio, df_daily, df)
+        
         context = MarketContext(
             symbol=symbol,
             price=cmp,
@@ -1297,6 +1301,7 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
             atr=atr,
             adx=adx,
             volume_ratio=vol_ratio,
+            daily_volume_ratio=daily_vol_ratio,
             trend=trend,
             higher_tf_trend="NEUTRAL" # Can be updated with 1D/4H analysis if needed
         )
@@ -1310,6 +1315,8 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         return {
             "status": "success",
             "symbol": symbol,
+            "volume_ratio": daily_vol_ratio,
+            "intraday_volume_ratio": vol_ratio,
             "decision": decision.dict(),
             "recommendation": formatted_text
         }

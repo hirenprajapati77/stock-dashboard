@@ -160,6 +160,7 @@ class MarketContext(BaseModel):
     atr: float
     adx: float
     volume_ratio: float
+    daily_volume_ratio: float = 1.0
     trend: str # "BULLISH", "BEARISH", "SIDEWAYS"
     higher_tf_trend: str = "NEUTRAL"
     oi_data: Optional[Dict[str, Any]] = None

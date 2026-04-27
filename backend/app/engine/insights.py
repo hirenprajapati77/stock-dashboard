@@ -165,8 +165,7 @@ class InsightEngine:
     @staticmethod
     def get_volume_ratio(df: pd.DataFrame, period: int = 20):
         """
-        Calculates the ratio of current volume vs its 20-day average.
-        If current volume is 0 (after-hours), uses last active candle.
+        Calculates the ratio of current candle volume vs its 20-candle average.
         """
         if len(df) < 5:
             return 1.0
@@ -181,4 +180,41 @@ class InsightEngine:
         
         if avg_vol > 0:
             return float(round(curr_vol / avg_vol, 2))
+        return 1.0
+
+    @staticmethod
+    def get_daily_volume_ratio(df_daily: pd.DataFrame, df_intraday: pd.DataFrame = None, period: int = 10):
+        """
+        Calculates Today's Cumulative Volume vs Daily SMA Vol (ScanX style).
+        If df_intraday is provided, it sums today's candles for cumulative accuracy.
+        """
+        if df_daily is None or len(df_daily) < period:
+            return 1.0
+            
+        # 1. Get average daily volume (SMA 10/20)
+        # We drop the last row if it's "today" to get a clean historical average
+        last_date = df_daily.index[-1].date()
+        today = pd.Timestamp.now().date()
+        
+        hist_df = df_daily[df_daily.index.date < today]
+        if len(hist_df) < period:
+            hist_df = df_daily.iloc[:-1] # Fallback
+            
+        avg_daily_vol = hist_df['volume'].tail(period).mean()
+        
+        # 2. Get today's cumulative volume
+        curr_vol = 0
+        if df_intraday is not None and not df_intraday.empty:
+            # Sum today's intraday volume
+            today_candles = df_intraday[df_intraday.index.date == today]
+            if not today_candles.empty:
+                curr_vol = today_candles['volume'].sum()
+        
+        # If intraday didn't help or we don't have it, check if the daily df has today's partial data
+        if curr_vol == 0 and last_date == today:
+            curr_vol = df_daily['volume'].iloc[-1]
+            
+        if avg_daily_vol > 0 and curr_vol > 0:
+            return float(round(curr_vol / avg_daily_vol, 2))
+            
         return 1.0
