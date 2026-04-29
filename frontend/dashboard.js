@@ -776,15 +776,16 @@ class MarketIntelligence {
     _calculateConfidence(hit) {
         if (!hit) return { score: 0, factors: [] };
 
-        // Prefer backend scoring if available (Decision Engine v2.0)
-        // Corrected: Use numerical qualityScore if hit.confidence is a string (A,B,C,D)
-        const backendScore = hit.technical?.qualityScore ?? hit.score;
-        if (backendScore !== undefined && typeof backendScore === 'number') {
+        // Prefer backend scoring if available (Decision Engine v5.0)
+        if (hit.decision && hit.decision.meta_score) {
             return { 
-                score: backendScore, 
+                score: hit.decision.meta_score.meta_score, 
                 factors: hit.confidenceFactors || [] 
             };
         }
+        
+        // Fallback to legacy field or qualityScore
+        const backendScore = hit.technical?.qualityScore ?? hit.score;
 
         const technical = hit.technical || {};
         const session = hit.session || {};
@@ -1147,9 +1148,9 @@ class MarketIntelligence {
             };
             const setupIcon = setupIcons[setupType] || '🔥';
 
-            // Grade Content Mapping
-            const grade = hit.confidence || hit.grade || 'C';
-            const score = hit.technical?.qualityScore || this._calculateConfidence(hit).score;
+            // Grade Content Mapping (Sync with V5 Engine)
+            const grade = hit.grade || (typeof hit.confidence === 'string' ? hit.confidence : null) || 'C';
+            const score = hit.confidence && typeof hit.confidence === 'number' ? hit.confidence : (hit.technical?.qualityScore || this._calculateConfidence(hit).score);
 
             // Grade Color Logic
             let gradeColor = 'text-gray-400';
@@ -1485,10 +1486,10 @@ class MarketIntelligence {
         else if (hit.entryTag === 'WAIT') statusIcon.textContent = '🟡';
         else statusIcon.textContent = '⚪';
 
-        // Confidence Metrics
+        // Confidence Metrics (Sync with V5 Engine)
         const confidence = this._calculateConfidence(hit);
         const scoreVal = confidence.score;
-        const grade = hit.grade || this._getConfidenceLabel(scoreVal, true);
+        const grade = hit.grade || (typeof hit.confidence === 'string' ? hit.confidence : null) || this._getConfidenceLabel(scoreVal, true);
 
         let gradeColor = 'text-gray-400';
         if (grade === 'A+' || grade === 'A') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';

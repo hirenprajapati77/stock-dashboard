@@ -92,7 +92,7 @@ from app.config import fyers_config
 
 # Trade Decision Engine Imports
 from app.trade_engine.models import MarketContext, TradeDecision
-from app.trade_engine.trade_decision_service import TradeDecisionService
+from app.trade_engine.trade_decision_service import TradeDecisionService as V5TradeEngine
 from app.trade_engine.trade_builder import TradeBuilder
 
 
@@ -640,15 +640,79 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             }
         }
 
-        # 6. Trade Decision Add-on
-        from app.services.trade_decision_service import TradeDecisionService
+        # 6. Trade Decision Add-on (Unified V5 Execution Edge)
         try:
+            from app.trade_engine.models import MarketContext
+            from app.trade_engine.trade_decision_service import TradeDecisionService as V5Engine
+            from app.engine.insights import InsightEngine as MetricsEngine
+            from app.engine.zones import ZoneEngine as VolEngine
+            from app.engine.regime import MarketRegimeEngine as TrendEngine
+            
+            # Fetch real-time quotes for OI/PCR
+            quotes = {}
+            if FyersService.is_active():
+                # For stocks, we might want the future symbol, but for now we get the equity quote
+                # Fyers often provides OI in the quotes for many symbols
+                quotes = await asyncio.to_thread(FyersService.get_quotes, [norm_symbol])
+            
+            symbol_quote = quotes.get(norm_symbol, {})
+            oi = symbol_quote.get("oi", 0)
+            oi_prev = symbol_quote.get("poi", 0) # Previous day OI
+            
+            # Simple OI buildup logic
+            oi_buildup = "Neutral"
+            if oi > 0 and oi_prev > 0:
+                oi_change = ((oi - oi_prev) / oi_prev) * 100
+                if oi_change > 5 and strategy_result.get("side") == "LONG": oi_buildup = "Long Buildup"
+                elif oi_change > 5 and strategy_result.get("side") == "SHORT": oi_buildup = "Short Buildup"
+                elif oi_change < -5 and strategy_result.get("side") == "LONG": oi_buildup = "Short Covering"
+                elif oi_change < -5 and strategy_result.get("side") == "SHORT": oi_buildup = "Long Unwinding"
+
+            # Calculate metrics for V5 Engine
+            atr_series = await asyncio.to_thread(VolEngine.calculate_atr, df)
+            atr = float(atr_series.iloc[-1]) if not atr_series.empty else cmp * 0.01
+            adx = await asyncio.to_thread(MetricsEngine.get_adx, df)
+            vol_ratio = await asyncio.to_thread(MetricsEngine.get_volume_ratio, df)
+            
+            # Build Market Context
+            context = MarketContext(
+                symbol=symbol,
+                price=cmp,
+                open=float(df['open'].iloc[-1]),
+                high=float(df['high'].iloc[-1]),
+                low=float(df['low'].iloc[-1]),
+                close=float(df['close'].iloc[-1]),
+                prev_close=float(df['close'].iloc[-2]) if len(df) > 1 else cmp,
+                supports=[float(s['price']) for s in supports if 'price' in s],
+                resistances=[float(r['price']) for r in resistances if 'price' in r],
+                atr=atr,
+                adx=adx,
+                volume_ratio=vol_ratio,
+                trend=strategy_result.get("side", "BULLISH"),
+                oi_data={"oi": oi, "oi_buildup": oi_buildup}
+            )
+            
+            # Generate V5 Decision
+            decision = await asyncio.to_thread(V5Engine.generate_trade, context, tf)
+            decision_dict = decision.dict()
+            
+            # Inject into response
+            response_data["decision"] = decision_dict
+            response_data["insights"]["oi_buildup"] = oi_buildup
+            response_data["insights"]["pcr"] = symbol_quote.get("pcr", 0.95) # Placeholder or from quotes if available
+            
+            # SYNC FIX: Ensure the summary signal matches the V5 decision
+            response_data["summary"]["trade_signal"] = decision_dict.get("meta_score", {}).get("final_decision", "WATCH")
+            response_data["summary"]["confidence"] = decision_dict.get("meta_score", {}).get("meta_score", 50)
+            response_data["summary"]["market_regime"] = decision_dict.get("market_regime", {}).get("regime", "STABLE")
+            
             market_status = MarketStatusService.get_market_status()
-            decision_data = TradeDecisionService.compute_trade_score(response_data, market_phase=market_status["market_phase"])
-            response_data.update(decision_data)
             response_data["market_status"] = market_status
+            
         except Exception as e:
-            print(f"TradeDecisionService error: {e}")
+            print(f"V5 Engine Integration error: {e}")
+            import traceback
+            traceback.print_exc()
 
         # 7. Additional Data
         fundamentals = await asyncio.to_thread(FundamentalService.get_fundamentals, norm_symbol)
@@ -1307,7 +1371,7 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         )
         
         # 4. Generate Decision
-        decision = TradeDecisionService.generate_trade(context, timeframe=tf)
+        decision = V5TradeEngine.generate_trade(context, timeframe=tf)
         
         # 5. Format Output
         formatted_text = TradeBuilder.format_output(decision)
