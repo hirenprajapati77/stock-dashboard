@@ -17,6 +17,34 @@ class TradeDecisionService:
         for hit in hits or []:
             row = dict(hit)
             
+            # --- V5 INTELLIGENCE SYNC (NEW) ---
+            # If the hit already has V5 decision data from the background engine, 
+            # we respect it and skip legacy re-computation.
+            v5_decision = row.get("decision")
+            if isinstance(v5_decision, dict) and v5_decision.get("meta_score"):
+                # Map V5 metrics to hit-level fields for UI consistency
+                row["confidence"] = v5_decision.get("meta_score", {}).get("meta_score") or v5_decision.get("confidence")
+                row["grade"] = v5_decision.get("meta_score", {}).get("trade_grade") or v5_decision.get("quality")
+                row["entryStatus"] = v5_decision.get("meta_score", {}).get("final_decision") or v5_decision.get("entry_status")
+                row["tradeDecisionTag"] = row["entryStatus"]
+                row["action"] = row["entryStatus"]
+                row["aiCommentary"] = v5_decision.get("narrative") or row.get("aiCommentary")
+                
+                # Sync execution plan
+                if not row.get("executionPlan") or not row["executionPlan"].get("entry"):
+                    row["executionPlan"] = {
+                        "entry": v5_decision.get("entry"),
+                        "stopLoss": v5_decision.get("stop_loss"),
+                        "target1": v5_decision.get("targets", [None])[0],
+                        "riskRewardToT1": v5_decision.get("risk_reward"),
+                        "tradeQuality": v5_decision.get("quality"),
+                        "executionConfidence": v5_decision.get("meta_score", {}).get("final_decision")
+                    }
+                
+                out.append(row)
+                continue
+
+            # --- LEGACY FALLBACK (Only used if V5 is missing) ---
             # 0. Capture Engine Recommendation (if any)
             engine_status = str(row.get("entryStatus") or row.get("entryTag") or "WATCHLIST").upper()
             engine_side = str(row.get("side") or "LONG").upper()
@@ -135,19 +163,19 @@ class TradeDecisionService:
         final_score = min(100.0, float(final_score))
         
         # Action Mapping & Safety Rules (RECALIBRATED for Responsiveness)
-        action = "MONITOR"
+        action = "WAIT"
         if rr > 0 and rr < 1.0:
-            action = "OBSERVE" # Poor RR is still a major caution
+            action = "REJECT" # Poor RR is a direct rejection
         elif final_score >= 75:
-            action = "STRONG BUY"
+            action = "EXECUTE"
         elif final_score >= 60:
-            action = "BUY"
+            action = "WATCH"
         elif final_score >= 45:
-            action = "WATCHLIST"
+            action = "WAIT"
         elif final_score >= 35:
-            action = "MONITOR"
+            action = "WAIT"
         else:
-            action = "OBSERVE"
+            action = "REJECT"
         
         # Tags (max 4)
         tags = []
@@ -173,15 +201,15 @@ class TradeDecisionService:
         ]
             
         # Market Phase Overrides
-        if action in ["STRONG BUY", "BUY"]:
+        if action in ["EXECUTE", "WATCH"]:
             if market_phase == "CLOSED":
-                action = "OBSERVE"
+                action = "REJECT"
                 tags.append("Market Closed")
             elif market_phase == "POST_MARKET":
-                action = "ANALYSIS ONLY"
+                action = "WAIT"
                 tags.append("Post-Market")
             elif market_phase == "PRE_MARKET":
-                action = "WATCHLIST"
+                action = "WAIT"
                 tags.append("Pre-Market")
         
         # Factors for UI

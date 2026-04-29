@@ -1193,6 +1193,14 @@ class ScreenerService:
         # --- 1. Setup ---
         # Normalize index: Timezone-naive and sorted
         normalized_tf = timeframe.upper()
+        
+        # Define column names for later use
+        open_col  = "open"  if "open"  in symbol_df.columns else "Open"
+        high_col  = "high"  if "high"  in symbol_df.columns else "High"
+        low_col   = "low"   if "low"   in symbol_df.columns else "Low"
+        close_col = "close" if "close" in symbol_df.columns else "Close"
+        vol_col   = "volume" if "volume" in symbol_df.columns else "Volume"
+
         try:
             # Aggressive timezone stripping via list comprehension to handle mixed formats
             symbol_df.index = pd.DatetimeIndex([pd.Timestamp(x).replace(tzinfo=None) for x in symbol_df.index])
@@ -1347,6 +1355,39 @@ class ScreenerService:
             ru = 0
 
         display_symbol = symbol.replace(".NS", "").replace(".BO", "")
+        
+        # --- 6. V5 Intelligence Engine Integration ---
+        v5_dict = {}
+        try:
+            from app.trade_engine.models import MarketContext
+            from app.trade_engine.trade_decision_service import TradeDecisionService as V5Engine
+            from app.engine.zones import ZoneEngine
+            from app.engine.insights import InsightEngine as MetricsEngine
+            
+            # Fast metric extraction
+            atr_val = float(ZoneEngine.calculate_atr(symbol_df).iloc[-1]) if len(symbol_df) >= 14 else latest_price * 0.01
+            adx_val = float(MetricsEngine.get_adx(symbol_df)) if len(symbol_df) >= 14 else 25.0
+            
+            v5_context = MarketContext(
+                symbol=symbol,
+                price=latest_price,
+                open=float(symbol_df[open_col].iloc[-1]) if open_col in symbol_df.columns else latest_price,
+                high=float(symbol_df[high_col].iloc[-1]) if high_col in symbol_df.columns else latest_price,
+                low=float(symbol_df[low_col].iloc[-1]) if low_col in symbol_df.columns else latest_price,
+                close=latest_price,
+                prev_close=prev_close,
+                supports=[], 
+                resistances=[],
+                atr=atr_val,
+                adx=adx_val,
+                volume_ratio=vol_ratio_val,
+                trend="BULLISH" if hits1d else "SIDEWAYS",
+                oi_data=None
+            )
+            v5_decision = V5Engine.generate_trade(v5_context, normalized_tf)
+            v5_dict = v5_decision.dict()
+        except Exception as e:
+            print(f"DEBUG: Screener V5 Integration failed for {symbol}: {e}")
 
         return {
             "symbol": str(display_symbol),
@@ -1366,14 +1407,25 @@ class ScreenerService:
             "sectorState": str(sector_state),
             "sectorReturn": float(round(sector_return, 4)),
             "rsSector": float(round(rs_sector, 4)),
-            "tradeReady": bool(hits2d or hits3d),
-            "confidence": cls.get_confidence_grade(quality_score),
-            "grade": cls.get_confidence_grade(quality_score),
-            "entryTag": str(entry_tag),
+            "tradeReady": bool(hits2d or hits3d or (v5_dict.get("meta_score", {}).get("final_decision") == "EXECUTE")),
+            "confidence": v5_dict.get("meta_score", {}).get("meta_score") or float(quality_score),
+            "grade": v5_dict.get("meta_score", {}).get("trade_grade") or cls.get_confidence_grade(quality_score),
+            "entryTag": v5_dict.get("meta_score", {}).get("final_decision") or str(entry_tag),
+            "tradeDecisionTag": v5_dict.get("meta_score", {}).get("final_decision") or str(entry_tag),
             "exitTag": str(exit_tag),
-            "riskLevel": str(risk_level),
-            "riskUnits": float(ru),
+            "riskLevel": v5_dict.get("risk_level") or str(risk_level),
+            "riskUnits": (v5_dict.get("allocation", {}).get("capital_percent", 0.0) / 100.0) if v5_dict.get("allocation") else float(ru),
             "session": {"phase": str(phase), "quality": str(session_quality)},
+            "decision": v5_dict,
+            "executionPlan": {
+                "entry": v5_dict.get("entry"),
+                "stopLoss": v5_dict.get("stop_loss"),
+                "target1": (v5_dict.get("targets") or [None])[0],
+                "riskRewardToT1": v5_dict.get("risk_reward"),
+                "tradeQuality": v5_dict.get("quality"),
+                "executionConfidence": v5_dict.get("meta_score", {}).get("final_decision")
+            },
+            "aiCommentary": v5_dict.get("narrative") or "Analyzing setup...",
             "technical": {
                 "vwap": float(round(vwap, 2)),
                 "isBreakout": bool(is_breakout),
