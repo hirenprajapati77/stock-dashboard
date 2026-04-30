@@ -10,12 +10,383 @@ const EARLY_SETUPS_URL = `${API_BASE}/api/v1/early-setups`;
 const SIGNAL_PERF_URL = `${API_BASE}/api/v1/signal-performance`;
 const TRADE_PERF_URL = `${API_BASE}/api/v1/trade-performance`;
 
+// ==========================================
+// GLOBAL TRADING STATE
+// ==========================================
+const appState = {
+    tradingMode: 'AUTO', // 'AUTO', 'EQUITY', 'OPTIONS'
+    resolvedMode: 'EQUITY'
+};
+
+function setTradingMode(mode) {
+    appState.tradingMode = mode;
+    
+    // Update UI active states
+    ['mode-auto', 'mode-equity', 'mode-options'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.classList.remove('bg-indigo-600', 'text-white');
+            btn.classList.add('text-gray-500', 'hover:bg-gray-800');
+        }
+    });
+    
+    const activeBtn = document.getElementById(`mode-${mode.toLowerCase()}`);
+    if (activeBtn) {
+        activeBtn.classList.remove('text-gray-500', 'hover:bg-gray-800');
+        activeBtn.classList.add('bg-indigo-600', 'text-white');
+    }
+    
+    // Refresh UI if we have data
+    if (window.lastDashboardData) {
+        updateUI(window.lastDashboardData);
+    }
+}
+
+function resolveMode(userMode, data) {
+    if (userMode === 'EQUITY') return 'EQUITY';
+    if (userMode === 'OPTIONS') return 'OPTIONS';
+    
+    // AUTO Mode: Decide based on data
+    const d = data?.decision || {};
+    const opt = d.option_selector || data.options || {};
+    const hasOption = !!(opt.strike || data.options?.strike);
+    const confidence = data?.score || d?.meta_score || 0;
+
+    // AUTO Prioritization: Promote to Options if setup is high-confidence
+    if (userMode === 'AUTO') {
+        if (hasOption && confidence > 60) return 'OPTIONS';
+        return 'EQUITY';
+    }
+    
+    return hasOption ? 'OPTIONS' : 'EQUITY';
+}
+
+function switchView(view) {
+    const dashboard = document.getElementById('standard-dashboard');
+    const intelligence = document.getElementById('execution-edge-panel');
+    const scanner = document.getElementById('top-trades-panel');
+    
+    const btnDash = document.getElementById('view-dashboard');
+    const btnIntel = document.getElementById('view-intelligence');
+
+    if (view === 'dashboard') {
+        dashboard?.classList.remove('hidden');
+        intelligence?.classList.add('hidden');
+        scanner?.classList.add('hidden');
+        
+        btnDash?.classList.add('bg-blue-600', 'text-white');
+        btnDash?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        
+        btnIntel?.classList.remove('bg-blue-600', 'text-white');
+        btnIntel?.classList.add('text-gray-400', 'hover:bg-gray-800');
+    } else {
+        dashboard?.classList.add('hidden');
+        intelligence?.classList.remove('hidden');
+        scanner?.classList.remove('hidden');
+        
+        btnIntel?.classList.add('bg-blue-600', 'text-white');
+        btnIntel?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        
+        btnDash?.classList.remove('bg-blue-600', 'text-white');
+        btnDash?.classList.add('text-gray-400', 'hover:bg-gray-800');
+        
+        // Trigger chart resize when switching to intelligence
+        setTimeout(() => {
+            if (window.chart) window.chart.resize();
+        }, 100);
+    }
+    
+    console.log(`[UI] Switched to ${view.toUpperCase()} mode`);
+}
+
+// Expose to window for HTML onclick handlers
+window.switchView = switchView;
+window.setTradingMode = setTradingMode;
+
+// ==========================================
+// TRADING ASSISTANT MEMORY MODULE
+// ==========================================
+function isMarketOpen() {
+    const now = new Date();
+    // Indian Market Hours (9:15 AM - 3:30 PM IST)
+    // Convert current time to IST
+    const istOffset = 5.5 * 60; // IST is UTC+5.5
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const istTime = new Date(utc + (istOffset * 60000));
+    
+    const day = istTime.getDay(); // 0 = Sun, 6 = Sat
+    const hours = istTime.getHours();
+    const minutes = istTime.getMinutes();
+    const totalMinutes = hours * 60 + minutes;
+
+    // Weekend check
+    if (day === 0 || day === 6) return false;
+
+    // NSE Equity: 09:15 (555) to 15:30 (930)
+    return totalMinutes >= 555 && totalMinutes <= 930;
+}
+
+function getATMStrike(symbol, price) {
+    if (!price || price <= 0) return null;
+    
+    let step = 100;
+    const sym = symbol.toUpperCase();
+    
+    if (sym.includes("NIFTY50") || sym.includes("NIFTY")) {
+        step = 50;
+    } else if (sym.includes("BANKNIFTY")) {
+        step = 100;
+    } else if (sym.includes("FINNIFTY")) {
+        step = 50;
+    } else {
+        // For stocks, we assume a 10 step for large caps, 5 for others
+        step = price > 1000 ? 10 : 5;
+    }
+    
+    return Math.round(price / step) * step;
+}
+
+const TradingAssistant = {
+    version: 1,
+    state: {
+        alerts: [],
+        outcomes: [],
+        watchlist: []
+    },
+    
+    init() {
+        try {
+            const stored = localStorage.getItem('tradingAssistant');
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed.version === this.version) {
+                    this.state = parsed;
+                } else {
+                    this.state = { version: this.version, alerts: [], outcomes: [], watchlist: [] };
+                    this.save();
+                }
+            }
+        } catch (e) {
+            console.warn("Could not load Trading Assistant state", e);
+        }
+        
+        this.renderAll();
+    },
+    
+    save() {
+        try {
+            this.state.version = this.version;
+            localStorage.setItem('tradingAssistant', JSON.stringify(this.state));
+            this.renderAll();
+        } catch (e) {
+            console.warn("Could not save Trading Assistant state", e);
+        }
+    },
+    
+    addAlert(symbol, type) {
+        if (!this.state.alerts.find(a => a.symbol === symbol)) {
+            this.state.alerts.push({ symbol, type, timestamp: Date.now() });
+            this.save();
+            showToast(`🔔 Alert set for ${symbol}`, 'success');
+        } else {
+            showToast(`Alert already exists for ${symbol}`, 'warning');
+        }
+    },
+    
+    removeAlert(symbol) {
+        this.state.alerts = this.state.alerts.filter(a => a.symbol !== symbol);
+        this.save();
+    },
+    
+    addOutcome(symbol, entry, sl) {
+        if (!this.state.outcomes.find(o => o.symbol === symbol && o.status === "RUNNING")) {
+            this.state.outcomes.push({ symbol, entry, sl, targets: [], status: "RUNNING" });
+            this.save();
+            showToast(`🚀 Trade logged: ${symbol}`, 'success');
+        }
+    },
+    
+    cycleOutcomeStatus(symbol) {
+        const trade = this.state.outcomes.find(o => o.symbol === symbol && o.status === "RUNNING");
+        if (trade) {
+            trade.status = "TARGET HIT";
+        } else {
+            const tradeT = this.state.outcomes.find(o => o.symbol === symbol && o.status === "TARGET HIT");
+            if (tradeT) {
+                tradeT.status = "SL HIT";
+            } else {
+                const tradeS = this.state.outcomes.find(o => o.symbol === symbol && o.status === "SL HIT");
+                if (tradeS) tradeS.status = "RUNNING";
+            }
+        }
+        this.save();
+    },
+    
+    removeOutcome(symbol, status) {
+        this.state.outcomes = this.state.outcomes.filter(o => !(o.symbol === symbol && o.status === status));
+        this.save();
+    },
+    
+    toggleWatchlist(symbol, e) {
+        if (e) e.stopPropagation();
+        if (this.state.watchlist.includes(symbol)) {
+            this.state.watchlist = this.state.watchlist.filter(s => s !== symbol);
+        } else {
+            this.state.watchlist.push(symbol);
+        }
+        this.save();
+        if (typeof loadTopTrades === 'function') loadTopTrades();
+    },
+    
+    isPinned(symbol) {
+        return this.state.watchlist.includes(symbol);
+    },
+    
+    renderAll() {
+        this.renderAlerts();
+        this.renderOutcomes();
+        this.renderWatchlist();
+    },
+    
+    renderAlerts() {
+        const list = document.getElementById('ta-alerts-list');
+        if (!list) return;
+        if (this.state.alerts.length === 0) {
+            list.innerHTML = '<div class="text-[10px] text-gray-500 italic text-center py-2">No active alerts.</div>';
+            return;
+        }
+        
+        list.innerHTML = this.state.alerts.map(a => `
+            <div class="flex items-center justify-between bg-gray-900/50 p-2 rounded border border-gray-800">
+                <div class="flex items-center gap-2 cursor-pointer hover:text-blue-400 transition-colors" onclick="document.getElementById('symbol-input').value='${a.symbol}'; fetchData(false);">
+                    <span class="text-xs font-bold text-white">${a.symbol}</span>
+                    <span class="text-[9px] text-gray-500 uppercase tracking-widest">${a.type}</span>
+                </div>
+                <button onclick="TradingAssistant.removeAlert('${a.symbol}')" class="text-gray-500 hover:text-red-400 transition-colors px-1"><i class="fas fa-times text-[10px]"></i></button>
+            </div>
+        `).join('');
+    },
+    
+    renderOutcomes() {
+        const list = document.getElementById('ta-outcomes-list');
+        if (!list) return;
+        if (this.state.outcomes.length === 0) {
+            list.innerHTML = '<div class="text-[10px] text-gray-500 italic text-center py-2">No active trades.</div>';
+            return;
+        }
+        
+        list.innerHTML = this.state.outcomes.map(o => {
+            let statusBadge = '';
+            if (o.status === "RUNNING") statusBadge = '<span class="text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">RUNNING ⏳</span>';
+            else if (o.status === "TARGET HIT") statusBadge = '<span class="text-[10px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">TARGET HIT ✅</span>';
+            else statusBadge = '<span class="text-[10px] font-bold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">SL HIT ❌</span>';
+            
+            return `
+            <div class="flex items-center justify-between bg-gray-900/50 p-2 rounded border border-gray-800">
+                <span class="text-xs font-bold text-white cursor-pointer hover:text-blue-400" onclick="document.getElementById('symbol-input').value='${o.symbol}'; fetchData(false);">${o.symbol}</span>
+                <div class="flex items-center gap-2">
+                    ${statusBadge}
+                    <button onclick="TradingAssistant.removeOutcome('${o.symbol}', '${o.status}')" class="text-gray-600 hover:text-gray-400 transition-colors ml-1 px-1"><i class="fas fa-times text-[10px]"></i></button>
+                </div>
+            </div>
+            `;
+        }).join('');
+    },
+    
+    renderWatchlist() {
+        const list = document.getElementById('ta-watchlist-list');
+        if (!list) return;
+        if (this.state.watchlist.length === 0) {
+            list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</div>';
+            return;
+        }
+        
+        list.innerHTML = this.state.watchlist.map(sym => `
+            <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
+                <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
+                <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
+            </div>
+        `).join('');
+    }
+};
+
+function toggleTrackingPanel() {
+    const body = document.getElementById('tracking-panel-body');
+    const icon = document.getElementById('tracking-panel-icon');
+    if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        icon.classList.remove('rotate-180');
+    } else {
+        body.classList.add('hidden');
+        icon.classList.add('rotate-180');
+    }
+}
+
+function toggleIntelligenceSidebar() {
+    const sidebar = document.querySelector('.intelligence-sidebar');
+    const wrapper = document.querySelector('.chart-layout-wrapper');
+    if (sidebar && wrapper) {
+        sidebar.classList.toggle('hidden');
+        if (sidebar.classList.contains('hidden')) {
+            wrapper.style.gridTemplateColumns = '1fr';
+        } else {
+            wrapper.style.gridTemplateColumns = '1fr 320px';
+        }
+        // Resize chart after transition
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('tv-chart');
+                chart.resize(container.clientWidth, container.clientHeight);
+            }
+        }, 310);
+    }
+}
+
+function toggleChartFullscreen() {
+    document.body.classList.toggle('chart-fullscreen');
+    // Resize chart
+    setTimeout(() => {
+        if (chart) {
+            const container = document.getElementById('tv-chart');
+            chart.resize(container.clientWidth, container.clientHeight);
+        }
+    }, 100);
+}
+
+window.toggleTrackingModeColumn = function() {
+    const analysisCol = document.getElementById('analysis-column');
+    const trackingCol = document.getElementById('tracking-column');
+    const btn = document.getElementById('toggle-tracking-btn');
+    
+    if (analysisCol && trackingCol) {
+        trackingCol.classList.toggle('hidden');
+        if (trackingCol.classList.contains('hidden')) {
+            analysisCol.classList.remove('lg:col-span-9');
+            analysisCol.classList.add('lg:col-span-12');
+            btn.classList.remove('text-gray-400');
+            btn.classList.add('bg-blue-900/40', 'text-blue-400');
+        } else {
+            analysisCol.classList.remove('lg:col-span-12');
+            analysisCol.classList.add('lg:col-span-9');
+            btn.classList.remove('bg-blue-900/40', 'text-blue-400');
+            btn.classList.add('text-gray-400');
+        }
+        
+        // Resize chart and other elements
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('tv-chart');
+                chart.resize(container.clientWidth, container.clientHeight);
+            }
+        }, 310);
+    }
+};
 // Safety check for file protocol only if backend isn't running locally for it
 if (IS_LOCAL_FILE) {
     console.warn("Running from file protocol. Ensure backend is running at http://localhost:8000");
 }
 
-let chart, candlestickSeries;
+let chart, candlestickSeries, volumeSeries, volumeEmaSeries;
 let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
@@ -33,31 +404,27 @@ async function checkFyersStatus() {
     try {
         const res = await fetch(`${API_BASE}/api/v1/fyers/status`);
         const result = await res.json();
-        const dot = document.getElementById('fyers-status-dot');
-        const text = document.getElementById('fyers-status-text');
-        
-        if (result.status === 'success' && result.data.is_connected) {
-            if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]';
-            if (text) text.textContent = 'Online';
-            
-            // Update button if exists
-            const loginBtn = document.getElementById('fyers-login-btn');
+        const statusDot = document.getElementById('fyers-status-dot');
+        const loginBtn = document.getElementById('fyers-login-btn');
+
+        // Backend returns { status: "success", data: { is_connected: bool, ... } }
+        const isConnected = result?.data?.is_connected || result?.logged_in || false;
+
+        if (isConnected) {
+            if (statusDot) {
+                statusDot.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
+            }
             if (loginBtn) {
                 loginBtn.textContent = 'ONLINE';
-                loginBtn.classList.remove('text-blue-400', 'text-yellow-400');
-                loginBtn.classList.add('text-green-400');
+                loginBtn.className = 'text-[9px] font-bold text-green-400 uppercase tracking-widest';
+                loginBtn.onclick = null; // Prevent re-login if already connected
             }
         } else {
-            const isExpired = result.data?.last_auth_debug?.message?.includes("Token Expired") || result.data?.last_auth_debug?.detail?.includes("401");
-            
-            if (dot) dot.className = `w-2 h-2 rounded-full ${isExpired ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.7)]' : 'bg-gray-600'}`;
-            if (text) text.textContent = isExpired ? 'Expired' : 'Offline';
-            
-            const loginBtn = document.getElementById('fyers-login-btn');
+            if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-gray-600';
             if (loginBtn) {
-                loginBtn.textContent = isExpired ? 'RECONNECT' : 'CONNECT';
-                loginBtn.classList.remove('text-green-400', 'text-blue-400', 'text-yellow-400');
-                loginBtn.classList.add(isExpired ? 'text-yellow-400' : 'text-blue-400');
+                loginBtn.textContent = 'CONNECT';
+                loginBtn.className = 'text-[9px] font-bold text-blue-400 uppercase tracking-widest hover:text-blue-300';
+                loginBtn.onclick = () => window.loginToFyers();
             }
         }
     } catch (e) {
@@ -189,6 +556,28 @@ function initChart() {
         wickDownColor: '#f6465d',
     });
 
+    volumeSeries = chart.addHistogramSeries({
+        color: '#26a69a',
+        priceFormat: {
+            type: 'volume',
+        },
+        priceScaleId: 'volume',
+    });
+
+    chart.priceScale('volume').applyOptions({
+        scaleMargins: {
+            top: 0.8,
+            bottom: 0,
+        },
+        visible: false,
+    });
+
+    volumeEmaSeries = chart.addLineSeries({
+        color: '#ff9800',
+        lineWidth: 1,
+        priceScaleId: 'volume',
+    });
+
     console.log('Chart initialized successfully');
 
     window.addEventListener('resize', () => {
@@ -199,12 +588,18 @@ function initChart() {
 
 // 5. Screener Logic
 document.getElementById('screener-toggle').addEventListener('change', function (e) {
-    const panel = document.getElementById('screener-panel');
+    const topTradesPanel = document.getElementById('top-trades-panel');
+    const legacyScreenerPanel = document.getElementById('screener-panel');
+    
     if (e.target.checked) {
-        panel.classList.remove('hidden');
-        runScreener();
+        if (topTradesPanel) {
+            topTradesPanel.classList.remove('hidden');
+            loadTopTrades(); // Trigger the scan immediately
+        }
+        // Keep legacy hidden for now to reduce clutter as per feedback
+        if (legacyScreenerPanel) legacyScreenerPanel.classList.add('hidden');
     } else {
-        panel.classList.add('hidden');
+        if (topTradesPanel) topTradesPanel.classList.add('hidden');
     }
 });
 
@@ -291,13 +686,11 @@ async function fetchData(isBackground = false) {
         if (!symbol) symbol = "NIFTY50"; // Fallback to avoid empty ticker error
         
         const tfSelector = document.getElementById('tf-selector');
-        const tf = tfSelector ? tfSelector.value : '15m';
+        const tf = tfSelector ? tfSelector.value : '1D';
         const stratSelector = document.getElementById('strategy-selector');
         const strategy = stratSelector ? stratSelector.value : 'SR';
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
-
-        if (!isBackground) showLoading();
 
         const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -307,25 +700,17 @@ async function fetchData(isBackground = false) {
         if (data && data.meta) {
             window.lastReceivedData = data;
             
-            // Update live indicator based on specific source
+            // Update live indicator based on source
             const liveIndicator = document.getElementById('live-indicator');
             if (liveIndicator) {
-                if (data.source === 'fyers') {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> FYERS LIVE';
-                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-green-400 font-bold';
-                    liveIndicator.title = "Real-time data from Fyers API";
-                } else if (data.source === 'yahoo') {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> YAHOO LIVE';
+                if (data.source === 'fallback') {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> CACHED';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
+                    liveIndicator.title = "Yahoo rate limit reached. Showing last cached data.";
+                } else {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> LIVE';
                     liveIndicator.className = 'flex items-center gap-1 text-[9px] text-blue-400 font-bold';
                     liveIndicator.title = "Live data from Yahoo Finance";
-                } else if (data.source === 'expired') {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></span> SESSION EXPIRED';
-                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
-                    liveIndicator.title = "Fyers session expired. Please reconnect for live data.";
-                } else if (data.source === 'cache' || data.source === 'fallback') {
-                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> OFFLINE CACHE';
-                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-yellow-500 font-bold';
-                    liveIndicator.title = "Rate limit reached or offline. Showing last cached data.";
                 }
             }
 
@@ -339,49 +724,72 @@ async function fetchData(isBackground = false) {
         }
     } catch (error) {
         console.error("Fetch failed:", error);
-        
-        if (!isBackground) showError();
 
-        const isRateLimit = error.message.includes("Rate Limit") || error.message.includes("Too Many Requests") || error.message.includes("No data found");
+        const errLower = error.message.toLowerCase();
+        const isRateLimit = errLower.includes("rate limit") || 
+                           errLower.includes("too many requests") || 
+                           errLower.includes("no data found") || 
+                           errLower.includes("rate-limited");
         
         // Show error UI if NOT background, OR if it's a critical rate limit error
         if (!isBackground || isRateLimit) {
+            // Update chart labels even on error so user knows which symbol failed
+            const symbolInput = document.getElementById('symbol-input');
+            const symbol = symbolInput ? symbolInput.value.trim().toUpperCase() : "ERROR";
+            const tf = document.getElementById('tf-selector')?.value || '15m';
+            
+            const sLab = document.getElementById('chart-symbol-label');
+            const tfLab = document.getElementById('chart-tf-label');
+            const hasData = !!window.lastReceivedData;
+            
+            if (sLab) sLab.textContent = symbol;
+            if (tfLab) tfLab.textContent = `${tf} - ${hasData ? 'CACHED' : 'SYNC ERROR'}`;
+
+
+            // If we have existing data and it's a background update or rate limit, 
+            // DON'T show the giant blocking overlay. Just update status indicator.
+
+            
+            if (hasData && (isBackground || isRateLimit)) {
+                console.warn(`Data sync rate-limited for ${symbol}. Keeping existing data visible.`);
+                const liveIndicator = document.getElementById('live-indicator');
+                if (liveIndicator) {
+                    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span> COOLDOWN';
+                    liveIndicator.className = 'flex items-center gap-1 text-[9px] text-orange-500 font-bold';
+                    liveIndicator.title = "Data provider is rate-limiting. Using existing data until sync recovers.";
+                }
+                return; // Exit without showing blocking error
+            }
+
             const chartParent = document.getElementById('chart-parent');
             if (chartParent) {
-                // If we don't have a chart yet, or it's a rate limit error, show/update error area
-                if (!chart || chartParent.innerHTML.includes('Failed to load data') || isRateLimit) {
-                    const tvChart = document.getElementById('tv-chart');
-                    if (tvChart && isRateLimit) tvChart.classList.add('hidden'); // Hide chart area for rate limit message
+                // Determine Provider name for branding
+                const loginBtn = document.getElementById('fyers-login-btn');
+                const providerName = (loginBtn && loginBtn.textContent === 'ONLINE') ? 'Fyers' : 'Yahoo Finance';
 
-                    let errDiv = document.getElementById('chart-error-msg');
-                    if (!errDiv) {
-                        errDiv = document.createElement('div');
-                        errDiv.id = 'chart-error-msg';
-                        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
-                        chartParent.appendChild(errDiv);
-                    }
-                    errDiv.classList.remove('hidden');
-                    
-                    const isExpired = error.message.includes("401");
-                    errDiv.innerHTML = `
-                        <div class="flex flex-col items-center gap-3">
-                            <span class="text-3xl">${isExpired ? '🔑' : (isRateLimit ? '⏳' : '❌')}</span>
-                            <p class="${isExpired || isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">
-                                ${isExpired ? 'Fyers Session Expired' : (isRateLimit ? 'Yahoo Finance Cooldown' : 'Sync Error')}
-                            </p>
-                            <p class="text-xs text-gray-400 max-w-[280px]">
-                                ${isExpired ? 'Your Fyers access token has expired. Please reconnect to restore high-speed data flow.' : 
-                                  (isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message)}
-                            </p>
-                            <button onclick="${isExpired ? 'window.loginToFyers()' : 'window.fetchData()'}" 
-                                    class="mt-2 px-6 py-2 ${isExpired ? 'bg-yellow-600' : 'bg-indigo-600'} rounded-xl text-xs font-bold hover:opacity-80 transition-all shadow-lg">
-                                ${isExpired ? 'RECONNECT FYERS' : 'RETRY SYNC'}
-                            </button>
-                        </div>
-                    `;
+                const tvChart = document.getElementById('tv-chart');
+                if (tvChart && isRateLimit) tvChart.classList.add('hidden'); 
+
+                let errDiv = document.getElementById('chart-error-msg');
+                if (!errDiv) {
+                    errDiv = document.createElement('div');
+                    errDiv.id = 'chart-error-msg';
+                    errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/80 z-50 rounded-2xl border border-yellow-500/30';
+                    chartParent.appendChild(errDiv);
                 }
+                errDiv.classList.remove('hidden');
+                
+                errDiv.innerHTML = `
+                    <div class="flex flex-col items-center gap-3">
+                        <span class="text-3xl">${isRateLimit ? '⏳' : '❌'}</span>
+                        <p class="${isRateLimit ? 'text-yellow-500' : 'text-red-500'} font-bold text-lg">${isRateLimit ? providerName + ' Cooldown' : 'Sync Error'}</p>
+                        <p class="text-xs text-gray-400 max-w-[280px]">${isRateLimit ? 'The data provider is temporarily limiting requests. This usually resolves in 2-5 minutes.' : error.message}</p>
+                        <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+                    </div>
+                `;
             }
         }
+
     } finally {
         // ALWAYS try to hide loader in finally if it was showing
         if (loader) {
@@ -440,6 +848,13 @@ function updateStrategyUI(data) {
         document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
         document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
 
+        // Toggle specific strategy panels
+        const swingPanel = document.getElementById('strategy-swing-metrics');
+        const zonesPanel = document.getElementById('strategy-zones-metrics');
+        
+        if (swingPanel) swingPanel.style.display = strategy === 'SWING' ? 'grid' : 'none';
+        if (zonesPanel) zonesPanel.style.display = strategy === 'DEMAND_SUPPLY' ? 'grid' : 'none';
+
         // Update Swing Metrics
         if (strategy === 'SWING') {
             document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
@@ -453,7 +868,7 @@ function updateStrategyUI(data) {
         if (dynPanels) {
             const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY';
             dynPanels.style.display = hasDynamicData ? 'grid' : 'none';
-            dynPanels.classList.remove('hidden'); // Ensure hidden class is removed if toggling display
+            if (hasDynamicData) dynPanels.classList.remove('hidden'); 
 
             if (hasDynamicData) {
                 const c1T = document.getElementById('strat-card-1-title');
@@ -504,33 +919,235 @@ function formatWithCurrency(val, currency = 'INR') {
     if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
     const num = parseFloat(val);
     if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
-    return `${currencySym}${val}`;
+}
+
+let scanInterval;
+
+function toggleAutoScan(enabled) {
+    if (enabled) {
+        scanInterval = setInterval(loadTopTrades, 30000);
+    } else {
+        clearInterval(scanInterval);
+    }
+}
+
+function formatNarrative(vm) {
+    const text = vm.narrative || "";
+    let title = "📊 Market Insight";
+    let bullets = [];
+    let action = vm.nextAction || "Observe";
+
+    if (vm.executionSignal === "REJECT") {
+        title = "🚫 No Trade Setup";
+    } else if (vm.executionSignal === "WATCH") {
+        title = "🟡 Setup Forming";
+    } else if (vm.executionSignal === "EXECUTE") {
+        title = "🟢 Trade Ready";
+    }
+
+    bullets = text.split(/\.\s+|\.$/).filter(t => t.trim()).slice(0, 3);
+    return { title, bullets, action };
 }
 
 function toViewModel(data) {
     const d = data?.decision || {};
-    return {
-        narrative: data?.narrative || "-",
-        executionSignal: d?.execution_signal || "-",
-        setupState: d?.setup_state || "-",
-        marketTrend: d?.market_context?.market_trend || "-",
-        marketBias: d?.market_context?.market_bias || "-",
-        regime: d?.market_regime?.regime || "-",
-        entryType: d?.entry_type || "-",
-        nextAction: d?.next_action || "-",
-        liquidity: d?.nearest_liquidity_target || "-",
-        orderflow: d?.microstructure?.orderflow_signal || "-",
-        allocation: d?.allocation?.capital_percent ?? 0,
-        drawdown: d?.drawdown_status?.status || "-",
-        riskRuin: d?.risk_of_ruin?.risk_level || "-",
-        score: d?.meta_score || d?.final_score || data?.score || 0
+    const marketOpen = isMarketOpen();
+    const opt = d.option_selector || data.options || {};
+    
+    let executionSignal = "REJECT";
+    if (d?.execution_signal) {
+        executionSignal = d.execution_signal;
+    } else if (d?.final_decision) {
+        executionSignal = d.final_decision; // Standardized V5 signal (EXECUTE/WATCH/WAIT/REJECT)
+    } else if (d?.setup_state === "FORMING") {
+        executionSignal = "WATCH";
+    } else if (["STRONG BUY", "BUY"].includes(data?.action)) {
+        executionSignal = "EXECUTE";
+    } else if (["WATCHLIST", "MONITOR", "WATCH"].includes(data?.action)) {
+        executionSignal = "WATCH";
+    }
+
+    // Standardize signals to V5 Terminology
+    if (executionSignal === "BUY") executionSignal = "EXECUTE";
+    if (executionSignal === "HOLD") executionSignal = "WAIT";
+
+    // SESSION ECHO: If market is closed, reconstruct the last valid signal based on score
+    if (!marketOpen && (executionSignal === "REJECT" || executionSignal === "NONE")) {
+        const score = data?.score || d?.meta_score || 0;
+        if (score >= 75) {
+            executionSignal = "EXECUTE";
+        } else if (score >= 60) {
+            executionSignal = "WATCH";
+        } else {
+            executionSignal = "REJECT";
+        }
+    }
+
+    // Resolve Mode
+    const mode = resolveMode(appState.tradingMode, data);
+    appState.resolvedMode = mode;
+
+    let narrative = "-";
+    if (d?.narrative) {
+        narrative = d.narrative;
+    } else if (data?.ai_analysis?.breakout?.reason) {
+        narrative = data.ai_analysis.breakout.reason;
+    } else if (data?.summary?.trade_signal_reason) {
+        narrative = data.summary.trade_signal_reason;
+    }
+
+    let entryType = "-";
+    let nextAction = "-";
+    if (executionSignal === "EXECUTE") {
+        entryType = marketOpen ? "CONFIRMED" : "PREVIOUS";
+        nextAction = marketOpen ? "BUY" : "STUDY";
+    } else if (executionSignal === "WATCH") {
+        entryType = marketOpen ? "OBSERVE" : "PREP";
+        nextAction = marketOpen ? "WAIT" : "WATCH";
+    } else {
+        entryType = "NONE";
+        nextAction = "SKIP";
+    }
+
+    // OI Interpretation
+    const getOIState = (val) => {
+        if (!val) return "NEUTRAL (Balanced)";
+        const v = val.toUpperCase();
+        if (v.includes("LONG BUILDUP")) return "LONG BUILDUP (Strong)";
+        if (v.includes("SHORT COVERING")) return "SHORT COVERING (Bullish)";
+        if (v.includes("SHORT BUILDUP")) return "SHORT BUILDUP (Weak)";
+        if (v.includes("LONG UNWINDING")) return "LONG UNWINDING (Caution)";
+        return `${v} (Steady)`;
     };
+
+    // PCR Interpretation
+    const getPCRState = (val) => {
+        if (!val) return "—";
+        const v = parseFloat(val);
+        if (v > 1.25) return `${v} (Strong Bullish)`;
+        if (v > 1.05) return `${v} (Bullish)`;
+        if (v < 0.75) return `${v} (Strong Bearish)`;
+        if (v < 0.95) return `${v} (Bearish)`;
+        return `${v} (Balanced)`;
+    };
+
+    const riskLevel = data?.score >= 60 ? "LOW" : "HIGH";
+    const premium = parseFloat(opt.premium_entry || opt.premium || 0);
+    const lotSize = parseInt(opt.lot_size || (data?.meta?.symbol?.includes('NIFTY') ? 50 : 25));
+
+    // Smart Strike Mapping (ATM Suggestion)
+    let strike = opt.strike;
+    let type = opt.type;
+    let isSuggested = false;
+    
+    if (!strike || strike === "--") {
+        const atm = getATMStrike(data?.meta?.symbol || "NIFTY", data?.meta?.cmp);
+        if (atm) {
+            strike = atm;
+            isSuggested = true;
+            const bias = data.insights?.ema_bias || d?.market_context?.market_bias || "";
+            type = bias.toUpperCase().includes("BULL") ? "CE" : (bias.toUpperCase().includes("BEAR") ? "PE" : "CE");
+        }
+    }
+
+    return {
+        mode: mode,
+        symbol: data?.meta?.symbol || "NIFTY",
+        underlyingPrice: data?.meta?.cmp || 0,
+        narrative: !marketOpen && narrative.includes("volume") ? "Market is currently closed. Analyzed levels remain valid for the next session." : narrative,
+        executionSignal: executionSignal,
+        setupState: d?.setup_state || data?.action || "-",
+        marketTrend: d?.market_regime?.regime || data?.summary?.trade_signal || "-",
+        marketBias: d?.market_regime?.trend_intensity || data?.summary?.trade_signal_reason || "-",
+        regime: d?.market_regime?.regime || data?.summary?.market_regime || "UNKNOWN",
+        entryType: entryType,
+        nextAction: nextAction,
+        liquidity: marketOpen ? (data?.volume_ratio ? `VOL ${data.volume_ratio}x` : "NORMAL") : "OFF-HOURS",
+        
+        // Stock Microstructure (EQUITY)
+        volumeSurge: data?.volume_ratio ? `${data.volume_ratio}x ${data.volume_ratio >= 1.5 ? 'Institutional Accumulation' : 'Session Growth'}` : "NORMAL",
+        intradayVol: data?.intraday_volume_ratio ? `${data.intraday_volume_ratio}x Candle` : "NORMAL",
+        trendIntensity: d?.market_regime?.trend_intensity || data?.ai_analysis?.regime?.trend_intensity || "STABLE",
+        relativeStrength: data?.insights?.relative_strength || "NEUTRAL",
+        
+        // Options Fields (OPTIONS)
+        strike: strike || "--",
+        optionType: type || "CE",
+        expiry: opt.expiry || "28 APR",
+        strikeType: isSuggested ? "ATM Suggestion" : (opt.strike_type || "ATM"),
+        strategy: opt.strategy || (isSuggested ? "ATM MOMENTUM" : "STRATEGY"),
+        premium: premium,
+        premiumSL: parseFloat(opt.premium_sl || 0),
+        premiumT1: parseFloat(opt.premium_target1 || opt.premium_targets?.[0] || 0),
+        premiumT2: parseFloat(opt.premium_target2 || opt.premium_targets?.[1] || 0),
+        lotSize: lotSize,
+        maxLoss: premium * lotSize,
+        oiState: getOIState(data.insights?.oi_buildup || opt.oi_buildup || d?.microstructure?.oi_buildup),
+        pcr: getPCRState(data.insights?.pcr || opt.pcr || d?.microstructure?.pcr),
+        isSuggestedStrike: isSuggested,
+        
+        allocation: (data?.score >= 75 || d?.meta_score >= 75) ? "100%" : ((data?.score >= 60 || d?.meta_score >= 60) ? "50%" : "MINIMAL"),
+        riskLevel: riskLevel,
+        riskRuin: d?.risk_of_ruin?.risk_level || "MEDIUM",
+        riskReward: data?.rr || d?.risk_of_ruin?.risk_reward || "N/A",
+        score: d?.meta_score || data?.score || 0
+    };
+}
+
+function updateHeroDecisionStrip(data, vm) {
+    const hPrice = document.getElementById('hero-price');
+    const hEntry = document.getElementById('hero-entry');
+    const hSL = document.getElementById('hero-sl');
+    const hTarget = document.getElementById('hero-target');
+    const hRR = document.getElementById('hero-rr');
+    
+    const hPriceLabel = document.getElementById('hero-price-label');
+    const hEntryLabel = document.getElementById('hero-entry-label');
+    const hSLLabel = document.getElementById('hero-sl-label');
+    const hTargetLabel = document.getElementById('hero-target-label');
+
+    if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
+    
+    if (vm.mode === 'OPTIONS') {
+        if (hPriceLabel) hPriceLabel.textContent = "PREMIUM CMP";
+        if (hEntryLabel) hEntryLabel.textContent = "PREM ENTRY";
+        if (hSLLabel) hSLLabel.textContent = "PREM SL";
+        if (hTargetLabel) hTargetLabel.textContent = "PREM TARGET";
+        
+        const fmtPrem = (val) => val > 0 ? `₹${formatVal(val)}` : "AWAITING...";
+        if (hEntry) hEntry.textContent = fmtPrem(vm.premium);
+        if (hSL) hSL.textContent = fmtPrem(vm.premiumSL);
+        if (hTarget) hTarget.textContent = fmtPrem(vm.premiumT1);
+        if (hRR) hRR.textContent = data.rr || "N/A";
+    } else {
+        if (hPriceLabel) hPriceLabel.textContent = "CURRENT PRICE";
+        if (hEntryLabel) hEntryLabel.textContent = "ENTRY";
+        if (hSLLabel) hSLLabel.textContent = "STOP LOSS";
+        if (hTargetLabel) hTargetLabel.textContent = "TARGET";
+        
+        if (hEntry) hEntry.textContent = formatWithCurrency(data.decision.entry_price || data.meta.cmp, data.meta.currency);
+        if (hSL) hSL.textContent = formatWithCurrency(data.decision.stop_loss || data.summary.stop_loss, data.meta.currency);
+        if (hTarget) hTarget.textContent = formatWithCurrency(data.decision.target_price, data.meta.currency);
+        if (hRR) hRR.textContent = data.rr || "0.00";
+    }
+    
+    // Action Badge Sync
+    const heroSignal = document.getElementById('hero-signal-badge');
+    if (heroSignal) {
+        heroSignal.textContent = vm.executionSignal;
+        const color = getExecutionState(vm);
+        heroSignal.className = `mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest border border-current uppercase ${
+            color === 'green' ? 'bg-green-900/30 text-green-400' : 
+            color === 'yellow' ? 'bg-yellow-900/30 text-yellow-400' :
+            color === 'indigo' ? 'bg-indigo-900/30 text-indigo-400' : 'bg-red-900/30 text-red-400'
+        }`;
+    }
 }
 
 function getExecutionState(vm) {
     if (vm.executionSignal === "EXECUTE") return "green";
     if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return "yellow";
-    if (vm.executionSignal === "WAIT") return "yellow";
+    if (vm.executionSignal === "CLOSED") return "indigo";
     return "red";
 }
 
@@ -559,7 +1176,7 @@ function updateExecutionEdge(data) {
     const panel = document.getElementById('execution-edge-panel');
     if (!panel) return;
 
-    if (!data?.decision && !data?.narrative) {
+    if (!data || !data.action) {
         panel.classList.add('hidden');
         return;
     }
@@ -569,44 +1186,161 @@ function updateExecutionEdge(data) {
 
     // Toast logic
     if (previousSignalState === "FORMING" && vm.executionSignal === "EXECUTE") {
-        const sym = document.getElementById('symbol-input')?.value || 'Trade';
+        const sym = vm.symbol || 'Trade';
         showToast(`🚀 ${sym} execution triggered!`, 'success');
     }
     previousSignalState = vm.executionSignal !== "-" ? vm.executionSignal : vm.setupState;
 
-    // Update Narrative
+    // Narrative & Summary
     const narrativeEl = document.getElementById('ee-narrative');
     if (narrativeEl) {
-        if (vm.executionSignal === "REJECT" || vm.executionSignal === "AVOID" || vm.setupState === "REJECT") {
-            narrativeEl.innerHTML = `<div class="flex flex-col gap-2">
-                <div class="flex items-center gap-2 text-red-400 font-black uppercase text-base">
-                    <span>🚫</span> NO TRADE
-                </div>
-                <div class="text-sm text-gray-300 font-medium">
-                    <span class="text-gray-500 uppercase text-[10px] tracking-widest font-bold">Reason:</span> ${vm.nextAction !== "-" ? vm.nextAction : (vm.narrative !== "-" ? vm.narrative : "Conditions not met")}
-                </div>
-                <div class="text-[10px] text-gray-500 italic border-t border-gray-800/50 pt-2 mt-1">
-                    System filtered this setup for safety.
-                </div>
-            </div>`;
-        } else {
-            narrativeEl.innerText = vm.narrative;
-        }
+        const formatted = formatNarrative(vm);
+        // Simplified view for primary card: just bullets
+        narrativeEl.innerHTML = `
+            <ul class="space-y-1">
+                ${formatted.bullets.slice(0, 2).map(b => `<li class="flex items-center gap-2"><span class="w-1 h-1 bg-blue-500 rounded-full"></span>${b.trim()}</li>`).join('')}
+            </ul>
+        `;
     }
+
+    // Analysis Tab Title
+    const analysisTxt = document.getElementById('ee-analysis-text');
+    if (analysisTxt) {
+        const formatted = formatNarrative(vm);
+        analysisTxt.innerHTML = `<strong>${formatted.title}</strong><br/>${formatted.bullets.join('<br/>• ')}`;
+    }
+    
+    const undLabel = document.getElementById('ee-underlying-label');
+    if (undLabel) undLabel.textContent = vm.symbol;
+    
+    const undPrice = document.getElementById('ee-underlying-price');
+    if (undPrice) undPrice.textContent = formatVal(vm.underlyingPrice);
 
     // Execution State Badge
     const stateColor = getExecutionState(vm);
     const badgeEl = document.getElementById('ee-execution-badge');
     if (badgeEl) {
         badgeEl.innerText = vm.executionSignal !== "-" ? vm.executionSignal : (vm.setupState !== "-" ? vm.setupState : "WAITING");
-        badgeEl.className = `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border shadow-lg ${
+        badgeEl.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-lg ${
             stateColor === "green" ? "bg-green-900/30 text-green-400 border-green-500/50" :
             stateColor === "yellow" ? "bg-yellow-900/30 text-yellow-400 border-yellow-500/50" :
+            stateColor === "indigo" ? "bg-indigo-900/30 text-indigo-400 border-indigo-500/50" :
             "bg-red-900/30 text-red-400 border-red-500/50"
         }`;
     }
     
     renderScore(vm);
+
+    // DUAL MODE RENDERING
+    const optionsGrid = document.getElementById('ee-options-grid');
+    const optionLabel = document.getElementById('ee-option-label');
+    const optionRisk = document.getElementById('ee-option-risk');
+    
+    const microTitle = document.getElementById('micro-title');
+    const microL1 = document.getElementById('micro-label-1');
+    const microL2 = document.getElementById('micro-label-2');
+    const microL3 = document.getElementById('micro-label-3');
+    const microV1 = document.getElementById('ee-micro-val-1');
+    const microV2 = document.getElementById('ee-micro-val-2');
+    const microV3 = document.getElementById('ee-micro-val-3');
+    
+    if (vm.mode === 'OPTIONS') {
+        optionsGrid?.classList.remove('hidden');
+        optionLabel?.classList.remove('hidden');
+        optionRisk?.classList.remove('hidden');
+        
+        if (optionLabel) {
+            optionLabel.innerHTML = `
+                <span class="flex items-center gap-1.5">
+                    <span class="text-indigo-400 text-[9px] font-black">F&O</span>
+                    <span class="px-2 py-0.5 rounded border ${vm.optionType === 'CE' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}">
+                        ${vm.strike} ${vm.optionType}
+                    </span>
+                </span>
+            `;
+            optionLabel.className = "flex items-center px-1 text-[10px] font-black";
+        }
+        
+        // Set premium values
+        const fmtPrem = (val) => val > 0 ? `₹${formatVal(val)}` : "Awaiting...";
+        document.getElementById('ee-premium-entry').textContent = fmtPrem(vm.premium);
+        document.getElementById('ee-premium-sl').textContent = fmtPrem(vm.premiumSL);
+        document.getElementById('ee-premium-t1').textContent = fmtPrem(vm.premiumT1);
+        document.getElementById('ee-premium-t2').textContent = fmtPrem(vm.premiumT2);
+        
+        // Risk
+        document.getElementById('ee-lot-size').textContent = vm.lotSize;
+        const maxLossEl = document.getElementById('ee-max-loss');
+        if (vm.premium > 0) {
+            maxLossEl.textContent = `₹${formatVal(vm.maxLoss)}`;
+            maxLossEl.className = "text-xs font-black text-red-400";
+        } else {
+            maxLossEl.textContent = "---";
+            maxLossEl.className = "text-xs font-black text-gray-500";
+        }
+        
+        // Microstructure (F&O)
+        if (microTitle) microTitle.textContent = "F&O Microstructure";
+        if (microL1) microL1.textContent = "OI Build-up";
+        if (microL2) microL2.textContent = "PCR Ratio";
+        if (microL3) microL3.textContent = "Option Strat";
+        if (microV1) microV1.textContent = vm.oiState;
+        if (microV2) microV2.textContent = vm.pcr;
+        
+        // Populate Analysis tab specific fields
+        const oiAnalysis = document.getElementById('ee-micro-val-1-analysis');
+        const pcrAnalysis = document.getElementById('ee-micro-val-2-analysis');
+        if (oiAnalysis) oiAnalysis.textContent = vm.oiState;
+        if (pcrAnalysis) pcrAnalysis.textContent = vm.pcr;
+
+        if (microV3) {
+            microV3.textContent = vm.strategy;
+            microV3.className = `text-[9px] font-black px-1.5 py-0.5 rounded ${
+                vm.strategy.includes('MOMENTUM') ? 'bg-indigo-500/20 text-indigo-400' : 'bg-blue-500/20 text-blue-400'
+            }`;
+        }
+    } else {
+        optionsGrid?.classList.add('hidden');
+        optionLabel?.classList.add('hidden');
+        optionRisk?.classList.add('hidden');
+        
+        // Microstructure (EQUITY)
+        if (microTitle) microTitle.textContent = "Stock Microstructure";
+        if (microL1) microL1.textContent = "Volume Surge";
+        if (microL2) microL2.textContent = "Trend Intensity";
+        if (microL3) microL3.textContent = "Relative Strength";
+        
+        if (microV1) {
+            microV1.textContent = vm.volumeSurge;
+            const volVal = parseFloat(vm.volumeSurge);
+            if (volVal >= 2.0) microV1.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse uppercase";
+            else if (volVal >= 1.3) microV1.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 uppercase";
+            else microV1.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 uppercase";
+        }
+        
+        if (microV2) {
+            const intensity = vm.trendIntensity.toUpperCase();
+            microV2.textContent = intensity;
+            if (intensity.includes("VERTICAL") || intensity.includes("STRONG")) {
+                microV2.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30";
+            } else {
+                microV2.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-gray-800 text-gray-400";
+            }
+        }
+
+        if (microV3) {
+            microV3.textContent = vm.relativeStrength;
+            const rs = vm.relativeStrength.toUpperCase();
+            if (rs.includes("STRONG")) microV3.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30";
+            else microV3.className = "text-[9px] font-black px-1.5 py-0.5 rounded bg-gray-800 text-gray-400";
+        }
+    }
+
+    // Risk Panel
+    const allocEl = document.getElementById('ee-allocation');
+    if (allocEl) allocEl.textContent = vm.allocation;
+    const ruinEl = document.getElementById('ee-risk-ruin');
+    if (ruinEl) ruinEl.textContent = vm.riskRuin;
 
     // Safely update DOM elements
     const setTxt = (id, val) => {
@@ -617,21 +1351,21 @@ function updateExecutionEdge(data) {
     // Execution
     setTxt('ee-signal', vm.executionSignal);
     setTxt('ee-entry-type', vm.entryType);
-    setTxt('ee-next-action', vm.nextAction);
+    
+    // Style next action
+    const nextActionEl = document.getElementById('ee-next-action');
+    if (nextActionEl) {
+        nextActionEl.innerText = vm.nextAction;
+        nextActionEl.className = "text-xs font-black px-2 py-0.5 rounded shadow-lg transition-colors";
+        if (vm.executionSignal === "EXECUTE") nextActionEl.classList.add("bg-green-500/20", "text-green-400", "border", "border-green-500/30");
+        else if (vm.executionSignal === "WATCH") nextActionEl.classList.add("bg-yellow-500/20", "text-yellow-400", "border", "border-yellow-500/30");
+        else nextActionEl.classList.add("bg-red-500/10", "text-red-400", "border", "border-red-500/20");
+    }
 
     // Market Context
     setTxt('ee-trend', vm.marketTrend);
     setTxt('ee-bias', vm.marketBias);
     setTxt('ee-regime', vm.regime.replace(/_/g, ' '));
-
-    // Flow & Liquidity
-    setTxt('ee-orderflow', vm.orderflow.replace(/_/g, ' '));
-    setTxt('ee-liquidity', typeof vm.liquidity === 'number' ? vm.liquidity.toFixed(2) : vm.liquidity);
-
-    // Risk
-    setTxt('ee-allocation', vm.allocation ? `${vm.allocation}%` : "-");
-    setTxt('ee-drawdown', vm.drawdown.replace(/_/g, ' '));
-    setTxt('ee-risk-ruin', vm.riskRuin.replace(/_/g, ' '));
 
     // Confidence Bar
     const confFill = document.getElementById('ee-confidence-fill');
@@ -639,6 +1373,10 @@ function updateExecutionEdge(data) {
     if (confFill && confVal) {
         confFill.style.width = `${vm.score}%`;
         confVal.innerText = `${vm.score}%`;
+        confFill.className = "h-full transition-all duration-1000";
+        if (vm.score >= 80) confFill.classList.add("bg-green-500");
+        else if (vm.score >= 60) confFill.classList.add("bg-yellow-500");
+        else confFill.classList.add("bg-red-500");
     }
 
     updatePrimaryAction(vm);
@@ -648,17 +1386,36 @@ function updatePrimaryAction(vm) {
     const btn = document.getElementById("primary-action-btn");
     if (!btn) return;
     
+    btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto text-white";
+    
     if (vm.executionSignal === "EXECUTE") {
-        btn.innerText = "PLACE ORDER";
-        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-green-600 hover:bg-green-500 text-white shadow-green-900/50";
-        btn.onclick = () => showToast("Order placement simulated.", "info");
-    } else if (vm.setupState === "FORMING" || vm.executionSignal === "WATCH") {
+        if (vm.mode === 'OPTIONS') {
+            const isCall = vm.optionType === 'CE';
+            btn.innerText = isCall ? "BUY CALL (CE)" : "BUY PUT (PE)";
+            btn.className = `px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto text-white ${
+                isCall ? 'bg-green-600 hover:bg-green-500' : 'bg-red-600 hover:bg-red-500'
+            }`;
+        } else {
+            btn.innerText = "PLACE ORDER";
+            btn.classList.add("bg-blue-600", "hover:bg-blue-500");
+        }
+        
+        btn.onclick = () => {
+            const sym = document.getElementById('symbol-input').value;
+            const entry = vm.mode === 'OPTIONS' ? vm.premium : (document.getElementById('cmp').innerText || '0.00');
+            const sl = vm.mode === 'OPTIONS' ? vm.premiumSL : (document.getElementById('stop-loss').innerText || '0.00');
+            TradingAssistant.addOutcome(sym, entry, sl);
+        };
+    } else if (vm.executionSignal === "WATCH") {
         btn.innerText = "SET ALERT";
-        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-yellow-600 hover:bg-yellow-500 text-white shadow-yellow-900/50";
-        btn.onclick = () => showToast("Alert set for setup completion.", "success");
+        btn.classList.add("bg-yellow-600", "hover:bg-yellow-500", "shadow-yellow-900/50");
+        btn.onclick = () => {
+            const sym = document.getElementById('symbol-input').value;
+            TradingAssistant.addAlert(sym, "WATCH");
+        };
     } else {
         btn.innerText = "SCAN NEXT";
-        btn.className = "px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto bg-red-600 hover:bg-red-500 text-white shadow-red-900/50";
+        btn.classList.add("bg-gray-800", "hover:bg-gray-700");
         btn.onclick = () => loadTopTrades();
     }
 }
@@ -699,7 +1456,7 @@ async function loadTopTrades() {
     list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Scanning market for top setups...</div>';
 
     try {
-        const symbolsToScan = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"];
+        const symbolsToScan = ["NSE:RELIANCE-EQ", "NSE:TCS-EQ", "NSE:INFY-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ"];
         const results = [];
         
         await Promise.all(symbolsToScan.map(async (sym) => {
@@ -707,7 +1464,7 @@ async function loadTopTrades() {
                 const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data && data.decision) {
+                    if (data && data.action) {
                         results.push({ symbol: sym, data: data });
                     }
                 }
@@ -720,20 +1477,23 @@ async function loadTopTrades() {
         }
 
         results.sort((a, b) => {
-            const getPriority = (d) => {
-                const sig = d.data.decision.execution_signal;
-                const state = d.data.decision.setup_state;
-                if (sig === "EXECUTE") return 3;
-                if (sig === "WATCH" || state === "FORMING") return 2;
-                return 1;
-            };
-            const pA = getPriority(a);
-            const pB = getPriority(b);
-            if (pA !== pB) return pB - pA;
+            const vmA = toViewModel(a.data);
+            const vmB = toViewModel(b.data);
             
-            const sA = a.data.decision.meta_score || a.data.decision.final_score || 0;
-            const sB = b.data.decision.meta_score || b.data.decision.final_score || 0;
-            return sB - sA;
+            const getPriority = (vm) => {
+                if (vm.executionSignal === "EXECUTE") {
+                    return vm.mode === 'OPTIONS' ? 100 : 80;
+                }
+                if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return 60;
+                if (vm.executionSignal === "CLOSED") return 40;
+                return 20;
+            };
+            
+            const pA = getPriority(vmA);
+            const pB = getPriority(vmB);
+            
+            if (pA !== pB) return pB - pA;
+            return vmB.score - vmA.score;
         });
 
         list.innerHTML = '';
@@ -741,24 +1501,37 @@ async function loadTopTrades() {
             const vm = toViewModel(item.data);
             const stateColor = getExecutionState(vm);
             
-            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : '🔴';
-            const actionHint = vm.executionSignal === 'EXECUTE' ? 'Ready' : (vm.setupState === 'FORMING' ? 'Forming' : 'Avoid');
+            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (isMarketOpen() ? '🟢' : '🌙');
+            const signalText = vm.executionSignal !== '-' ? vm.executionSignal : vm.setupState;
+            const displaySignal = isMarketOpen() ? signalText : `${signalText} (OFF)`;
+            
+            const actionHint = vm.executionSignal === 'EXECUTE' ? 'Ready' : (vm.setupState === 'FORMING' ? 'Forming' : 'Analysis');
             
             const card = document.createElement('div');
-            card.className = "min-w-[160px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-gray-600 transition-colors cursor-pointer group shrink-0";
+            card.className = "min-w-[160px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-gray-600 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0";
             card.onclick = () => {
                 document.getElementById('symbol-input').value = item.symbol;
                 fetchData(false);
             };
             
-            card.innerHTML = `
-                <div class="flex justify-between items-start mb-2">
-                    <span class="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">${item.symbol}</span>
-                    <span class="text-[10px] font-bold text-gray-500">${vm.score}</span>
+            const optionBadge = vm.mode === 'OPTIONS' ? `
+                <div class="mt-1 flex items-center gap-1">
+                    <span class="px-1.5 py-0.5 rounded text-[8px] font-black ${vm.optionType === 'CE' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${vm.strike} ${vm.optionType}</span>
+                    <span class="text-[8px] text-gray-600 font-bold">${vm.expiry}</span>
                 </div>
-                <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+            ` : '';
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <span class="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">${item.symbol.replace('NSE:', '').replace('-EQ', '')}</span>
+                    <div class="flex items-center gap-2 z-10">
+                        <span class="text-[10px] font-bold text-gray-500">${vm.score}</span>
+                    </div>
+                </div>
+                ${optionBadge}
+                <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
                     <span>${badgeIcon}</span>
-                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-red-400'}">${vm.executionSignal !== '-' ? vm.executionSignal : vm.setupState}</span>
+                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}</span>
                 </div>
                 <div class="mt-1.5 text-[9px] text-gray-500 italic">
                     ${actionHint}
@@ -767,7 +1540,11 @@ async function loadTopTrades() {
             list.appendChild(card);
             
             if (vm.executionSignal === "EXECUTE") {
-                showToast(`🚀 New setup found: ${item.symbol}`, 'success');
+                if (TradingAssistant.isPinned(item.symbol) || TradingAssistant.state.alerts.find(a => a.symbol === item.symbol)) {
+                    showToast(`🚀 EXECUTE Triggered for ${item.symbol}!`, 'success');
+                } else {
+                    showToast(`🚀 New setup found: ${item.symbol}`, 'success');
+                }
             }
         });
         
@@ -777,28 +1554,25 @@ async function loadTopTrades() {
     }
 }
 
-function showLoading() {
-    const badgeEl = document.getElementById('ee-execution-badge');
-    if (badgeEl) {
-        badgeEl.innerText = "LOADING...";
-        badgeEl.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-400 border border-gray-700 shadow-lg animate-pulse";
-    }
-    const scoreBadge = document.getElementById('ee-score-badge');
-    if (scoreBadge) scoreBadge.classList.add('hidden');
-}
-
-function showError() {
-    const badgeEl = document.getElementById('ee-execution-badge');
-    if (badgeEl) {
-        badgeEl.innerText = "ERROR";
-        badgeEl.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-red-900/30 text-red-400 border border-red-500/50 shadow-lg";
-    }
-    const scoreBadge = document.getElementById('ee-score-badge');
-    if (scoreBadge) scoreBadge.classList.add('hidden');
-}
-
 function updateUI(data, isBackground = false) {
     try {
+        // Update Market Status Banner
+        const marketBanner = document.getElementById('market-status-banner');
+        const marketTitle = document.getElementById('market-status-title');
+        const marketDesc = document.getElementById('market-status-desc');
+        const marketIcon = document.getElementById('market-status-icon');
+        
+        if (marketBanner) {
+            if (isMarketOpen()) {
+                marketBanner.classList.add('hidden');
+            } else {
+                marketBanner.classList.remove('hidden');
+                if (marketTitle) marketTitle.textContent = "MARKET CLOSED";
+                if (marketDesc) marketDesc.textContent = "Session ended. Showing final intelligence snapshot.";
+                if (marketIcon) marketIcon.textContent = "🌙";
+            }
+        }
+
         // Hide error message if it exists
         const errDiv = document.getElementById('chart-error-msg');
         if (errDiv) errDiv.classList.add('hidden');
@@ -810,11 +1584,22 @@ function updateUI(data, isBackground = false) {
         if (cmpEl) cmpEl.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
 
         const verTag = document.getElementById('ver-tag');
-        if (verTag) verTag.textContent = "v1.5.0 Intelligence Layer";
+        if (verTag) verTag.textContent = "v1.6.0 F&O Terminal";
 
-        // Sync Time
+        // Sync Time & Symbol
         const syncTime = document.getElementById('sync-time');
         if (syncTime && data.meta.last_update) syncTime.textContent = `${data.meta.last_update}`;
+
+        const sLabel = document.getElementById('chart-symbol-label');
+        const tfLabel = document.getElementById('chart-tf-label');
+        if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
+        if (tfLabel) {
+            const tf = data.meta.tf || data.meta.timeframe || '15m';
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+            const labelText = names[tf] || tf.toUpperCase();
+            tfLabel.textContent = `${labelText} SESSION`;
+        }
+
 
         // Pulse indicators only if price changed
         const liveInd = document.getElementById('live-indicator');
@@ -853,8 +1638,12 @@ function updateUI(data, isBackground = false) {
         const rrEl = document.getElementById('risk-reward');
         if (rrEl) rrEl.textContent = data.summary.risk_reward || '—';
 
-        // 8. Hero Strip
-        updateHeroDecisionStrip(data);
+        // 8. Sync Intelligence ViewModel
+        const vm = toViewModel(data);
+
+        // 9. Execution Edge & Hero Strip Sync
+        updateExecutionEdge(data);
+        updateHeroDecisionStrip(data, vm);
 
         // 2. Insights
         const setTxt = (id, val) => {
@@ -928,6 +1717,33 @@ function updateUI(data, isBackground = false) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
+
+            // Volume & EMA logic
+            if (volumeSeries && volumeEmaSeries) {
+                const volumeData = data.ohlcv.map(d => ({
+                    time: d.time,
+                    value: (d.volume === null || d.volume === undefined || isNaN(d.volume)) ? 0 : Number(d.volume),
+                    color: d.close >= d.open ? 'rgba(0, 192, 118, 0.5)' : 'rgba(246, 70, 93, 0.5)'
+                }));
+                console.log(`[Chart] Setting volume data: ${volumeData.length} points. Max vol: ${Math.max(...volumeData.map(d => d.value))}`);
+                volumeSeries.setData(volumeData);
+
+                // Calculate 20 EMA of volume
+                if (volumeData.length > 0) {
+                    const emaData = [];
+                    const period = 20;
+                    const k = 2 / (period + 1);
+                    let prevEma = volumeData[0].value;
+                    
+                    for (let i = 0; i < volumeData.length; i++) {
+                        const val = volumeData[i].value;
+                        const ema = i === 0 ? val : (val - prevEma) * k + prevEma;
+                        emaData.push({ time: volumeData[i].time, value: isNaN(ema) ? 0 : ema });
+                        prevEma = ema;
+                    }
+                    volumeEmaSeries.setData(emaData);
+                }
+            }
             
             // Only auto-fit if it's NOT a background refresh
             if (!isBackground) {
@@ -981,41 +1797,91 @@ function updateUI(data, isBackground = false) {
 
 
         // 9. Strategy Specific UI Toggles
-        updateExecutionEdge(data);
         updateStrategyUI(data);
+
+        // 10. Update Execution Edge Panel
+        updateExecutionEdge(data, vm);
 
     } catch (e) {
         console.error("UI Update Error:", e);
     }
 }
 
-function updateHeroDecisionStrip(data) {
+// --- LAYERED UX LOGIC ---
+function toggleEEDetails() {
+    const panel = document.getElementById('ee-details-panel');
+    const text = document.getElementById('ee-toggle-text');
+    const icon = document.getElementById('ee-toggle-icon');
+    const shimmer = document.getElementById('ee-details-shimmer');
+    
+    if (!panel) return;
+    
+    const isHidden = panel.classList.contains('hidden');
+    if (isHidden) {
+        panel.classList.remove('hidden');
+        if (text) text.textContent = "Hide Details";
+        if (icon) icon.className = "fas fa-chevron-up text-[8px]";
+        
+        // Show shimmer for a brief moment to simulate "Preparing Data"
+        if (shimmer) {
+            shimmer.classList.remove('hidden');
+            setTimeout(() => {
+                shimmer.classList.add('hidden');
+            }, 600);
+        }
+    } else {
+        panel.classList.add('hidden');
+        if (text) text.textContent = "View Details";
+        if (icon) icon.className = "fas fa-chevron-down text-[8px]";
+    }
+}
+
+function switchEETab(tab) {
+    const tabs = ['summary', 'analysis', 'risk'];
+    tabs.forEach(t => {
+        const content = document.getElementById(`ee-content-${t}`);
+        const btn = document.getElementById(`ee-tab-${t}`);
+        if (content) content.classList.add('hidden');
+        if (btn) {
+            btn.classList.remove('border-blue-500', 'text-white');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        }
+    });
+    
+    const activeContent = document.getElementById(`ee-content-${tab}`);
+    const activeBtn = document.getElementById(`ee-tab-${tab}`);
+    if (activeContent) activeContent.classList.remove('hidden');
+    if (activeBtn) {
+        activeBtn.classList.remove('border-transparent', 'text-gray-500');
+        activeBtn.classList.add('border-blue-500', 'text-white');
+    }
+}
+
+function updateHeroDecisionStrip(data, vm) {
     const heroStrip = document.getElementById('hero-decision-strip');
-    if (!heroStrip || !data.summary) return;
+    if (!heroStrip || !data.summary || !vm) return;
     
     heroStrip.classList.remove('hidden');
     
-    // Action Badge
-    const action = data.action || 'WATCH';
+    // Top-Level Action Badge in Nav Bar
     const actionBadge = document.getElementById('hero-action-badge');
-    const badgeSpan = actionBadge.querySelector('span');
-    const badgeIcon = actionBadge.querySelector('i');
+    const badgeSpan = actionBadge ? actionBadge.querySelector('span') : null;
+    const badgeIcon = actionBadge ? actionBadge.querySelector('i') : null;
     
-    badgeSpan.textContent = action;
-    actionBadge.className = 'decision-badge';
-    
-    if (action === "EXECUTE" || action.includes('BUY') || action.includes('ENTRY')) {
-        actionBadge.classList.add('decision-buy');
-        badgeIcon.className = 'fas fa-check-circle';
-    } else if (action === "REJECT" || action === "NO_TRADE" || action === "HOLD") {
-        actionBadge.classList.add('decision-no-trade');
-        badgeIcon.className = 'fas fa-times-circle';
-    } else if (action === "WAIT" || action === "WATCH") {
-        actionBadge.classList.add('decision-watch');
-        badgeIcon.className = 'fas fa-eye';
-    } else {
-        actionBadge.classList.add('decision-watch');
-        badgeIcon.className = 'fas fa-eye';
+    if (badgeSpan) {
+        badgeSpan.textContent = vm.executionSignal;
+        actionBadge.className = 'decision-badge';
+        
+        if (vm.executionSignal === "EXECUTE") {
+            actionBadge.classList.add('decision-buy');
+            if (badgeIcon) badgeIcon.className = 'fas fa-check-circle';
+        } else if (vm.executionSignal === "WATCH") {
+            actionBadge.classList.add('decision-watch');
+            if (badgeIcon) badgeIcon.className = 'fas fa-eye';
+        } else {
+            actionBadge.classList.add('decision-no-trade');
+            if (badgeIcon) badgeIcon.className = 'fas fa-times-circle';
+        }
     }
 
     // POWER HEADER INTEGRATION (Keep metrics persistent in Navigation Bar)
@@ -1023,11 +1889,27 @@ function updateHeroDecisionStrip(data) {
     const hPrice = document.getElementById('hero-price');
     if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, currency);
     
-    // Fallback: If no setup entry, use current market price for Entry visibility
     const hEntry = document.getElementById('hero-entry');
     const hSl = document.getElementById('hero-sl');
     const hTarget = document.getElementById('hero-target');
     const hRR = document.getElementById('hero-rr');
+    const hSignal = document.getElementById('hero-signal-badge');
+
+    const side = data.summary?.side || data.strategy?.side || data.side || 'LONG';
+    
+    if (hSignal) {
+        if (vm.executionSignal === "REJECT") {
+            hSignal.textContent = 'WAIT';
+            hSignal.className = 'mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest bg-gray-800 text-gray-500 uppercase';
+        } else if (vm.executionSignal === "WATCH") {
+            hSignal.textContent = 'OBSERVE';
+            hSignal.className = 'mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest bg-yellow-900/40 text-yellow-500 border border-yellow-500/30 uppercase';
+        } else {
+            const label = side === 'LONG' ? 'BUY' : 'SELL';
+            hSignal.textContent = label;
+            hSignal.className = `mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest uppercase ${side === 'LONG' ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.4)]'}`;
+        }
+    }
 
     if (hEntry) hEntry.textContent = formatWithCurrency(data.setup?.entry || data.summary?.entry_price || data.meta.cmp, currency);
     if (hSl) hSl.textContent = formatWithCurrency(data.setup?.sl || data.summary?.stop_loss, currency);
@@ -1086,11 +1968,16 @@ function drawLevelsOnChart(levels, fullData = null) {
     // 1. Chart Header Action Tag (Primary Feedback)
     const headerAction = document.getElementById('chart-header-action');
     if (headerAction && fullData) {
+        const side = fullData.summary?.side || fullData.strategy?.side || fullData.side || 'LONG';
         const isEntry = action.includes('BUY') || action.includes('ENTRY');
+        const isAvoid = action.includes('AVOID') || action === 'WAIT' || action === 'HOLD';
+        
+        const displayAction = isAvoid ? action : `${side} | ${action}`;
+
         headerAction.innerHTML = `
             <div class="px-3 py-1 bg-white/5 border border-white/5 rounded-lg flex items-center gap-2">
                 <span class="${isEntry ? 'text-green-400' : 'text-amber-400'} animate-pulse text-[10px]">●</span>
-                <span class="text-[9px] font-black text-white tracking-widest uppercase">${action}</span>
+                <span class="text-[9px] font-black text-white tracking-widest uppercase">${displayAction}</span>
             </div>
         `;
         headerAction.classList.remove('hidden');
@@ -1363,19 +2250,11 @@ window.onload = function () {
                                 </div>
                                 <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${item.exchange}</span>
                             `;
-                            
-                            const selectItem = () => {
+                            div.onclick = () => {
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
                                 fetchData();
                             };
-
-                            div.onclick = selectItem;
-                            div.ontouchend = (e) => {
-                                e.preventDefault(); // Prevent double trigger
-                                selectItem();
-                            };
-                            
                             resultsDiv.appendChild(div);
                         });
                     } else {
@@ -1518,6 +2397,21 @@ window.onload = function () {
         document.getElementById('strategy-selector').addEventListener('change', () => {
             fetchData();
         });
+
+        document.getElementById('tf-selector').addEventListener('change', () => {
+            const tf = document.getElementById('tf-selector').value;
+            // Sync buttons if it's 5m or 15m
+            document.querySelectorAll('#intraday-tf-toggle button').forEach(btn => {
+                if (btn.dataset.tf === tf) {
+                    btn.classList.add('bg-blue-600', 'text-white');
+                    btn.classList.remove('text-gray-400');
+                } else {
+                    btn.classList.remove('bg-blue-600', 'text-white');
+                    btn.classList.add('text-gray-400');
+                }
+            });
+            fetchData();
+        });
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -1535,7 +2429,7 @@ window.onload = function () {
 async function fetchIntelligence() {
     try {
         const tfSelector = document.getElementById('tf-selector');
-        const tf = tfSelector ? tfSelector.value : '15m';
+        const tf = tfSelector ? tfSelector.value : '1D';
         const now = Date.now();
 
         // 1. Fetch data in parallel
@@ -1614,7 +2508,9 @@ async function fetchIntelligence() {
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
-                intelligenceApp.updateHits(hitsData.data, hitsData.source || 'live');
+                // If Fyers is reported as inactive by backend, override source to 'expired'
+                const effectiveSource = (hitsData.is_fyers_active === false) ? 'expired' : (hitsData.source || 'live');
+                intelligenceApp.updateHits(hitsData.data, effectiveSource);
             }
             if (earlyData && earlyData.data && typeof intelligenceApp.updateEarlySetups === 'function') {
                 intelligenceApp.updateEarlySetups(earlyData.data, earlyData.source || 'live');
@@ -1690,7 +2586,7 @@ window.setActiveTimeframe = function(tf) {
         // Update chart display
         const tfLabel = document.getElementById('chart-tf-label');
         if (tfLabel) {
-            const names = { '5m': '5 MIN', '15m': '15 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY' };
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
             tfLabel.textContent = names[tf] || tf.toUpperCase();
         }
         
@@ -1698,9 +2594,29 @@ window.setActiveTimeframe = function(tf) {
     }
 };
 
+// Handle messages from popups (Fyers Login)
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'fyers_auth') {
+        console.log("Fyers auth message received:", event.data);
+        if (event.data.status === 'success') {
+            console.log("Fyers success received, waiting for session to settle...");
+            // Add a small delay to ensure backend has flushed the token file
+            setTimeout(() => {
+                checkFyersStatus();
+                fetchData();
+            }, 500);
+        } else {
+            console.error("Fyers authentication failed:", event.data.message);
+            alert("Fyers Authentication Failed: " + (event.data.message || "Unknown error"));
+        }
+    }
+});
+
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
+    TradingAssistant.init();
     checkFyersStatus();
-    // Poll every 30 seconds for faster updates after login
+    // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
+

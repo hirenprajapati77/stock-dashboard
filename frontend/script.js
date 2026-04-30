@@ -1722,25 +1722,27 @@ function updateUI(data, isBackground = false) {
             if (volumeSeries && volumeEmaSeries) {
                 const volumeData = data.ohlcv.map(d => ({
                     time: d.time,
-                    value: d.volume,
+                    value: (d.volume === null || d.volume === undefined || isNaN(d.volume)) ? 0 : Number(d.volume),
                     color: d.close >= d.open ? 'rgba(0, 192, 118, 0.5)' : 'rgba(246, 70, 93, 0.5)'
                 }));
                 console.log(`[Chart] Setting volume data: ${volumeData.length} points. Max vol: ${Math.max(...volumeData.map(d => d.value))}`);
                 volumeSeries.setData(volumeData);
 
                 // Calculate 20 EMA of volume
-                const emaData = [];
-                const period = 20;
-                const k = 2 / (period + 1);
-                let prevEma = volumeData[0].value;
-                
-                for (let i = 0; i < volumeData.length; i++) {
-                    const val = volumeData[i].value;
-                    const ema = i === 0 ? val : (val - prevEma) * k + prevEma;
-                    emaData.push({ time: volumeData[i].time, value: ema });
-                    prevEma = ema;
+                if (volumeData.length > 0) {
+                    const emaData = [];
+                    const period = 20;
+                    const k = 2 / (period + 1);
+                    let prevEma = volumeData[0].value;
+                    
+                    for (let i = 0; i < volumeData.length; i++) {
+                        const val = volumeData[i].value;
+                        const ema = i === 0 ? val : (val - prevEma) * k + prevEma;
+                        emaData.push({ time: volumeData[i].time, value: isNaN(ema) ? 0 : ema });
+                        prevEma = ema;
+                    }
+                    volumeEmaSeries.setData(emaData);
                 }
-                volumeEmaSeries.setData(emaData);
             }
             
             // Only auto-fit if it's NOT a background refresh
