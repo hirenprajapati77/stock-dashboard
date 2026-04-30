@@ -349,7 +349,8 @@ class FyersService:
                 return None, "Fyers Token Expired (401) — Please reconnect"
             
             if res.status_code == 403:
-                return None, "Fyers Permission Error (403): Additional scope required (Quotes/Market Data)"
+                cls._access_token = None  # Clear stale token — 403 means permission/token issue
+                return None, "Fyers Permission Error (403): Token may be expired or lacks Market Data scope"
 
             response = res.json()
             if response.get("s") == "ok":
@@ -366,11 +367,65 @@ class FyersService:
 
             print(f"DEBUG: [Fyers] Data API response (HTTP {res.status_code}): {response}", flush=True)
             return None, err_msg
-
         except requests.exceptions.Timeout:
             return None, "Fyers request timed out"
         except Exception as e:
             return None, f"Exception fetching Fyers data: {str(e)}"
+
+    @classmethod
+    def get_quotes(cls, symbols: List[str], timeout=10) -> Dict:
+        """Fetches real-time quotes for multiple symbols."""
+        if not cls._access_token:
+            if not cls.load_token():
+                return {}
+
+        headers = {"Authorization": f"{fyers_config.app_id}:{cls._access_token}"}
+        params = {"symbols": ",".join(symbols)}
+        
+        try:
+            url = f"{cls.DATA_URL}/quotes"
+            if fyers_config.auth_proxy_url:
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                url = f"{proxy_base}/data/quotes"
+                headers["x-target-host"] = "api-t1.fyers.in"
+            
+            res = requests.get(url, params=params, headers=headers, timeout=timeout)
+            if res.status_code == 200:
+                resp = res.json()
+                if resp.get("s") == "ok":
+                    # Convert list of quotes to dict for easier lookup
+                    return {q["n"]: q["v"] for q in resp.get("d", [])}
+            return {}
+        except Exception as e:
+            print(f"Error fetching Fyers quotes: {e}")
+            return {}
+
+    @classmethod
+    def get_market_depth(cls, symbol: str, timeout=10) -> Dict:
+        """Fetches market depth (L2) for a symbol."""
+        if not cls._access_token:
+            if not cls.load_token():
+                return {}
+
+        headers = {"Authorization": f"{fyers_config.app_id}:{cls._access_token}"}
+        params = {"symbol": symbol, "ohlcv": "1"}
+        
+        try:
+            url = f"{cls.DATA_URL}/depth"
+            if fyers_config.auth_proxy_url:
+                proxy_base = fyers_config.auth_proxy_url.rstrip('/')
+                url = f"{proxy_base}/data/depth"
+                headers["x-target-host"] = "api-t1.fyers.in"
+                
+            res = requests.get(url, params=params, headers=headers, timeout=timeout)
+            if res.status_code == 200:
+                resp = res.json()
+                if resp.get("s") == "ok":
+                    return resp.get("d", {}).get(symbol, {})
+            return {}
+        except Exception as e:
+            print(f"Error fetching Fyers market depth: {e}")
+            return {}
 
     @classmethod
     def update_symbol_master(cls, force=False):
@@ -458,18 +513,47 @@ class FyersService:
 
     @classmethod
     def search_symbols(cls, query):
-        if not cls._symbols_cache: cls.update_symbol_master()
-        query = query.upper()
+        """
+        Optimized symbol search with prioritized matching and debounced execution.
+        """
+        if not cls._symbols_cache: 
+            cls.update_symbol_master()
+            
+        if not query:
+            return []
+            
+        query = query.upper().strip()
         results = []
-        for s in cls._symbols_cache:
-            if query == s['sn'] or query == s['s'].split(':')[-1].split('-')[0]:
-                results.append(s)
-                if len(results) >= 15: break
-        if len(results) < 15:
+        
+        # Priority 1: Exact matches or high-priority indices
+        priority_symbols = ["NIFTY50", "NIFTYBANK", "RELIANCE", "TCS", "INFY"]
+        if query in priority_symbols:
             for s in cls._symbols_cache:
-                if s not in results:
-                    if s['sn'].startswith(query) or any(p.startswith(query) for p in s['n'].split()):
-                        results.append(s)
-                        if len(results) >= 15: break
+                ticker_base = s['s'].split(':')[-1].split('-')[0]
+                if ticker_base == query:
+                    results.append(s)
+                    break
+        
+        # Priority 2: Starts with query (Symbol or Short Name)
+        # Combined loop to avoid multiple passes
+        secondary_results = []
+        for s in cls._symbols_cache:
+            if s in results: continue
+            
+            ticker_base = s['s'].split(':')[-1].split('-')[0]
+            short_name = s['sn'].upper()
+            full_name = s['n'].upper()
+            
+            if ticker_base.startswith(query) or short_name.startswith(query):
+                results.append(s)
+            elif any(p.startswith(query) for p in full_name.split()):
+                secondary_results.append(s)
+                
+            if len(results) >= 15: break
+            
+        # Fill with secondary results if needed
+        if len(results) < 15:
+            results.extend(secondary_results[:15 - len(results)])
+            
         formatted = [{"symbol": r['s'], "shortname": f"{r['n']} ({r['e']})", "exchange": r['e']} for r in results]
         return formatted

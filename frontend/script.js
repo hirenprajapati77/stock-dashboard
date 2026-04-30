@@ -386,7 +386,7 @@ if (IS_LOCAL_FILE) {
     console.warn("Running from file protocol. Ensure backend is running at http://localhost:8000");
 }
 
-let chart, candlestickSeries;
+let chart, candlestickSeries, volumeSeries, volumeEmaSeries;
 let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
@@ -554,6 +554,28 @@ function initChart() {
         borderVisible: false,
         wickUpColor: '#00c076',
         wickDownColor: '#f6465d',
+    });
+
+    volumeSeries = chart.addHistogramSeries({
+        color: '#26a69a',
+        priceFormat: {
+            type: 'volume',
+        },
+        priceScaleId: 'volume',
+    });
+
+    chart.priceScale('volume').applyOptions({
+        scaleMargins: {
+            top: 0.8,
+            bottom: 0,
+        },
+        visible: false,
+    });
+
+    volumeEmaSeries = chart.addLineSeries({
+        color: '#ff9800',
+        lineWidth: 1,
+        priceScaleId: 'volume',
     });
 
     console.log('Chart initialized successfully');
@@ -935,21 +957,26 @@ function toViewModel(data) {
     let executionSignal = "REJECT";
     if (d?.execution_signal) {
         executionSignal = d.execution_signal;
-    } else if (d?.final_decision === "EXECUTE") {
-        executionSignal = "EXECUTE";
+    } else if (d?.final_decision) {
+        executionSignal = d.final_decision; // Standardized V5 signal (EXECUTE/WATCH/WAIT/REJECT)
     } else if (d?.setup_state === "FORMING") {
         executionSignal = "WATCH";
     } else if (["STRONG BUY", "BUY"].includes(data?.action)) {
         executionSignal = "EXECUTE";
-    } else if (["WATCHLIST", "MONITOR"].includes(data?.action)) {
+    } else if (["WATCHLIST", "MONITOR", "WATCH"].includes(data?.action)) {
         executionSignal = "WATCH";
     }
 
+    // Standardize signals to V5 Terminology
+    if (executionSignal === "BUY") executionSignal = "EXECUTE";
+    if (executionSignal === "HOLD") executionSignal = "WAIT";
+
     // SESSION ECHO: If market is closed, reconstruct the last valid signal based on score
     if (!marketOpen && (executionSignal === "REJECT" || executionSignal === "NONE")) {
-        if (data?.score >= 75 || d?.meta_score >= 75) {
+        const score = data?.score || d?.meta_score || 0;
+        if (score >= 75) {
             executionSignal = "EXECUTE";
-        } else if (data?.score >= 60 || d?.meta_score >= 60) {
+        } else if (score >= 60) {
             executionSignal = "WATCH";
         } else {
             executionSignal = "REJECT";
@@ -961,12 +988,12 @@ function toViewModel(data) {
     appState.resolvedMode = mode;
 
     let narrative = "-";
-    if (data?.ai_analysis?.breakout?.reason) {
+    if (d?.narrative) {
+        narrative = d.narrative;
+    } else if (data?.ai_analysis?.breakout?.reason) {
         narrative = data.ai_analysis.breakout.reason;
     } else if (data?.summary?.trade_signal_reason) {
         narrative = data.summary.trade_signal_reason;
-    } else if (d?.narrative) {
-        narrative = d.narrative;
     }
 
     let entryType = "-";
@@ -1029,10 +1056,10 @@ function toViewModel(data) {
         underlyingPrice: data?.meta?.cmp || 0,
         narrative: !marketOpen && narrative.includes("volume") ? "Market is currently closed. Analyzed levels remain valid for the next session." : narrative,
         executionSignal: executionSignal,
-        setupState: data?.action || d?.setup_state || "-",
-        marketTrend: data?.summary?.trade_signal || d?.market_context?.market_trend || "-",
-        marketBias: data?.summary?.trade_signal_reason || d?.market_context?.market_bias || "-",
-        regime: data?.summary?.market_regime || d?.market_regime?.regime || "UNKNOWN",
+        setupState: d?.setup_state || data?.action || "-",
+        marketTrend: d?.market_regime?.regime || data?.summary?.trade_signal || "-",
+        marketBias: d?.market_regime?.trend_intensity || data?.summary?.trade_signal_reason || "-",
+        regime: d?.market_regime?.regime || data?.summary?.market_regime || "UNKNOWN",
         entryType: entryType,
         nextAction: nextAction,
         liquidity: marketOpen ? (data?.volume_ratio ? `VOL ${data.volume_ratio}x` : "NORMAL") : "OFF-HOURS",
@@ -1040,7 +1067,7 @@ function toViewModel(data) {
         // Stock Microstructure (EQUITY)
         volumeSurge: data?.volume_ratio ? `${data.volume_ratio}x ${data.volume_ratio >= 1.5 ? 'Institutional Accumulation' : 'Session Growth'}` : "NORMAL",
         intradayVol: data?.intraday_volume_ratio ? `${data.intraday_volume_ratio}x Candle` : "NORMAL",
-        trendIntensity: data?.ai_analysis?.regime?.trend_intensity || "STABLE",
+        trendIntensity: d?.market_regime?.trend_intensity || data?.ai_analysis?.regime?.trend_intensity || "STABLE",
         relativeStrength: data?.insights?.relative_strength || "NEUTRAL",
         
         // Options Fields (OPTIONS)
@@ -1055,15 +1082,15 @@ function toViewModel(data) {
         premiumT2: parseFloat(opt.premium_target2 || opt.premium_targets?.[1] || 0),
         lotSize: lotSize,
         maxLoss: premium * lotSize,
-        oiState: getOIState(opt.oi_buildup || data.insights?.oi_buildup),
-        pcr: getPCRState(opt.pcr || data.insights?.pcr),
+        oiState: getOIState(data.insights?.oi_buildup || opt.oi_buildup || d?.microstructure?.oi_buildup),
+        pcr: getPCRState(data.insights?.pcr || opt.pcr || d?.microstructure?.pcr),
         isSuggestedStrike: isSuggested,
         
-        allocation: data?.score >= 75 ? "100%" : (data?.score >= 60 ? "50%" : "MINIMAL"),
+        allocation: (data?.score >= 75 || d?.meta_score >= 75) ? "100%" : ((data?.score >= 60 || d?.meta_score >= 60) ? "50%" : "MINIMAL"),
         riskLevel: riskLevel,
         riskRuin: d?.risk_of_ruin?.risk_level || "MEDIUM",
-        riskReward: data?.rr ? `RR ${data.rr}` : "N/A",
-        score: data?.score || d?.meta_score || 0
+        riskReward: data?.rr || d?.risk_of_ruin?.risk_reward || "N/A",
+        score: d?.meta_score || data?.score || 0
     };
 }
 
@@ -1690,6 +1717,31 @@ function updateUI(data, isBackground = false) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
+
+            // Volume & EMA logic
+            if (volumeSeries && volumeEmaSeries) {
+                const volumeData = data.ohlcv.map(d => ({
+                    time: d.time,
+                    value: d.volume,
+                    color: d.close >= d.open ? 'rgba(0, 192, 118, 0.5)' : 'rgba(246, 70, 93, 0.5)'
+                }));
+                console.log(`[Chart] Setting volume data: ${volumeData.length} points. Max vol: ${Math.max(...volumeData.map(d => d.value))}`);
+                volumeSeries.setData(volumeData);
+
+                // Calculate 20 EMA of volume
+                const emaData = [];
+                const period = 20;
+                const k = 2 / (period + 1);
+                let prevEma = volumeData[0].value;
+                
+                for (let i = 0; i < volumeData.length; i++) {
+                    const val = volumeData[i].value;
+                    const ema = i === 0 ? val : (val - prevEma) * k + prevEma;
+                    emaData.push({ time: volumeData[i].time, value: ema });
+                    prevEma = ema;
+                }
+                volumeEmaSeries.setData(emaData);
+            }
             
             // Only auto-fit if it's NOT a background refresh
             if (!isBackground) {

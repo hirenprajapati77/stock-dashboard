@@ -21,9 +21,9 @@ class MarketDataService:
     # Simple in-memory cache to mitigate Yahoo Finance rate limits
     _ohlcv_cache = {}
     MAX_CACHE_ITEMS = 50 # Prevent memory bloat on small instances
-    CACHE_TTL = 300 # 5 minutes
+    CACHE_TTL = 600 # 10 minutes — increased to reduce re-fetch frequency
     _cool_off_symbols = {} # symbol -> timestamp when cool-off ends
-    COOL_OFF_DURATION = 900 # 15 minutes
+    COOL_OFF_DURATION = 1200 # 20 minutes — extended to let YF rate limit window expire
 
     @staticmethod
     def _pick_fast_info_value(fast_info, *keys):
@@ -337,8 +337,8 @@ class MarketDataService:
         total_start = time.time()
         print(f"DEBUG: [MarketData] Starting fresh batch fetch for {len(to_fetch)} symbols. (Total: {len(unique_normalized)})", flush=True)
         
-        max_workers = 5 # Increased from 3
-        CHUNK_SIZE = 20
+        max_workers = 3  # Reduced from 5 to prevent Yahoo Finance 429 burst errors
+        CHUNK_SIZE = 15  # Smaller chunks to reduce simultaneous connection count
         
         # Process in chunks to stay within Render 512MB limit
         for i in range(0, len(to_fetch), CHUNK_SIZE):
@@ -367,6 +367,10 @@ class MarketDataService:
             
             chunk_dur = time.time() - chunk_start
             print(f"DEBUG: [MarketData] Chunk {i//CHUNK_SIZE + 1} completed in {chunk_dur:.2f}s.", flush=True)
+
+            # Inter-chunk jitter: 0.5s pause to avoid burst rate-limiting from Yahoo Finance
+            if i + CHUNK_SIZE < len(to_fetch):
+                time.sleep(0.5)
 
             # Explicitly trigger GC after each chunk to release transient DataFrames
             gc.collect()

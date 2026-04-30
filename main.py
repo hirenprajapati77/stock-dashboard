@@ -142,19 +142,19 @@ async def lifespan(app: FastAPI):
         3. Acts as the sole data source when WebSocket is disconnected.
         Does NOT overwrite valid real-time data if it is more recent than the sync.
         """
-        SYNC_INTERVAL = 60.0
+        SYNC_INTERVAL = 120.0  # Increased from 60s — reduces YF fetch frequency
         from app.services.screener_service import ScreenerService
         import time
-        print("[SafetySync] 60s safety sync loop started.", flush=True)
+        print("[SafetySync] Safety sync loop started (120s interval).", flush=True)
         while True:
             try:
                 if MarketCalendar.is_market_open():
                     last_rt = ScreenerService._intelligence_cache.get("last_updated")
                     if last_rt:
                         age = (datetime.now() - last_rt).total_seconds()
-                        # Only run full scan if last real-time update was > 45s ago
-                        # (meaning WebSocket is inactive or stale)
-                        if age < 45:
+                        # Only run full scan if last real-time update was > 90s ago
+                        # (meaning WebSocket is inactive or stale for >1.5 cycles)
+                        if age < 90:
                             await asyncio.sleep(SYNC_INTERVAL)
                             continue
                     await asyncio.to_thread(ScreenerService.update_intelligence_cycle, timeframe="1D")
@@ -588,12 +588,14 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
                 if math.isnan(o) or math.isnan(h) or math.isnan(l) or math.isnan(c):
                     continue
                     
+                v = float(df['volume'].iloc[i]) if 'volume' in df.columns else 0.0
                 ohlcv.append({
                     "time": int(df.index[i].timestamp()),
                     "open": o,
                     "high": h,
                     "low": l,
-                    "close": c
+                    "close": c,
+                    "volume": 0.0 if math.isnan(v) else v
                 })
             except: continue
             
@@ -1308,7 +1310,7 @@ async def get_audit_logs():
     """Hidden audit log that displays the trailing stdout logs."""
     return {"status": "success", "logs": list(audit_tail.logs)}
 
-@app.get("/api/v1/generate-trade")
+@app.get("/api/v1/generate-trade", dependencies=[Depends(login_required)])
 async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str = "SR"):
     """
     Production-grade Trade Decision Engine endpoint.
