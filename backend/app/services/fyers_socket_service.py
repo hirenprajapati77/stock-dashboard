@@ -40,7 +40,9 @@ from app.config import fyers_config
 
 
 # Fyers V3 WebSocket endpoint
-_WS_URL = "wss://api-t1.fyers.in/socket/v3/data"
+# Fallback to api.fyers.in if api-t1 returns 404
+_WS_URL = "wss://api.fyers.in/socket/v3/data"
+_WS_URL_T1 = "wss://api-t1.fyers.in/socket/v3/data"
 
 # Batch window duration (ms → s)
 _BATCH_INTERVAL_S = 0.300  # 300ms coalescing window
@@ -200,33 +202,58 @@ class FyersSocketService:
             "ping_timeout": 10,
         }
 
-        print(f"[FyersSocket] Connecting to {_WS_URL}...", flush=True)
-        async with websockets.connect(_WS_URL, **connect_kwargs) as ws:
-            cls._ws = ws
-            cls._metrics["connected"] = True
-            cls._metrics["connect_time"] = datetime.now().isoformat()
-            cls._last_tick_time = time.time()
+        print(f"[FyersSocket] Attempting connection to {_WS_URL}...", flush=True)
+        print(f"[FyersSocket] Using Auth Header: {auth_header[:15]}...", flush=True)
+        
+        try:
+            async with websockets.connect(_WS_URL, **connect_kwargs) as ws:
+                cls._ws = ws
+                cls._metrics["connected"] = True
+                cls._metrics["connect_time"] = datetime.now().isoformat()
+                cls._last_tick_time = time.time()
 
-            print("[FyersSocket] Connected. Subscribing to symbols...", flush=True)
-            await cls._subscribe(ws)
+                print("[FyersSocket] Connected. Subscribing to symbols...", flush=True)
+                await cls._subscribe(ws)
 
-            # Watchdog task for this session
-            watchdog_task = asyncio.create_task(cls._watchdog())
+                # Watchdog task for this session
+                watchdog_task = asyncio.create_task(cls._watchdog())
 
-            try:
-                async for raw_msg in ws:
-                    if not cls._running:
-                        break
-                    cls._on_message(raw_msg)
-            except ConnectionClosed as e:
-                code = getattr(e, 'code', None) or getattr(getattr(e, 'rcvd', None), 'code', None)
-                if code in (401, 403):
-                    raise _AuthFailure()
+                try:
+                    async for raw_msg in ws:
+                        if not cls._running:
+                            break
+                        cls._on_message(raw_msg)
+                except ConnectionClosed as e:
+                    code = getattr(e, 'code', None) or getattr(getattr(e, 'rcvd', None), 'code', None)
+                    if code in (401, 403):
+                        raise _AuthFailure()
+                    raise
+                finally:
+                    watchdog_task.cancel()
+                    cls._ws = None
+                    cls._metrics["connected"] = False
+        except InvalidStatusCode as e:
+            if e.status_code == 404 and _WS_URL != _WS_URL_T1:
+                print(f"[FyersSocket] 404 on {_WS_URL}. Retrying with fallback {_WS_URL_T1}...", flush=True)
+                async with websockets.connect(_WS_URL_T1, **connect_kwargs) as ws:
+                    # Duplicate logic for fallback (could be refactored but keeping it safe)
+                    cls._ws = ws
+                    cls._metrics["connected"] = True
+                    cls._metrics["connect_time"] = datetime.now().isoformat()
+                    cls._last_tick_time = time.time()
+                    print("[FyersSocket] Connected to fallback URL.", flush=True)
+                    await cls._subscribe(ws)
+                    watchdog_task = asyncio.create_task(cls._watchdog())
+                    try:
+                        async for raw_msg in ws:
+                            if not cls._running: break
+                            cls._on_message(raw_msg)
+                    finally:
+                        watchdog_task.cancel()
+                        cls._ws = None
+                        cls._metrics["connected"] = False
+            else:
                 raise
-            finally:
-                watchdog_task.cancel()
-                cls._ws = None
-                cls._metrics["connected"] = False
 
     # -----------------------------------------------------------------------
     # AUTH & SUBSCRIPTION

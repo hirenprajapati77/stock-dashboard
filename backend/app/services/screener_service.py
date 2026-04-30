@@ -825,7 +825,16 @@ class ScreenerService:
             return
         try:
             import json
+            from enum import Enum
             from pathlib import Path
+
+            class _EnumEncoder(json.JSONEncoder):
+                """Serializes Enum subclasses (e.g. ActionType, SetupType) as their .value."""
+                def default(self, obj):
+                    if isinstance(obj, Enum):
+                        return obj.value
+                    return super().default(obj)
+
             fallback_path = Path(__file__).parent.parent / "data" / "screener_fallback.json"
             fallback_path.parent.mkdir(parents=True, exist_ok=True)
             with open(fallback_path, "w") as f:
@@ -833,9 +842,10 @@ class ScreenerService:
                     "data": data,
                     "timestamp": time.time(),
                     "timeframe": timeframe
-                }, f)
+                }, f, cls=_EnumEncoder)
         except Exception as e:
             print(f"Error saving screener fallback: {e}")
+
 
     @classmethod
     def _load_fallback(cls, timeframe: str) -> List[Dict]:

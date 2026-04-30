@@ -530,6 +530,7 @@ function toViewModel(data) {
 function getExecutionState(vm) {
     if (vm.executionSignal === "EXECUTE") return "green";
     if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return "yellow";
+    if (vm.executionSignal === "WAIT") return "yellow";
     return "red";
 }
 
@@ -1003,12 +1004,15 @@ function updateHeroDecisionStrip(data) {
     badgeSpan.textContent = action;
     actionBadge.className = 'decision-badge';
     
-    if (action.includes('BUY') || action.includes('ENTRY')) {
+    if (action === "EXECUTE" || action.includes('BUY') || action.includes('ENTRY')) {
         actionBadge.classList.add('decision-buy');
         badgeIcon.className = 'fas fa-check-circle';
-    } else if (action === 'WAIT' || action.includes('HOLD')) {
+    } else if (action === "REJECT" || action === "NO_TRADE" || action === "HOLD") {
         actionBadge.classList.add('decision-no-trade');
         badgeIcon.className = 'fas fa-times-circle';
+    } else if (action === "WAIT" || action === "WATCH") {
+        actionBadge.classList.add('decision-watch');
+        badgeIcon.className = 'fas fa-eye';
     } else {
         actionBadge.classList.add('decision-watch');
         badgeIcon.className = 'fas fa-eye';
@@ -1359,11 +1363,19 @@ window.onload = function () {
                                 </div>
                                 <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${item.exchange}</span>
                             `;
-                            div.onclick = () => {
+                            
+                            const selectItem = () => {
                                 searchInput.value = item.symbol;
                                 resultsDiv.classList.add('hidden');
                                 fetchData();
                             };
+
+                            div.onclick = selectItem;
+                            div.ontouchend = (e) => {
+                                e.preventDefault(); // Prevent double trigger
+                                selectItem();
+                            };
+                            
                             resultsDiv.appendChild(div);
                         });
                     } else {
