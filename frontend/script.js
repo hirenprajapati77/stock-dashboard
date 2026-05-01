@@ -857,10 +857,10 @@ function updateStrategyUI(data) {
 
         // Update Swing Metrics
         if (strategy === 'SWING') {
-            document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
-            document.getElementById('swing-ema').textContent = insights.ema_bias || 'NEUTRAL';
+            document.getElementById('swing-structure').textContent = metrics.structure || 'NEUTRAL';
+            document.getElementById('swing-ema').textContent = metrics.emaAlignment ? 'ALIGNED' : 'NOT ALIGNED';
             document.getElementById('swing-htf').textContent = metrics.htfTrend || 'NEUTRAL';
-            document.getElementById('swing-pullback').textContent = metrics.pullbackPct ? `${metrics.pullbackPct}%` : 'NO';
+            document.getElementById('swing-pullback').textContent = metrics.pullback ? 'YES' : 'NO';
         }
 
         // Update Dynamic Metrics Panels
@@ -1464,7 +1464,7 @@ async function loadTopTrades() {
                 const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data && data.action) {
+                    if (data && data.status === 'success') {
                         results.push({ symbol: sym, data: data });
                     }
                 }
@@ -2076,6 +2076,13 @@ function drawLevelsOnChart(levels, fullData = null) {
 
         demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
         supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
+    }
+    else if (strategy === 'SWING') {
+        const primarySupports = levels.primary?.supports || [];
+        const primaryResists = levels.primary?.resistances || [];
+
+        primarySupports.forEach(lv => addLine(lv, '#8B5CF6', 'SWING SUP')); // Purple color for Swing
+        primaryResists.forEach(lv => addLine(lv, '#8B5CF6', 'SWING RES'));
     }
     else if (strategy === 'FIBONACCI') {
         // In FIB mode, data structure changed to levels.primary
