@@ -251,10 +251,11 @@ class MarketIntelligence {
             const state = sector.metrics.state || 'NEUTRAL';
             const progress = Math.min(100, Math.max(0, (score / 150) * 100)); // Normalize score to 100
             
-            let colorClass = 'bg-blue-500';
-            if (state === 'LEADING') colorClass = 'bg-green-500';
-            if (state === 'LAGGING') colorClass = 'bg-red-500';
-            if (state === 'WEAKENING') colorClass = 'bg-amber-500';
+            let colorClass = 'bg-blue-500'; // Improving / Neutral
+            if (state === 'LEADING') colorClass = 'bg-[#4CAF50]';
+            if (state === 'LAGGING') colorClass = 'bg-[#E24B4A]';
+            if (state === 'WEAKENING') colorClass = 'bg-[#FFC107]';
+            if (state === 'IMPROVING') colorClass = 'bg-blue-500';
 
             return `
                 <div class="heatmap-card group cursor-pointer" onclick="window.focusSector('${sector.name}')">

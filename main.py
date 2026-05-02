@@ -1158,15 +1158,25 @@ async def get_next_session_watchlist(tf: str = "1D"):
 async def get_trade_performance():
     """
     Returns execution-layer trade tracking and PnL performance metrics.
-    Additive analytics endpoint; does not alter signal generation logic.
     """
     try:
         from app.services.trade_tracking_service import TradeTrackingService
         return {"status": "success", "data": TradeTrackingService.get_performance()}
     except Exception as e:
-        from app.services.observability_service import ObservabilityService
-        ObservabilityService.record_api_failure("/api/v1/trade-performance", str(e))
         return {"status": "error", "data": {}, "message": str(e)}
+
+@app.post("/api/v1/log-trade", dependencies=[Depends(login_required)])
+async def log_trade(request: Request):
+    """
+    Manually logs a trade into the system.
+    """
+    try:
+        data = await request.json()
+        from app.services.trade_tracking_service import TradeTrackingService
+        TradeTrackingService.log_manual_trade(data)
+        return {"status": "success", "message": "Trade logged successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/v1/signal-performance", dependencies=[Depends(login_required)])
 async def get_signal_performance(tf: str = "1D"):

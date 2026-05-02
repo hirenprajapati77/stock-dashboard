@@ -73,6 +73,17 @@
             </div>
         </div>
 
+        <!-- Master Signal Banner (NEW) -->
+        <div id="master-signal-banner" class="w-full px-4 py-1.5 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white shadow-md relative z-40 transition-colors duration-300 hidden">
+            <div class="flex items-center gap-3 w-full justify-center">
+                <span id="master-signal-status" class="px-2 py-0.5 rounded bg-black/30 text-white shadow-inner">WAIT</span>
+                <span id="master-signal-reason" class="flex-grow text-center text-[10px] sm:text-xs">Waiting for data...</span>
+            </div>
+            <button onclick="document.getElementById('master-signal-banner').classList.add('hidden')" class="absolute right-4 text-white/70 hover:text-white p-1 cursor-pointer">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
         <!-- Bottom Row: Navigation & Search -->
         <div class="flex items-center w-full min-h-[40px] border-t border-white/5 pt-2 pb-1 gap-4">
             <!-- Left: Toggles -->
@@ -549,8 +560,8 @@
                             class="px-4 py-3 border-b border-gray-800 bg-indigo-900/20 flex justify-between items-center">
                             <h3 id="ai-detail-title" class="text-[10px] font-bold uppercase tracking-widest text-white">
                                 Sector Analysis</h3>
-                            <button onclick="document.getElementById('ai-detail-panel').classList.add('hidden')"
-                                class="text-gray-500 hover:text-white">&times;</button>
+                            <button onclick="window.toggleAIContextPanel(true)"
+                                class="text-gray-500 hover:text-white transition-colors" title="Close (Esc)">&times;</button>
                         </div>
                         <div class="p-4">
                             <div id="ai-detail-rank" class="text-[9px] font-bold text-indigo-400 uppercase mb-2">#1
@@ -915,7 +926,7 @@
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p id="strat-card-2-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 2</p>
-                    <span id="strat-card-2-val" class="text-[10px] font-bold text-gray-300">—</span>
+                    <span id="strat-card-2-val" class="text-lg font-bold text-white">—</span>
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p id="strat-card-3-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 3</p>
@@ -936,7 +947,7 @@
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Zone Range</p>
-                    <span id="zone-range" class="text-[10px] font-bold text-gray-300">—</span>
+                    <span id="zone-range" class="text-lg font-bold text-white">—</span>
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Vol Spike</p>
