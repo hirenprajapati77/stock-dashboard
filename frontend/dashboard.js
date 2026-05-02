@@ -27,6 +27,12 @@ class MarketIntelligence {
                 <span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
                 <span class="text-red-500 font-bold">SYNC ERROR</span>
             `;
+        } else if (source === 'expired') {
+            this.hitsSyncStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                <span class="text-red-500 font-bold">SESSION EXPIRED</span>
+            `;
+            this.hitsSyncStatus.title = "Fyers session expired. Click CONNECT to refresh.";
         } else {
             this.hitsSyncStatus.innerHTML = `
                 <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
@@ -83,6 +89,8 @@ class MarketIntelligence {
 
     updateSectors(sectorData, alerts, source = 'live') {
         this.updateSyncStatus(source);
+        this._renderIndustryHeatmap(sectorData || {});
+
         if (!this.sectorList) return;
         this.lastSectorData = sectorData;
         this.allSectors = sectorData || {};
@@ -221,10 +229,12 @@ class MarketIntelligence {
 
         this._renderHitsTable();
 
+
         if (window.renderActionableSectors) {
             window.renderActionableSectors(sectorData);
         }
     }
+
 
     updateEarlySetups(setups) {
         this.earlySetups = Array.isArray(setups) ? setups : [];
@@ -251,11 +261,10 @@ class MarketIntelligence {
             const state = sector.metrics.state || 'NEUTRAL';
             const progress = Math.min(100, Math.max(0, (score / 150) * 100)); // Normalize score to 100
             
-            let colorClass = 'bg-blue-500'; // Improving / Neutral
-            if (state === 'LEADING') colorClass = 'bg-[#4CAF50]';
-            if (state === 'LAGGING') colorClass = 'bg-[#E24B4A]';
-            if (state === 'WEAKENING') colorClass = 'bg-[#FFC107]';
-            if (state === 'IMPROVING') colorClass = 'bg-blue-500';
+            let colorClass = 'bg-blue-500';
+            if (state === 'LEADING') colorClass = 'bg-green-500';
+            if (state === 'LAGGING') colorClass = 'bg-red-500';
+            if (state === 'WEAKENING') colorClass = 'bg-amber-500';
 
             return `
                 <div class="heatmap-card group cursor-pointer" onclick="window.focusSector('${sector.name}')">
@@ -767,15 +776,16 @@ class MarketIntelligence {
     _calculateConfidence(hit) {
         if (!hit) return { score: 0, factors: [] };
 
-        // Prefer backend scoring if available (Decision Engine v2.0)
-        // Corrected: Use numerical qualityScore if hit.confidence is a string (A,B,C,D)
-        const backendScore = hit.technical?.qualityScore ?? hit.score;
-        if (backendScore !== undefined && typeof backendScore === 'number') {
+        // Prefer backend scoring if available (Decision Engine v5.0)
+        if (hit.decision && hit.decision.meta_score) {
             return { 
-                score: backendScore, 
+                score: hit.decision.meta_score.meta_score, 
                 factors: hit.confidenceFactors || [] 
             };
         }
+        
+        // Fallback to legacy field or qualityScore
+        const backendScore = hit.technical?.qualityScore ?? hit.score;
 
         const technical = hit.technical || {};
         const session = hit.session || {};
@@ -1138,9 +1148,9 @@ class MarketIntelligence {
             };
             const setupIcon = setupIcons[setupType] || '🔥';
 
-            // Grade Content Mapping
-            const grade = hit.confidence || hit.grade || 'C';
-            const score = hit.technical?.qualityScore || this._calculateConfidence(hit).score;
+            // Grade Content Mapping (Sync with V5 Engine)
+            const grade = hit.grade || (typeof hit.confidence === 'string' ? hit.confidence : null) || 'C';
+            const score = hit.confidence && typeof hit.confidence === 'number' ? hit.confidence : (hit.technical?.qualityScore || this._calculateConfidence(hit).score);
 
             // Grade Color Logic
             let gradeColor = 'text-gray-400';
@@ -1476,10 +1486,10 @@ class MarketIntelligence {
         else if (hit.entryTag === 'WAIT') statusIcon.textContent = '🟡';
         else statusIcon.textContent = '⚪';
 
-        // Confidence Metrics
+        // Confidence Metrics (Sync with V5 Engine)
         const confidence = this._calculateConfidence(hit);
         const scoreVal = confidence.score;
-        const grade = hit.grade || this._getConfidenceLabel(scoreVal, true);
+        const grade = hit.grade || (typeof hit.confidence === 'string' ? hit.confidence : null) || this._getConfidenceLabel(scoreVal, true);
 
         let gradeColor = 'text-gray-400';
         if (grade === 'A+' || grade === 'A') gradeColor = 'text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]';
@@ -1706,18 +1716,94 @@ window.renderActionableSectors = (sectorData) => {
     }
 };
 
+// ─── AI Context Panel – UX-06 ───────────────────────────────────────────────
+/**
+ * Shows the AI detail panel populated with sector commentary.
+ * Manages animated reveal, outside-click dismiss, and ESC key dismiss.
+ */
 window.showAICommentary = (sectorName) => {
     const data = window.lastSectorData?.[sectorName];
     const panel = document.getElementById('ai-detail-panel');
-    const text = document.getElementById('ai-detail-text');
+    const text  = document.getElementById('ai-detail-text');
     const title = document.getElementById('ai-detail-title');
-    const rank = document.getElementById('ai-detail-rank');
+    const rank  = document.getElementById('ai-detail-rank');
 
     if (!(panel && text && title && rank)) return;
 
+    // Populate content
+    title.textContent = sectorName.replace('NIFTY_', '').replace(/_/g, ' ');
+    rank.textContent  = data?.rank ? `#${data.rank} Overall Strength` : '— Overall Strength';
+    text.textContent  = data?.commentary || 'AI commentary not yet available. Use DETAILS to open the sector chart and context.';
+
+    // Animated reveal via CSS classes (UX-06)
     panel.classList.remove('hidden');
-    title.textContent = sectorName.replace('NIFTY_', '').replace('_', ' ');
-    rank.textContent = `#${data?.rank || '—'}`;
-    text.textContent = data?.commentary || 'AI commentary is not available for this sector yet. Use DETAILS to open the sector chart and context.';
+    // Force a paint cycle so transition fires
+    requestAnimationFrame(() => panel.classList.add('ai-panel-visible'));
+
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Register dismiss handlers (once per open)
+    window._registerAIPanelDismiss();
 };
+
+/**
+ * Hides the AI detail panel with a smooth exit animation.
+ */
+window.toggleAIContextPanel = function(forceHide = false) {
+    const panel = document.getElementById('ai-detail-panel');
+    if (!panel) return;
+
+    const isVisible = panel.classList.contains('ai-panel-visible');
+
+    if (forceHide || isVisible) {
+        panel.classList.remove('ai-panel-visible');
+        // Let CSS transition finish before hiding from flow
+        setTimeout(() => panel.classList.add('hidden'), 270);
+    } else {
+        panel.classList.remove('hidden');
+        requestAnimationFrame(() => panel.classList.add('ai-panel-visible'));
+    }
+};
+
+/**
+ * Registers one-shot outside-click and ESC listeners to dismiss the panel.
+ * Safe to call multiple times — listeners are cleaned up on dismiss.
+ */
+window._registerAIPanelDismiss = function() {
+    // Remove any previous stale listeners
+    if (window._aiPanelClickHandler) {
+        document.removeEventListener('click', window._aiPanelClickHandler);
+        document.removeEventListener('keydown', window._aiPanelKeyHandler);
+    }
+
+    const panel = document.getElementById('ai-detail-panel');
+    if (!panel) return;
+
+    const cleanup = () => {
+        document.removeEventListener('click', window._aiPanelClickHandler);
+        document.removeEventListener('keydown', window._aiPanelKeyHandler);
+        window._aiPanelClickHandler = null;
+        window._aiPanelKeyHandler   = null;
+    };
+
+    window._aiPanelClickHandler = (e) => {
+        if (!panel.contains(e.target)) {
+            window.toggleAIContextPanel(true);
+            cleanup();
+        }
+    };
+
+    window._aiPanelKeyHandler = (e) => {
+        if (e.key === 'Escape') {
+            window.toggleAIContextPanel(true);
+            cleanup();
+        }
+    };
+
+    // Defer so the opening click doesn't immediately close the panel
+    setTimeout(() => {
+        document.addEventListener('click', window._aiPanelClickHandler);
+        document.addEventListener('keydown', window._aiPanelKeyHandler);
+    }, 100);
+};
+

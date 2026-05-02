@@ -198,22 +198,10 @@ const TradingAssistant = {
         this.save();
     },
     
-    async addOutcome(symbol, entry, sl) {
+    addOutcome(symbol, entry, sl) {
         if (!this.state.outcomes.find(o => o.symbol === symbol && o.status === "RUNNING")) {
             this.state.outcomes.push({ symbol, entry, sl, targets: [], status: "RUNNING" });
             this.save();
-            
-            // Sync to backend for BUG-03
-            try {
-                await fetch('/api/v1/log-trade', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol, entry, stopLoss: sl, target: 0 })
-                });
-            } catch (e) {
-                console.warn("Failed to sync trade to backend", e);
-            }
-            
             showToast(`🚀 Trade logged: ${symbol}`, 'success');
         }
     },
@@ -869,10 +857,10 @@ function updateStrategyUI(data) {
 
         // Update Swing Metrics
         if (strategy === 'SWING') {
-            document.getElementById('swing-structure').textContent = metrics.marketStructure || 'NEUTRAL';
-            document.getElementById('swing-ema').textContent = insights.ema_bias || 'NEUTRAL';
+            document.getElementById('swing-structure').textContent = metrics.structure || 'NEUTRAL';
+            document.getElementById('swing-ema').textContent = metrics.emaAlignment ? 'ALIGNED' : 'NOT ALIGNED';
             document.getElementById('swing-htf').textContent = metrics.htfTrend || 'NEUTRAL';
-            document.getElementById('swing-pullback').textContent = metrics.pullbackPct ? `${metrics.pullbackPct}%` : 'NO';
+            document.getElementById('swing-pullback').textContent = metrics.pullback ? 'YES' : 'NO';
         }
 
         // Update Dynamic Metrics Panels
@@ -896,16 +884,15 @@ function updateStrategyUI(data) {
                     if(c2T) c2T.textContent = 'Golden Pocket';
                     if(c2V) c2V.textContent = metrics.goldenPocket ? 'YES' : 'NO';
                     if(c2V) c2V.className = metrics.goldenPocket ? 'text-lg font-bold text-yellow-400' : 'text-lg font-bold text-gray-400';
-                    if(c3T) c3T.textContent = 'TREND';
-                    if(c3V) c3V.textContent = metrics.is_uptrend ? 'BULLISH' : 'BEARISH';
-                    if(c3V) c3V.className = metrics.is_uptrend ? 'text-3xl font-black uppercase tracking-tighter text-green-400' : 'text-3xl font-black uppercase tracking-tighter text-red-400';
+                    if(c3T) c3T.textContent = 'Trend';
+                    if(c3V) c3V.textContent = metrics.is_uptrend ? 'BULL' : 'BEAR';
+                    if(c3V) c3V.className = metrics.is_uptrend ? 'text-lg font-bold uppercase tracking-widest text-green-400' : 'text-lg font-bold uppercase tracking-widest text-red-400';
                 } else if (strategy === 'DEMAND_SUPPLY') {
                     if(c1T) c1T.textContent = 'Departure';
                     if(c1V) c1V.textContent = metrics.departureStrength || 'STRONG';
-                    if(c1V) c1V.className = 'text-lg font-bold text-white';
                     if(c2T) c2T.textContent = 'Zone Range';
                     if(c2V) c2V.textContent = metrics.zoneRange || '--';
-                    if(c2V) c2V.className = 'text-lg font-bold text-white';
+                    if(c2V) c2V.className = 'text-lg font-bold text-gray-300';
                     if(c3T) c3T.textContent = 'Vol Spike';
                     if(c3V) c3V.textContent = metrics.volExpansion || 'NONE';
                     if(c3V) c3V.className = 'text-lg font-bold uppercase tracking-widest text-white';
@@ -1174,13 +1161,11 @@ function renderScore(vm) {
     scoreBadge.classList.remove('hidden');
     scoreBadge.innerText = `Score: ${vm.score}`;
     
-    if (vm.score >= 85) {
-        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/30 text-green-400 border border-green-500/50 shadow-lg";
-    } else if (vm.score >= 65) {
-        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-900/30 text-yellow-400 border border-yellow-500/50 shadow-lg";
-    } else {
-        scoreBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-red-900/30 text-red-400 border border-red-500/50 shadow-lg";
-    }
+    // Use semantic CSS classes from style.css (refactored from inline Tailwind)
+    scoreBadge.className = 'score-badge';
+    if (vm.score >= 85)      scoreBadge.classList.add('score-badge-high');
+    else if (vm.score >= 65) scoreBadge.classList.add('score-badge-mid');
+    else                     scoreBadge.classList.add('score-badge-low');
 }
 
 let previousSignalState = null;
@@ -1438,24 +1423,20 @@ function showToast(message, type = 'info') {
     if (!container) return;
 
     const toast = document.createElement('div');
-    toast.className = `px-4 py-3 rounded-xl shadow-2xl border text-xs font-bold text-white flex items-center gap-3 transform transition-all duration-300 translate-y-10 opacity-0 ${
-        type === 'success' ? 'bg-green-900/80 border-green-500/50' :
-        type === 'warning' ? 'bg-yellow-900/80 border-yellow-500/50' :
-        type === 'error' ? 'bg-red-900/80 border-red-500/50' :
-        'bg-blue-900/80 border-blue-500/50'
-    }`;
+    // Use semantic CSS classes from style.css (refactored from inline Tailwind)
+    toast.className = `toast-base toast-${type}`;
     
-    const icon = type === 'success' ? '✅' : type === 'warning' ? '⚠️' : type === 'error' ? '❌' : 'ℹ️';
+    const icon = type === 'success' ? '\u2705' : type === 'warning' ? '\u26A0\uFE0F' : type === 'error' ? '\u274C' : '\u2139\uFE0F';
     toast.innerHTML = `<span class="text-base">${icon}</span> <span>${message}</span>`;
     
     container.appendChild(toast);
     
     requestAnimationFrame(() => {
-        toast.classList.remove('translate-y-10', 'opacity-0');
+        toast.classList.add('toast-show');
     });
 
     setTimeout(() => {
-        toast.classList.add('translate-y-10', 'opacity-0');
+        toast.classList.remove('toast-show');
         setTimeout(() => toast.remove(), 300);
     }, 4000);
 }
@@ -1477,7 +1458,7 @@ async function loadTopTrades() {
                 const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data && data.action) {
+                    if (data && data.status === 'success') {
                         results.push({ symbol: sym, data: data });
                     }
                 }
@@ -1677,10 +1658,13 @@ function updateUI(data, isBackground = false) {
 
             const biasBadge = document.getElementById('bias-badge');
             if (biasBadge) {
-                biasBadge.textContent = data.insights.ema_bias || 'NEUTRAL';
-                biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${data.insights.ema_bias === 'Bullish' ? 'bg-up text-up' :
-                    data.insights.ema_bias === 'Caution' ? 'bg-down text-down' : 'bg-gray-800 text-gray-400'
-                    }`;
+                const bias = data.insights.ema_bias || 'NEUTRAL';
+                biasBadge.textContent = bias;
+                // Semantic CSS classes from style.css (refactored from inline Tailwind)
+                const biasClass = bias === 'Bullish' ? 'bias-badge-bullish'
+                    : bias === 'Caution' ? 'bias-badge-caution'
+                    : 'bias-badge-neutral';
+                biasBadge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${biasClass}`;
             }
         }
 
@@ -1690,9 +1674,11 @@ function updateUI(data, isBackground = false) {
             const pBadge = document.getElementById('ai-priority-badge');
             if (pBadge) {
                 pBadge.textContent = `PRIORITY: ${ai.priority.level}`;
-                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${ai.priority.level === 'HIGH' ? 'bg-indigo-600 text-white animate-pulse' :
-                    ai.priority.level === 'MEDIUM' ? 'bg-indigo-900/40 text-indigo-200' : 'bg-gray-800 text-gray-500'
-                    }`;
+                // Semantic CSS classes from style.css (refactored from inline Tailwind)
+                const priClass = ai.priority.level === 'HIGH' ? 'priority-badge-high'
+                    : ai.priority.level === 'MEDIUM' ? 'priority-badge-medium'
+                    : 'priority-badge-low';
+                pBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${priClass}`;
             }
 
             const bBadge = document.getElementById('ai-breakout-badge');
@@ -1721,10 +1707,10 @@ function updateUI(data, isBackground = false) {
         if (sL && rL) {
             sL.innerHTML = '';
             rL.innerHTML = '';
-            renderLevelList('support-list', data.levels.primary.supports, 'support', false);
-            renderLevelList('support-list', data.levels.mtf.supports, 'support', true);
-            renderLevelList('resistance-list', data.levels.primary.resistances, 'resistance', false);
-            renderLevelList('resistance-list', data.levels.mtf.resistances, 'resistance', true);
+            renderLevelList('support-list', data.levels.primary.supports, 'blue', false);
+            renderLevelList('support-list', data.levels.mtf.supports, 'blue', true);
+            renderLevelList('resistance-list', data.levels.primary.resistances, 'green', false);
+            renderLevelList('resistance-list', data.levels.mtf.resistances, 'green', true);
         }
 
         // 5. Chart
@@ -1807,44 +1793,10 @@ function updateUI(data, isBackground = false) {
         // 7. Finally draw levels on chart
         window.lastReceivedData = data;
         drawLevelsOnChart(data.levels, data);
+
+
         // 9. Strategy Specific UI Toggles
         updateStrategyUI(data);
-
-        // 10. Master Signal Banner Logic (BUG-01)
-        const masterBanner = document.getElementById('master-signal-banner');
-        const masterStatus = document.getElementById('master-signal-status');
-        const masterReason = document.getElementById('master-signal-reason');
-        
-        if (masterBanner && masterStatus && masterReason) {
-            masterBanner.classList.remove('hidden');
-            
-            const tech = data.technical || {};
-            const summary = data.summary || {};
-            const mo = (tech.momentumStrength || 'WEAK').toUpperCase();
-            const rsi = parseFloat(tech.rsi || 50); // Fallback to 50 if missing
-            
-            const cmp = data.meta.cmp;
-            const s0 = summary.nearest_support;
-            const distS = s0 ? ((cmp - s0) / cmp * 100) : 100;
-            const rr = parseFloat(summary.risk_reward || 0);
-            
-            if (mo === 'WEAK' || rsi > 70) {
-                masterStatus.textContent = 'WAIT / SELL';
-                masterStatus.className = 'px-2 py-0.5 rounded shadow-inner bg-yellow-500/20 text-yellow-400 border border-yellow-500/30';
-                masterReason.textContent = mo === 'WEAK' ? 'Momentum is weak. Wait for confirmation.' : 'RSI > 70 (Overbought). High risk of pullback.';
-                masterBanner.className = 'w-full px-4 py-1.5 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white shadow-md relative z-40 transition-colors duration-300 bg-yellow-900/40 border-b border-yellow-500/30';
-            } else if (s0 && distS <= 0.3 && rr > 3) {
-                masterStatus.textContent = 'BUY ZONE';
-                masterStatus.className = 'px-2 py-0.5 rounded shadow-inner bg-green-500/20 text-green-400 border border-green-500/30';
-                masterReason.textContent = `Price near support (${distS.toFixed(2)}%) with High RR (${rr.toFixed(1)}). Excellent entry.`;
-                masterBanner.className = 'w-full px-4 py-1.5 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white shadow-md relative z-40 transition-colors duration-300 bg-green-900/40 border-b border-green-500/30';
-            } else {
-                masterStatus.textContent = 'MONITOR';
-                masterStatus.className = 'px-2 py-0.5 rounded shadow-inner bg-blue-500/20 text-blue-400 border border-blue-500/30';
-                masterReason.textContent = 'In between zones. Monitor for setups.';
-                masterBanner.className = 'w-full px-4 py-1.5 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white shadow-md relative z-40 transition-colors duration-300 bg-blue-900/40 border-b border-blue-500/30';
-            }
-        }
 
         // 10. Update Execution Edge Panel
         updateExecutionEdge(data, vm);
@@ -1964,7 +1916,7 @@ function updateHeroDecisionStrip(data, vm) {
     if (hRR) hRR.textContent = (data.setup?.rr || data.summary?.risk_reward || 0).toFixed(2);
 }
 
-function renderLevelList(containerId, levels, type, isMTF) {
+function renderLevelList(containerId, levels, color, isMTF) {
     const list = document.getElementById(containerId);
     if (!list || !levels || !Array.isArray(levels)) return;
 
@@ -1972,23 +1924,17 @@ function renderLevelList(containerId, levels, type, isMTF) {
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
     const currencySym = (data && data.meta && data.meta.currency) ? (symbolMap[data.meta.currency] || data.meta.currency + ' ') : '₹';
 
-    // BUG-02: Colour-coding Tactical Levels
-    const isSupport = type === 'support';
-    const activeColorClass = isSupport ? 'text-[#4CAF50]' : 'text-[#E24B4A]';
-    const mtfColorClass = isSupport ? 'text-[#4CAF50]/60' : 'text-[#E24B4A]/60';
-    const borderClass = isSupport ? 'border-l-[#4CAF50]' : 'border-l-[#E24B4A]';
-
     levels.forEach((level, index) => {
         const div = document.createElement('div');
-        div.className = `flex items-center justify-between px-2 py-1 rounded-lg bg-gray-900/60 border border-gray-800/50 border-l-[3px] ${borderClass} ${isMTF ? 'opacity-80' : ''} hover:border-gray-700 transition-all cursor-default`;
+        div.className = `flex items-center justify-between px-2 py-1 rounded-lg bg-gray-900/60 border ${isMTF ? 'border-gray-800/30 opacity-60' : 'border-gray-800/50'} hover:border-gray-700 transition-all cursor-default`;
 
         const labelText = level.timeframe === 'ZONE' ? 'Z' : (isMTF ? level.timeframe || 'MTF' : level.timeframe || ('L' + (index + 1)));
-        const timeframeLabel = level.timeframe || '-';
+        const timeframeLabel = level.timeframe || '—';
 
         div.title = `Price: ${level.price}\nTimeframe: ${timeframeLabel}\nTouches: ${level.touches || 0}`;
         div.innerHTML = `
-            <span class="text-[12px] font-bold px-1 py-0.5 rounded bg-gray-800 text-gray-400 uppercase">${labelText}</span>
-            <span class="font-bold mono text-[11px] ${isMTF ? mtfColorClass : activeColorClass}">${currencySym}${formatVal(level.price)}</span>
+            <span class="text-[9px] font-bold px-1 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400 uppercase">${labelText}</span>
+            <span class="font-bold mono text-[11px] ${isMTF ? 'text-gray-500' : 'text-white'}">${currencySym}${formatVal(level.price)}</span>
         `;
         list.appendChild(div);
     });
@@ -2129,6 +2075,13 @@ function drawLevelsOnChart(levels, fullData = null) {
 
         demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
         supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
+    }
+    else if (strategy === 'SWING') {
+        const primarySupports = levels.primary?.supports || [];
+        const primaryResists = levels.primary?.resistances || [];
+
+        primarySupports.forEach(lv => addLine(lv, '#8B5CF6', 'SWING SUP')); // Purple color for Swing
+        primaryResists.forEach(lv => addLine(lv, '#8B5CF6', 'SWING RES'));
     }
     else if (strategy === 'FIBONACCI') {
         // In FIB mode, data structure changed to levels.primary
