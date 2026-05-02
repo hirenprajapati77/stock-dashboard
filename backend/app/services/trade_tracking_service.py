@@ -69,6 +69,32 @@ class TradeTrackingService:
         cls._save(rows)
 
     @classmethod
+    def log_manual_trade(cls, trade_data: dict[str, Any]) -> None:
+        rows = cls._load()
+        symbol = trade_data.get("symbol", "UNKNOWN")
+        timestamp = datetime.now().isoformat()
+        key = f"MANUAL_{symbol}_{timestamp}"
+        
+        entry = cls._f(trade_data.get("entry"))
+        stop = cls._f(trade_data.get("stopLoss"))
+        target = cls._f(trade_data.get("target"))
+        
+        # For manual trades, we might mark them as OPEN initially
+        rows.insert(0, {
+            "tradeKey": key,
+            "symbol": symbol,
+            "timestamp": timestamp,
+            "entry": entry,
+            "stopLoss": stop,
+            "target1": target,
+            "tradeQuality": "MANUAL",
+            "outcome": "STILL_OPEN",
+            "pnlR": 0.0,
+            "pnlPct": 0.0,
+        })
+        cls._save(rows)
+
+    @classmethod
     def get_performance(cls) -> dict[str, Any]:
         rows = cls._load()
         resolved = [r for r in rows if r.get("outcome") in {"HIT_SL", "HIT_T1", "HIT_T2"}]
