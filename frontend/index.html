@@ -25,7 +25,7 @@
     <header class="h-auto min-h-[80px] py-1 border-b border-gray-800 bg-[#0B0F19] sticky top-0 z-50 px-4 flex flex-col justify-center gap-2 overflow-visible shadow-lg">
         <!-- Top Row: Branding & Critical Decision Metrics -->
         <div class="flex items-center justify-between w-full">
-            <div class="flex items-center gap-2 flex-shrink-0">
+            <div class="flex items-center gap-2 flex-1 justify-start">
                 <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white flex-shrink-0">S</div>
                 <div class="flex flex-col -space-y-1">
                     <h1 class="text-lg font-bold tracking-tight whitespace-nowrap">S&R <span class="text-blue-500">PRO</span></h1>
@@ -33,26 +33,29 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-6 flex-grow justify-center px-4">
+            <div id="hero-decision-strip" class="flex items-center gap-6 justify-center flex-shrink-0 px-4">
+                <div id="hero-action-badge" class="hidden items-center gap-1.5 px-2 py-0.5 bg-gray-900 rounded border border-gray-800">
+                    <i class="fas fa-check-circle text-[10px]"></i>
+                    <span class="text-[9px] font-black uppercase tracking-widest text-white">WATCH</span>
+                </div>
                 <div class="text-center">
-                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Current Price</p>
+                    <p id="hero-price-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Current Price</p>
                     <span id="hero-price" class="text-sm font-bold text-white">₹0.00</span>
                 </div>
-                <div class="text-center">
-                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Side</p>
-                    <span id="hero-side" class="text-sm font-bold text-gray-400">---</span>
+                <div class="text-center px-4 border-x border-white/5">
+                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Trade Signal</p>
+                    <div id="hero-signal-badge" class="mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest bg-gray-800 text-gray-500 uppercase">WAIT</div>
                 </div>
-                <div class="h-6 w-[1px] bg-white/10"></div>
                 <div class="text-center">
-                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Entry</p>
+                    <p id="hero-entry-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Entry</p>
                     <span id="hero-entry" class="text-sm font-bold text-blue-400">---</span>
                 </div>
                 <div class="text-center">
-                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Stop Loss</p>
+                    <p id="hero-sl-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Stop Loss</p>
                     <span id="hero-sl" class="text-sm font-bold text-red-500">---</span>
                 </div>
                 <div class="text-center">
-                    <p class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Target</p>
+                    <p id="hero-target-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-tighter">Target</p>
                     <span id="hero-target" class="text-sm font-bold text-green-500">---</span>
                 </div>
                 <div class="text-center hidden sm:block">
@@ -61,27 +64,27 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-1 justify-end">
                 <div id="fyers-connection" class="flex items-center gap-2 px-2 py-1 bg-gray-900 rounded-lg border border-gray-800">
                     <div id="fyers-status-dot" class="w-2 h-2 rounded-full bg-gray-600"></div>
                     <button id="fyers-login-btn" onclick="loginToFyers()" class="text-[9px] font-bold text-blue-400 uppercase tracking-widest hover:text-blue-300">CONNECT</button>
                 </div>
                 <div class="flex items-center space-x-1 bg-gray-900 px-1 py-1 rounded-lg border border-gray-800">
-                    <button id="view-dashboard" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white">DASHBOARD</button>
-                    <button id="view-intelligence" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-400 hover:bg-gray-800">INTELLIGENCE</button>
+                    <button id="view-dashboard" onclick="switchView('dashboard')" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white">DASHBOARD</button>
+                    <button id="view-intelligence" onclick="switchView('intelligence')" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-400 hover:bg-gray-800">INTELLIGENCE</button>
+                    <div class="w-px h-3 bg-gray-700 mx-0.5"></div>
+                    <button id="toggle-tracking-btn" onclick="toggleTrackingModeColumn()" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-400 hover:bg-gray-800 flex items-center gap-1">
+                        <i class="fas fa-list-ul text-[8px]"></i> TRACKING
+                    </button>
+                </div>
+
+                <div class="flex items-center space-x-1 bg-gray-900 px-1 py-1 rounded-lg border border-gray-800 ml-2">
+                    <button id="mode-auto" onclick="setTradingMode('AUTO')" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-indigo-600 text-white transition-all">AUTO</button>
+                    <button id="mode-equity" onclick="setTradingMode('EQUITY')" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:bg-gray-800 transition-all">EQUITY</button>
+                    <button id="mode-options" onclick="setTradingMode('OPTIONS')" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:bg-gray-800 transition-all">OPTIONS</button>
+                </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Master Signal Banner (NEW) -->
-        <div id="master-signal-banner" class="w-full px-4 py-1.5 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white shadow-md relative z-40 transition-colors duration-300 hidden">
-            <div class="flex items-center gap-3 w-full justify-center">
-                <span id="master-signal-status" class="px-2 py-0.5 rounded bg-black/30 text-white shadow-inner">WAIT</span>
-                <span id="master-signal-reason" class="flex-grow text-center text-[10px] sm:text-xs">Waiting for data...</span>
-            </div>
-            <button onclick="document.getElementById('master-signal-banner').classList.add('hidden')" class="absolute right-4 text-white/70 hover:text-white p-1 cursor-pointer">
-                <i class="fas fa-times"></i>
-            </button>
         </div>
 
         <!-- Bottom Row: Navigation & Search -->
@@ -101,10 +104,15 @@
 
             <!-- Center: Search Bar (Expanded) -->
             <div class="flex items-center justify-center flex-grow px-4">
-                <div class="relative w-full max-w-[400px]">
-                    <div class="flex items-center space-x-2 bg-[#111827] px-3 py-1.5 rounded-lg border border-gray-700 w-full focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all shadow-inner">
-                        <i class="fas fa-search text-gray-500 text-[10px]"></i>
-                        <input type="text" id="symbol-input" value="NIFTY50" class="bg-transparent border-none text-[11px] font-bold text-white focus:outline-none w-full uppercase" placeholder="SEARCH SYMBOL (e.g. TCS, HDFC)">
+                <div class="relative w-full max-w-[500px]">
+                    <div class="flex items-center w-full">
+                        <div class="flex items-center space-x-2 bg-[#111827] px-3 py-1.5 rounded-l-lg border border-gray-700 border-r-0 w-full focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all shadow-inner">
+                            <i class="fas fa-search text-gray-500 text-[10px]"></i>
+                            <input type="text" id="symbol-input" value="NIFTY50" class="bg-transparent border-none text-[11px] font-bold text-white focus:outline-none w-full uppercase" placeholder="SEARCH SYMBOL (e.g. TCS, HDFC)">
+                        </div>
+                        <button onclick="fetchData()" class="px-4 py-2 h-full bg-blue-600 hover:bg-blue-500 text-white border border-blue-500 rounded-r-lg text-[10px] font-black uppercase tracking-widest transition-colors shrink-0 whitespace-nowrap">
+                            🔍 SEARCH
+                        </button>
                     </div>
                     <div id="search-results" class="absolute top-[calc(100%+4px)] left-0 w-full bg-gray-900 border border-gray-700 rounded-lg hidden z-[100] shadow-2xl max-h-64 overflow-y-auto divide-y divide-gray-800"></div>
                 </div>
@@ -120,13 +128,10 @@
                         <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none">
                             <option value="5m">5M</option>
                             <option value="15m" selected>15M</option>
-                            <option value="30m">30M</option>
-                            <option value="45m">45M</option>
                             <option value="1H">1H</option>
                             <option value="4H">4H</option>
                             <option value="1D">1D</option>
                             <option value="1W">1W</option>
-                            <option value="1M">1M</option>
                         </select>
                     </div>
                 </div>
@@ -453,6 +458,7 @@
                                         class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
                                     <select id="confidence-filter" onchange="window.intelligenceApp._renderHitsTable()"
                                         class="bg-gray-800 border border-gray-700 text-[9px] font-bold text-indigo-400 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none uppercase cursor-pointer">
+                                        <option value="0">All Signals (0%+)</option>
                                         <option value="40">40% (Early)</option>
                                         <option value="60" selected>60% (Reliable)</option>
                                         <option value="80">80% (Strongest)</option>
@@ -525,6 +531,54 @@
 
                 <!-- Right: Intelligence Panels (5 cols) -->
                 <div class="col-span-12 lg:col-span-5 space-y-6">
+                    
+                    <!-- Tracking Mode Panel (NEW) -->
+                    <div id="tracking-panel-container" class="glass rounded-2xl border border-gray-800/50 overflow-hidden shadow-2xl transition-all duration-300">
+                        <!-- Header (Collapsible Toggle) -->
+                        <button onclick="toggleTrackingPanel()" class="w-full px-5 py-4 bg-gradient-to-r from-gray-900/80 to-transparent border-b border-gray-800/50 flex items-center justify-between hover:bg-gray-800/50 transition-colors group">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">📊</span>
+                                <div class="text-left">
+                                    <h2 class="text-sm font-black uppercase tracking-widest text-white group-hover:text-blue-400 transition-colors">Tracking Mode</h2>
+                                    <p class="text-[9px] text-gray-500 uppercase tracking-widest mt-0.5">Alerts • Outcomes • Watchlist</p>
+                                </div>
+                            </div>
+                            <i id="tracking-panel-icon" class="fas fa-chevron-up text-gray-500 transition-transform duration-300"></i>
+                        </button>
+                        
+                        <!-- Panel Body -->
+                        <div id="tracking-panel-body" class="transition-all duration-500">
+                            <!-- 🔔 Active Alerts -->
+                            <div class="p-4 border-b border-gray-800/50 bg-gray-900/20">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold uppercase tracking-widest text-yellow-500 flex items-center gap-1.5"><span class="text-xs">🔔</span> Active Alerts</h3>
+                                </div>
+                                <div id="ta-alerts-list" class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                    <div class="text-[10px] text-gray-500 italic text-center py-2">No active alerts.</div>
+                                </div>
+                            </div>
+
+                            <!-- 📜 Trade Outcomes -->
+                            <div class="p-4 border-b border-gray-800/50 bg-gray-900/20">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold uppercase tracking-widest text-green-400 flex items-center gap-1.5"><span class="text-xs">📜</span> Trade Outcomes</h3>
+                                </div>
+                                <div id="ta-outcomes-list" class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                    <div class="text-[10px] text-gray-500 italic text-center py-2">No active trades.</div>
+                                </div>
+                            </div>
+
+                            <!-- ⭐ Watchlist (Pinned) -->
+                            <div class="p-4 bg-gray-900/20">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold uppercase tracking-widest text-yellow-400 flex items-center gap-1.5"><span class="text-xs">⭐</span> Pinned Watchlist</h3>
+                                </div>
+                                <div id="ta-watchlist-list" class="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                                    <div class="text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <!-- Top Industries Heatmap (NEW) -->
                     <div id="industry-heatmap-section" class="space-y-4">
                         <div class="flex items-center justify-between px-2">
@@ -649,7 +703,65 @@
         </section>
 
         <div id="standard-dashboard" class="w-full">
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3" id="summary-container">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Right Column (Tracking) - Hidden by default -->
+                <div id="tracking-column" class="col-span-12 lg:col-span-3 lg:order-last space-y-6 transition-all duration-500 hidden">
+                    <!-- Tracking Mode Panel -->
+                    <div id="ta-tracking-container" class="glass rounded-2xl border border-gray-800/50 overflow-hidden shadow-2xl transition-all duration-300">
+                        <button onclick="toggleTrackingPanel()" class="w-full px-5 py-4 bg-gradient-to-r from-gray-900/80 to-transparent border-b border-gray-800/50 flex items-center justify-between hover:bg-gray-800/50 transition-colors group">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">📊</span>
+                                <div class="text-left">
+                                    <h2 class="text-sm font-black uppercase tracking-widest text-white group-hover:text-blue-400 transition-colors">Tracking Mode</h2>
+                                    <p class="text-[9px] text-gray-500 uppercase tracking-widest mt-0.5">Alerts • Outcomes • Watchlist</p>
+                                </div>
+                            </div>
+                            <i id="tracking-panel-icon" class="fas fa-chevron-up text-gray-500 transition-transform duration-300"></i>
+                        </button>
+                        
+                        <div id="tracking-panel-body" class="transition-all duration-500">
+                            <div class="p-4 border-b border-gray-800/50 bg-gray-900/20">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <span class="text-yellow-500">🔔</span> Active Alerts
+                                    </h3>
+                                    <span id="ta-alerts-count" class="text-[9px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded font-bold">0</span>
+                                </div>
+                                <div id="ta-alerts-list" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                    <p class="text-[10px] text-gray-600 italic text-center py-2">No active alerts.</p>
+                                </div>
+                            </div>
+
+                            <div class="p-4 border-b border-gray-800/50 bg-gray-900/10">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <span class="text-green-500">📜</span> Trade Outcomes
+                                    </h3>
+                                    <span id="ta-outcomes-count" class="text-[9px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded font-bold">0</span>
+                                </div>
+                                <div id="ta-outcomes-list" class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                    <p class="text-[10px] text-gray-600 italic text-center py-2">No active trades.</p>
+                                </div>
+                            </div>
+
+                            <div class="p-4 bg-gray-900/30">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <span class="text-blue-500">⭐</span> Pinned Watchlist
+                                    </h3>
+                                    <span id="ta-watchlist-count" class="text-[9px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded font-bold">0</span>
+                                </div>
+                                <div id="ta-watchlist-list" class="grid grid-cols-2 gap-2">
+                                    <p class="col-span-2 text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Left Column (Analysis) - Full width by default -->
+                <div id="analysis-column" class="col-span-12 lg:col-span-12 lg:order-first space-y-6 transition-all duration-500">
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3" id="summary-container">
                 <!-- Cards same as before... -->
                 <div class="glass p-4 rounded-2xl">
                     <p
@@ -695,7 +807,11 @@
                         <span class="text-xl">🔥</span>
                         <h2 class="text-sm font-black uppercase tracking-widest text-white">Top Trade Opportunities</h2>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer text-[10px] font-bold uppercase tracking-wider text-gray-400 hover:text-purple-400 transition-colors">
+                            <input type="checkbox" id="auto-scan-toggle" onchange="toggleAutoScan(this.checked)" class="accent-purple-500 w-3 h-3">
+                            Auto Scan
+                        </label>
                         <button onclick="loadTopTrades()" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-[10px] font-bold transition-colors">
                             <i class="fas fa-sync-alt"></i> SCAN
                         </button>
@@ -725,111 +841,175 @@
                     </div>
                 </div>
                 
-                <div class="p-5 grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <!-- Narrative Section -->
-                    <div class="col-span-1 lg:col-span-12 bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                        <div class="flex items-center gap-2 mb-2">
-                            <span class="text-indigo-400 text-xs">🧠</span>
-                            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-500">AI Narrative</h3>
+                <div class="p-4 space-y-4">
+                    <!-- Primary Execution Card (Always Visible) -->
+                    <div id="ee-primary-card" class="bg-gray-900/60 p-5 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 p-3">
+                            <div id="ee-score-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 hidden">Score: --</div>
                         </div>
-                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                            <p id="ee-narrative" class="text-sm text-gray-300 leading-relaxed font-medium flex-1">
-                                —
-                            </p>
-                            <button id="primary-action-btn" class="px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shrink-0 w-full sm:w-auto">
-                                WAITING
-                            </button>
-                        </div>
-                        <!-- Confidence Bar -->
-                        <div class="mt-4 pt-3 border-t border-gray-800/50">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Setup Confidence</span>
-                                <span id="ee-confidence-val" class="text-[9px] font-bold text-gray-400">0%</span>
+
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                            <!-- Identity & Action -->
+                            <div class="flex-grow space-y-4">
+                                <div class="flex items-center gap-3">
+                                    <h2 id="ee-underlying-label" class="text-2xl font-black tracking-tighter text-white uppercase">---</h2>
+                                    <span id="ee-underlying-price" class="text-xl font-black text-gray-500 mono ml-2">₹0.00</span>
+                                    <div id="ee-option-label" class="hidden"></div>
+                                    <div id="ee-execution-badge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-lg bg-gray-800 text-gray-500 border-gray-700">WAITING</div>
+                                </div>
+                                
+                                <!-- Confidence Bar -->
+                                <div class="w-full max-w-md space-y-1.5">
+                                    <div class="flex justify-between text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                                        <span>Setup Confidence</span>
+                                        <span id="ee-confidence-val">0%</span>
+                                    </div>
+                                    <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+                                        <div id="ee-confidence-fill" class="h-full bg-blue-500 w-0 transition-all duration-1000 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Short Narrative -->
+                                <div id="ee-narrative" class="text-xs text-gray-400 leading-relaxed italic max-w-2xl">
+                                    Analyzing market structures...
+                                </div>
                             </div>
-                            <div class="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
-                                <div id="ee-confidence-fill" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%"></div>
+
+                            <!-- Primary CTA -->
+                            <div class="flex flex-col items-center gap-3 w-full sm:w-auto">
+                                <button id="primary-action-btn" class="px-8 py-3.5 rounded-xl font-black text-sm uppercase tracking-widest bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-900/20 transition-all active:scale-95">
+                                    SYNCING...
+                                </button>
+                                <button id="ee-toggle-btn" onclick="toggleEEDetails()" class="text-[10px] font-bold text-gray-500 hover:text-white transition-all uppercase tracking-widest flex items-center gap-2">
+                                    <span id="ee-toggle-text">View Details</span>
+                                    <i id="ee-toggle-icon" class="fas fa-chevron-down text-[8px]"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 4 Column Grid for Metrics -->
-                    <div class="col-span-1 lg:col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <!-- Execution -->
-                        <div class="space-y-3 p-3 bg-gray-900/30 rounded-xl border border-gray-800/30">
-                            <h3 class="text-[9px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-1.5 border-b border-gray-800 pb-2">
-                                <span class="text-yellow-500">⚡</span> Execution
-                            </h3>
-                            <div class="space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Signal</span>
-                                    <span id="ee-signal" class="text-[11px] font-bold text-white">—</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Entry Type</span>
-                                    <span id="ee-entry-type" class="text-[11px] font-bold text-white">—</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Next Action</span>
-                                    <span id="ee-next-action" class="text-xs font-black text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">—</span>
-                                </div>
-                            </div>
+                    <!-- Collapsible Details Panel (Hidden by Default) -->
+                    <div id="ee-details-panel" class="hidden animate-in slide-in-from-top-4 duration-500 border-t border-white/5 pt-4">
+                        <!-- Tab Navigation -->
+                        <div class="flex items-center gap-1 mb-4 px-1">
+                            <button onclick="switchEETab('summary')" id="ee-tab-summary" class="px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 border-blue-500 text-white transition-all">Summary</button>
+                            <button onclick="switchEETab('analysis')" id="ee-tab-analysis" class="px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 border-transparent text-gray-500 hover:text-white transition-all">Analysis</button>
+                            <button onclick="switchEETab('risk')" id="ee-tab-risk" class="px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 border-transparent text-gray-500 hover:text-white transition-all">Risk</button>
                         </div>
 
-                        <!-- Market -->
-                        <div class="space-y-3 p-3 bg-gray-900/30 rounded-xl border border-gray-800/30">
-                            <h3 class="text-[9px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-1.5 border-b border-gray-800 pb-2">
-                                <span class="text-blue-400">📊</span> Market Context
-                            </h3>
-                            <div class="space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Trend</span>
-                                    <span id="ee-trend" class="text-[11px] font-bold text-white">—</span>
+                        <!-- Tab Content -->
+                        <div id="ee-details-content-area" class="bg-gray-950/40 rounded-2xl border border-white/5 p-5 relative min-h-[150px]">
+                            <!-- Shimmer Overlay (Visible during preparation) -->
+                            <div id="ee-details-shimmer" class="absolute inset-0 z-10 bg-gray-950/90 flex flex-col p-5 space-y-6 hidden">
+                                <div class="grid grid-cols-2 gap-8">
+                                    <div class="space-y-4">
+                                        <div class="skeleton-box w-1/2"></div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div class="skeleton-box h-12"></div>
+                                            <div class="skeleton-box h-12"></div>
+                                            <div class="skeleton-box h-10 col-span-2"></div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div class="skeleton-box w-1/2"></div>
+                                        <div class="space-y-2">
+                                            <div class="skeleton-box h-8"></div>
+                                            <div class="skeleton-box h-8"></div>
+                                            <div class="skeleton-box h-8"></div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Bias</span>
-                                    <span id="ee-bias" class="text-[11px] font-bold text-white">—</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Regime</span>
-                                    <span id="ee-regime" class="text-[11px] font-bold text-purple-400">—</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Flow -->
-                        <div class="space-y-3 p-3 bg-gray-900/30 rounded-xl border border-gray-800/30">
-                            <h3 class="text-[9px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-1.5 border-b border-gray-800 pb-2">
-                                <span class="text-cyan-400">💧</span> Flow & Liquidity
-                            </h3>
-                            <div class="space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Orderflow</span>
-                                    <span id="ee-orderflow" class="text-[11px] font-bold text-white">—</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Liq. Target</span>
-                                    <span id="ee-liquidity" class="text-[11px] font-bold text-cyan-400">—</span>
+                                <div class="w-full flex justify-center py-2">
+                                    <span class="text-[8px] font-black text-blue-500/50 uppercase tracking-widest animate-pulse">Preparing Intelligence Layers...</span>
                                 </div>
                             </div>
-                        </div>
+                            <!-- Summary Tab -->
+                            <div id="ee-content-summary" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div class="space-y-4">
+                                    <h3 class="text-[10px] font-black text-gray-600 uppercase tracking-widest border-b border-white/5 pb-2">Market Context</h3>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="bg-black/20 p-3 rounded-xl border border-white/5">
+                                            <p class="text-[8px] text-gray-600 font-bold uppercase mb-1">Trend</p>
+                                            <p id="ee-trend" class="text-xs font-bold text-white uppercase">---</p>
+                                        </div>
+                                        <div class="bg-black/20 p-3 rounded-xl border border-white/5">
+                                            <p class="text-[8px] text-gray-600 font-bold uppercase mb-1">Bias</p>
+                                            <p id="ee-bias" class="text-xs font-bold text-white uppercase">---</p>
+                                        </div>
+                                        <div class="bg-black/20 p-3 rounded-xl border border-white/5 col-span-2">
+                                            <p class="text-[8px] text-gray-600 font-bold uppercase mb-1">Regime</p>
+                                            <p id="ee-regime" class="text-xs font-black text-purple-400 uppercase">---</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="space-y-4">
+                                    <h3 id="micro-title" class="text-[10px] font-black text-gray-600 uppercase tracking-widest border-b border-white/5 pb-2">Microstructure</h3>
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
+                                            <span id="micro-label-1" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Volume Surge</span>
+                                            <span id="ee-micro-val-1" class="text-[10px] font-black text-white">---</span>
+                                        </div>
+                                        <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
+                                            <span id="micro-label-2" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Trend Intensity</span>
+                                            <span id="ee-micro-val-2" class="text-[10px] font-black text-white">---</span>
+                                        </div>
+                                        <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
+                                            <span id="micro-label-3" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Strategy</span>
+                                            <span id="ee-micro-val-3" class="text-[9px] font-black px-2 py-0.5 rounded">---</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-                        <!-- Risk -->
-                        <div class="space-y-3 p-3 bg-gray-900/30 rounded-xl border border-gray-800/30">
-                            <h3 class="text-[9px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-1.5 border-b border-gray-800 pb-2">
-                                <span class="text-rose-400">🛡️</span> Risk Mgmt
-                            </h3>
-                            <div class="space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Allocation</span>
-                                    <span id="ee-allocation" class="text-[11px] font-bold text-white">—</span>
+                            <!-- Analysis Tab (F&O Details) -->
+                            <div id="ee-content-analysis" class="hidden space-y-6">
+                                <div id="ee-options-grid" class="hidden grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div class="p-3 bg-gray-900/60 rounded-xl border border-blue-500/10">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase mb-1">Premium Entry</p>
+                                        <p id="ee-premium-entry" class="text-sm font-black text-blue-400">₹0.00</p>
+                                    </div>
+                                    <div class="p-3 bg-gray-900/60 rounded-xl border border-red-500/10">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase mb-1">Premium SL</p>
+                                        <p id="ee-premium-sl" class="text-sm font-black text-red-400">₹0.00</p>
+                                    </div>
+                                    <div class="p-3 bg-gray-900/60 rounded-xl border border-green-500/10">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase mb-1">Target 1</p>
+                                        <p id="ee-premium-t1" class="text-sm font-black text-green-400">₹0.00</p>
+                                    </div>
+                                    <div class="p-3 bg-gray-900/60 rounded-xl border border-green-500/10">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase mb-1">Target 2</p>
+                                        <p id="ee-premium-t2" class="text-sm font-black text-green-400">₹0.00</p>
+                                    </div>
                                 </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Drawdown</span>
-                                    <span id="ee-drawdown" class="text-[11px] font-bold text-white">—</span>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
+                                        <p class="text-[9px] text-indigo-400 font-black uppercase mb-2">OI Build-up</p>
+                                        <p id="ee-micro-val-1-analysis" class="text-xs font-bold text-gray-300">Synchronizing...</p>
+                                    </div>
+                                    <div class="p-4 bg-cyan-500/5 rounded-xl border border-cyan-500/10">
+                                        <p class="text-[9px] text-cyan-400 font-black uppercase mb-2">PCR Ratio</p>
+                                        <p id="ee-micro-val-2-analysis" class="text-xs font-bold text-gray-300">Synchronizing...</p>
+                                    </div>
                                 </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[10px] text-gray-400">Risk of Ruin</span>
-                                    <span id="ee-risk-ruin" class="text-[11px] font-bold text-rose-400">—</span>
+                            </div>
+
+                            <!-- Risk Tab -->
+                            <div id="ee-content-risk" class="hidden grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div class="p-4 bg-gray-900/40 rounded-xl border border-white/5">
+                                    <p class="text-[8px] text-gray-500 font-bold uppercase mb-1">Max Risk</p>
+                                    <p id="ee-max-loss" class="text-xs font-black text-red-400">---</p>
+                                </div>
+                                <div class="p-4 bg-gray-900/40 rounded-xl border border-white/5">
+                                    <p class="text-[8px] text-gray-500 font-bold uppercase mb-1">Lot Size</p>
+                                    <p id="ee-lot-size" class="text-xs font-black text-white">---</p>
+                                </div>
+                                <div class="p-4 bg-gray-900/40 rounded-xl border border-white/5">
+                                    <p class="text-[8px] text-gray-500 font-bold uppercase mb-1">Allocation</p>
+                                    <p id="ee-allocation" class="text-xs font-black text-white">---</p>
+                                </div>
+                                <div class="p-4 bg-gray-900/40 rounded-xl border border-white/5">
+                                    <p class="text-[8px] text-gray-500 font-bold uppercase mb-1">Risk of Ruin</p>
+                                    <p id="ee-risk-ruin" class="text-[10px] font-black text-white uppercase">---</p>
                                 </div>
                             </div>
                         </div>
@@ -926,7 +1106,7 @@
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p id="strat-card-2-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 2</p>
-                    <span id="strat-card-2-val" class="text-lg font-bold text-white">—</span>
+                    <span id="strat-card-2-val" class="text-[10px] font-bold text-gray-300">—</span>
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p id="strat-card-3-title" class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">METRIC 3</p>
@@ -947,7 +1127,7 @@
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Zone Range</p>
-                    <span id="zone-range" class="text-lg font-bold text-white">—</span>
+                    <span id="zone-range" class="text-[10px] font-bold text-gray-300">—</span>
                 </div>
                 <div class="glass p-4 rounded-2xl border-l-4 border-l-yellow-500">
                     <p class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Vol Spike</p>
@@ -996,9 +1176,12 @@
                 <!-- Right: Pro Intelligence Sidebar -->
                 <div class="intelligence-sidebar space-y-4">
                     <!-- Tactical Levels (Relocated) -->
-                    <div class="glass-card overflow-hidden">
+                    <div id="levels-sidebar" class="glass-card overflow-hidden transition-all duration-500">
                         <div class="px-4 py-3 border-b border-white/5 bg-white/5 flex justify-between items-center">
                             <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-blue-400">Tactical Levels</h3>
+                            <button onclick="toggleIntelligenceSidebar()" class="text-gray-500 hover:text-white transition-colors">
+                                <i class="fas fa-columns text-xs"></i>
+                            </button>
                         </div>
                         <div class="p-4 space-y-6 max-h-[300px] overflow-y-auto custom-scrollbar">
                             <div>
@@ -1069,15 +1252,10 @@
                                     <div class="flex-grow h-1 bg-gray-800 rounded-full relative overflow-hidden">
                                         <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
                                     </div>
-                                    <span id="fund-52h" class="text-up font-bold">—</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-                     </div>
-                    </div>
+                    </div> <!-- End Analysis Section -->
                 </div>
             </div>
         </div>

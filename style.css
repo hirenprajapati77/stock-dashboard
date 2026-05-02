@@ -87,6 +87,39 @@ body {
     transform: translateY(-2px);
 }
 
+/* Shimmer Loading State */
+@keyframes shimmer {
+    0% { background-position: -468px 0; }
+    100% { background-position: 468px 0; }
+}
+
+.skeleton-shimmer {
+    background: linear-gradient(to right, #1f2937 8%, #374151 18%, #1f2937 33%);
+    background-size: 800px 104px;
+    animation: shimmer 2s infinite linear;
+}
+
+.skeleton-box {
+    height: 12px;
+    background: #111827;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-box::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+    animation: skeleton-wave 1.5s infinite;
+}
+
+@keyframes skeleton-wave {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
 /* Trading Cards (Top Picks) */
 .trading-card {
     background: linear-gradient(145deg, #111827 0%, #1c2538 100%);
@@ -294,13 +327,6 @@ body.chart-fullscreen .chart-layout-wrapper {
 body.chart-fullscreen .chart-column {
     width: 100% !important;
     height: 100% !important;
-}
-
-body.chart-fullscreen #chart-parent {
-    height: 100% !important;
-    border-radius: 0 !important;
-    border: none !important;
-    margin: 0 !important;
 }
 
 /* ─── AI Context Panel ─────────────────────────────────────────────────── */
