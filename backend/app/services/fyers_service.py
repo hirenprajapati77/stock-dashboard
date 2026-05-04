@@ -28,6 +28,9 @@ class FyersService:
     
     _symbols_cache = []
     _last_sync = 0.0
+    
+    import threading
+    _sync_lock = threading.Lock()
 
     @classmethod
     def load_token(cls):
@@ -433,15 +436,16 @@ class FyersService:
         Syncs symbol metadata from Fyers.
         Now uses proxy and increased robustness for unreliable environments.
         """
-        # Ensure we have a persistent data directory
-        data_dir = os.path.dirname(fyers_config.token_file)
-        os.makedirs(data_dir, exist_ok=True)
-        symbols_file = os.path.join(data_dir, "fyers_symbols.json")
-        
-        now = time.time()
-        # 1. Use memory cache if available and not forced
-        if not force and cls._symbols_cache:
-            return True, f"Using memory cache ({len(cls._symbols_cache)} symbols)"
+        with cls._sync_lock:
+            # Ensure we have a persistent data directory
+            data_dir = os.path.dirname(fyers_config.token_file)
+            os.makedirs(data_dir, exist_ok=True)
+            symbols_file = os.path.join(data_dir, "fyers_symbols.json")
+            
+            now = time.time()
+            # 1. Use memory cache if available and not forced
+            if not force and cls._symbols_cache:
+                return True, f"Using memory cache ({len(cls._symbols_cache)} symbols)"
 
         # 2. Try loading from disk if not expired (86400s = 24h)
         if not force and os.path.exists(symbols_file):

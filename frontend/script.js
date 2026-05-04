@@ -2062,19 +2062,16 @@ function drawLevelsOnChart(levels, fullData = null) {
         const primarySupports = (levels.primary?.supports || []).filter(l => l.timeframe !== 'ZONE');
         const primaryResists = (levels.primary?.resistances || []).filter(l => l.timeframe !== 'ZONE');
 
-        // Take 2 nearest each
-        primarySupports.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
-            .slice(0, 2).forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
-            
-        primaryResists.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
-            .slice(0, 2).forEach(lv => addLine(lv, '#94A3B8', 'RES'));
+        primarySupports.forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
+        primaryResists.forEach(lv => addLine(lv, '#94A3B8', 'RES'));
     } 
     else if (strategy === 'DEMAND_SUPPLY') {
         const demand = (levels.primary?.supports || []).filter(l => l.timeframe === 'ZONE');
         const supply = (levels.primary?.resistances || []).filter(l => l.timeframe === 'ZONE');
 
-        demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
-        supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
+        // Use hex colors to guarantee compatibility with all browser engines in LightweightCharts
+        demand.forEach(lv => addLine(lv, '#22C55E', 'DEMAND', false));
+        supply.forEach(lv => addLine(lv, '#EF4444', 'SUPPLY', false));
     }
     else if (strategy === 'SWING') {
         const primarySupports = levels.primary?.supports || [];
@@ -2084,16 +2081,11 @@ function drawLevelsOnChart(levels, fullData = null) {
         primaryResists.forEach(lv => addLine(lv, '#8B5CF6', 'SWING RES'));
     }
     else if (strategy === 'FIBONACCI') {
-        // In FIB mode, data structure changed to levels.primary
         const supports = levels.primary?.supports || [];
         const resistances = levels.primary?.resistances || [];
         
-        // Show only key ratios: 38.2, 50, 61.8 (0.382, 0.5, 0.618)
-        const keyRatios = [0.382, 0.5, 0.618];
-        
-        [...supports, ...resistances]
-            .filter(l => keyRatios.includes(l.ratio))
-            .forEach(l => addLine(l, '#A855F7', l.label, true));
+        // Show all ratios instead of just 3 to give a proper "Fibo" experience
+        [...supports, ...resistances].forEach(l => addLine(l, '#A855F7', l.label || 'FIB', true));
     }
 }
 
@@ -2226,6 +2218,7 @@ window.onload = function () {
         const resultsDiv = document.getElementById('search-results');
         let searchTimeout;
         let selectedIndex = -1;
+        let searchController = null;
 
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
@@ -2239,7 +2232,13 @@ window.onload = function () {
 
             searchTimeout = setTimeout(async () => {
                 try {
-                    const res = await fetch(`${SEARCH_URL}?q=${query}`);
+                    if (searchController) {
+                        searchController.abort();
+                    }
+                    searchController = new AbortController();
+                    const signal = searchController.signal;
+
+                    const res = await fetch(`${SEARCH_URL}?q=${query}`, { signal });
                     const results = await res.json();
 
                     resultsDiv.innerHTML = '';
@@ -2267,7 +2266,9 @@ window.onload = function () {
                         resultsDiv.classList.add('hidden');
                     }
                 } catch (err) {
-                    console.error("Search error:", err);
+                    if (err.name !== 'AbortError') {
+                        console.error("Search error:", err);
+                    }
                 }
             }, 300);
         });
