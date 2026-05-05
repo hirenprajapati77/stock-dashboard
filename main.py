@@ -211,17 +211,21 @@ ADMIN_USER = "Admin"
 ADMIN_PASS = "SPAdmin@123"
 
 def get_current_user(sr_pro_session: Optional[str] = Cookie(None)):
-    if sr_pro_session != "authenticated_admin":
-        return None
+    # Bypassing login for development
     return ADMIN_USER
+    # if sr_pro_session != "authenticated_admin":
+    #     return None
+    # return ADMIN_USER
 
 def login_required(user: Optional[str] = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
+    # Always allow in development
     return user
+    # if not user:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="Authentication required",
+    #     )
+    # return user
 
 app = FastAPI(title="Support & Resistance Dashboard", lifespan=lifespan)
 ai_engine = AIEngine()
@@ -1263,52 +1267,53 @@ async def get_market_summary(tf: str = "1D"):
             "source": "error"
         }
 
-@app.post("/api/v1/login")
-async def login(request: Request, response: Response):
-    try:
-        data = await request.json()
-        username = data.get("username")
-        password = data.get("password")
-        remember = data.get("remember", False)
+# @app.post("/api/v1/login")
+# async def login(request: Request, response: Response):
+#     try:
+#         data = await request.json()
+#         username = data.get("username")
+#         password = data.get("password")
+#         remember = data.get("remember", False)
+#
+#         if username == ADMIN_USER and password == ADMIN_PASS:
+#             max_age = 2592000 if remember else 86400 # 30 days if remember, else 1 day
+#             response.set_cookie(
+#                 key=AUTH_COOKIE_NAME,
+#                 value="authenticated_admin",
+#                 httponly=True,
+#                 max_age=max_age,
+#                 samesite="lax",
+#                 secure=False
+#             )
+#             return {"status": "success", "message": "Authenticated"}
+#         else:
+#             return JSONResponse(
+#                 status_code=401,
+#                 content={"status": "error", "message": "Invalid credentials"}
+#             )
+#     except Exception as e:
+#         return JSONResponse(
+#             status_code=500,
+#             content={"status": "error", "message": str(e)}
+#         )
 
-        if username == ADMIN_USER and password == ADMIN_PASS:
-            max_age = 2592000 if remember else 86400 # 30 days if remember, else 1 day
-            response.set_cookie(
-                key=AUTH_COOKIE_NAME,
-                value="authenticated_admin",
-                httponly=True,
-                max_age=max_age,
-                samesite="lax",
-                secure=False
-            )
-            return {"status": "success", "message": "Authenticated"}
-        else:
-            return JSONResponse(
-                status_code=401,
-                content={"status": "error", "message": "Invalid credentials"}
-            )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+# @app.post("/api/v1/logout")
+# async def logout(response: Response):
+#     response.delete_cookie(key=AUTH_COOKIE_NAME)
+#     return {"status": "success", "message": "Logged out"}
 
-@app.post("/api/v1/logout")
-async def logout(response: Response):
-    response.delete_cookie(key=AUTH_COOKIE_NAME)
-    return {"status": "success", "message": "Logged out"}
-
-@app.get("/login")
-async def get_login_page():
-    login_path = curr_dir / "login.html"
-    if login_path.exists():
-        return FileResponse(str(login_path))
-    return {"status": "error", "message": "Login page not found"}
+# @app.get("/login")
+# async def get_login_page():
+#     login_path = curr_dir / "login.html"
+#     if login_path.exists():
+#         return FileResponse(str(login_path))
+#     return {"status": "error", "message": "Login page not found"}
 
 @app.get("/")
 async def get_index_page(user: Optional[str] = Depends(get_current_user)):
-    if not user:
-        return RedirectResponse(url="/login")
+    # Removed redirection to login
+    # if not user:
+    #     return RedirectResponse(url="/login")
     
     index_path = curr_dir / "frontend" / "index.html"
     if index_path.exists():
