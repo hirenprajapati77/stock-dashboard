@@ -18,6 +18,83 @@ const appState = {
     resolvedMode: 'EQUITY'
 };
 
+function formatLocalTimeSafe(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--:--:--';
+
+    try {
+        return new Intl.DateTimeFormat('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        }).format(date);
+    } catch (err) {
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+}
+
+function hideDashboardLoaders() {
+    if (window._loaderTimeout) {
+        clearTimeout(window._loaderTimeout);
+        window._loaderTimeout = null;
+    }
+
+    ['chart-loader', 'global-page-loader', 'global-loader'].forEach(id => {
+        const loader = document.getElementById(id);
+        if (loader) {
+            loader.classList.add('hidden');
+            loader.style.display = 'none';
+        }
+    });
+}
+
+function showChartSyncError(message) {
+    const chartParent = document.getElementById('chart-parent');
+    if (!chartParent) return;
+
+    let errDiv = document.getElementById('chart-error-msg');
+    if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'chart-error-msg';
+        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/90 z-50 rounded-2xl border border-yellow-500/30';
+        chartParent.appendChild(errDiv);
+    }
+
+    errDiv.classList.remove('hidden');
+    errDiv.innerHTML = `
+        <div class="flex flex-col items-center gap-3">
+            <span class="text-3xl" aria-hidden="true">!</span>
+            <p class="text-yellow-500 font-bold text-lg">Sync Delayed</p>
+            <p class="text-xs text-gray-400 max-w-[300px]">${message}</p>
+            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
+        </div>
+    `;
+}
+
+function extractScore(value, fallback = 0) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    if (value && typeof value === 'object') {
+        const candidates = [
+            value.meta_score,
+            value.score,
+            value.total,
+            value.value,
+            value.confidence,
+            value.final_score
+        ];
+        for (const candidate of candidates) {
+            const parsed = extractScore(candidate, NaN);
+            if (Number.isFinite(parsed)) return parsed;
+        }
+    }
+    return fallback;
+}
+
 function setTradingMode(mode) {
     appState.tradingMode = mode;
     
@@ -27,6 +104,7 @@ function setTradingMode(mode) {
         if (btn) {
             btn.classList.remove('bg-indigo-600', 'text-white');
             btn.classList.add('text-gray-500', 'hover:bg-gray-800');
+            btn.setAttribute('aria-pressed', 'false');
         }
     });
     
@@ -34,6 +112,7 @@ function setTradingMode(mode) {
     if (activeBtn) {
         activeBtn.classList.remove('text-gray-500', 'hover:bg-gray-800');
         activeBtn.classList.add('bg-indigo-600', 'text-white');
+        activeBtn.setAttribute('aria-pressed', 'true');
     }
     
     // Refresh UI if we have data
@@ -50,7 +129,7 @@ function resolveMode(userMode, data) {
     const d = data?.decision || {};
     const opt = d.option_selector || data.options || {};
     const hasOption = !!(opt.strike || data.options?.strike);
-    const confidence = data?.score || d?.meta_score || 0;
+    const confidence = extractScore(d?.meta_score, extractScore(data?.score, 0));
 
     // AUTO Prioritization: Promote to Options if setup is high-confidence
     if (userMode === 'AUTO') {
@@ -63,37 +142,39 @@ function resolveMode(userMode, data) {
 
 function switchView(view) {
     const dashboard = document.getElementById('standard-dashboard');
-    const intelligence = document.getElementById('execution-edge-panel');
-    const scanner = document.getElementById('top-trades-panel');
+    const intelligence = document.getElementById('intelligence-section');
+    const rotation = document.getElementById('rotation-section');
     
     const btnDash = document.getElementById('view-dashboard');
     const btnIntel = document.getElementById('view-intelligence');
 
+    // Hide all first
+    [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
+    [btnDash, btnIntel].forEach(b => {
+        b?.classList.remove('bg-blue-600', 'text-white');
+        b?.classList.add('text-gray-400', 'hover:bg-gray-800');
+    });
+
     if (view === 'dashboard') {
         dashboard?.classList.remove('hidden');
-        intelligence?.classList.add('hidden');
-        scanner?.classList.add('hidden');
-        
         btnDash?.classList.add('bg-blue-600', 'text-white');
         btnDash?.classList.remove('text-gray-400', 'hover:bg-gray-800');
-        
-        btnIntel?.classList.remove('bg-blue-600', 'text-white');
-        btnIntel?.classList.add('text-gray-400', 'hover:bg-gray-800');
-    } else {
-        dashboard?.classList.add('hidden');
+        btnDash?.setAttribute('aria-pressed', 'true');
+        btnIntel?.setAttribute('aria-pressed', 'false');
+    } else if (view === 'intelligence') {
         intelligence?.classList.remove('hidden');
-        scanner?.classList.remove('hidden');
-        
         btnIntel?.classList.add('bg-blue-600', 'text-white');
         btnIntel?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        btnDash?.setAttribute('aria-pressed', 'false');
+        btnIntel?.setAttribute('aria-pressed', 'true');
         
-        btnDash?.classList.remove('bg-blue-600', 'text-white');
-        btnDash?.classList.add('text-gray-400', 'hover:bg-gray-800');
-        
-        // Trigger chart resize when switching to intelligence
+        // Trigger chart resize if chart exists in intelligence (it might not, but safe to check)
         setTimeout(() => {
             if (window.chart) window.chart.resize();
         }, 100);
+
+        // Fetch intelligence data if needed
+        if (typeof fetchIntelligence === 'function') fetchIntelligence();
     }
     
     console.log(`[UI] Switched to ${view.toUpperCase()} mode`);
@@ -471,7 +552,7 @@ function applyMarketStatusState(ms) {
         }
         
         desc.textContent = ms.message + ' - Showing last session data';
-        time.textContent = 'Status as of: ' + new Date(ms.last_updated).toLocaleTimeString();
+        time.textContent = 'Status as of: ' + formatLocalTimeSafe(ms.last_updated);
     } else {
         banner.classList.add('hidden');
     }
@@ -662,23 +743,25 @@ async function runScreener() {
     }
 }
 async function fetchData(isBackground = false) {
-    const loader = document.getElementById('loading-overlay');
+    const loader = document.getElementById('chart-loader');
     const showLoader = isBackground !== true;
 
     try {
-        if (loader && showLoader) {
-            loader.classList.remove('hidden');
-            loader.style.display = 'flex';
+        if (showLoader) {
+            if (loader) {
+                loader.classList.remove('hidden');
+                loader.style.display = 'flex';
+            }
 
-            // Centralized Safeguard: Hide loader after 15s if it hangs
+            // Centralized Safeguard: Ensure loader is hidden even if fetch hangs
             if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
             window._loaderTimeout = setTimeout(() => {
                 if (loader && !loader.classList.contains('hidden')) {
-                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
-                    loader.classList.add('hidden');
-                    loader.style.display = 'none';
+                    hideDashboardLoaders();
+                    showChartSyncError("The market data sync is taking longer than expected. You can retry without refreshing the page.");
+                    showToast("Sync is taking longer than expected. Please retry.", "warning");
                 }
-            }, 15000);
+            }, 20000); // Increased to 20s for slow networks, with toast feedback
         }
 
         const symbolInput = document.getElementById('symbol-input');
@@ -699,6 +782,8 @@ async function fetchData(isBackground = false) {
 
         if (data && data.meta) {
             window.lastReceivedData = data;
+            const chartError = document.getElementById('chart-error-msg');
+            if (chartError) chartError.classList.add('hidden');
             
             // Update live indicator based on source
             const liveIndicator = document.getElementById('live-indicator');
@@ -791,11 +876,8 @@ async function fetchData(isBackground = false) {
         }
 
     } finally {
-        // ALWAYS try to hide loader in finally if it was showing
-        if (loader) {
-            loader.classList.add('hidden');
-            loader.style.display = 'none';
-        }
+        // ALWAYS try to hide loaders in finally if it was showing
+        hideDashboardLoaders();
     }
 }
 window.fetchData = fetchData;
@@ -973,7 +1055,7 @@ function toViewModel(data) {
 
     // SESSION ECHO: If market is closed, reconstruct the last valid signal based on score
     if (!marketOpen && (executionSignal === "REJECT" || executionSignal === "NONE")) {
-        const score = data?.score || d?.meta_score || 0;
+        const score = extractScore(d?.meta_score, extractScore(data?.score, 0));
         if (score >= 75) {
             executionSignal = "EXECUTE";
         } else if (score >= 60) {
@@ -1031,7 +1113,8 @@ function toViewModel(data) {
         return `${v} (Balanced)`;
     };
 
-    const riskLevel = data?.score >= 60 ? "LOW" : "HIGH";
+    const score = extractScore(d?.meta_score, extractScore(data?.score, 0));
+    const riskLevel = score >= 60 ? "LOW" : "HIGH";
     const premium = parseFloat(opt.premium_entry || opt.premium || 0);
     const lotSize = parseInt(opt.lot_size || (data?.meta?.symbol?.includes('NIFTY') ? 50 : 25));
 
@@ -1086,11 +1169,11 @@ function toViewModel(data) {
         pcr: getPCRState(data.insights?.pcr || opt.pcr || d?.microstructure?.pcr),
         isSuggestedStrike: isSuggested,
         
-        allocation: (data?.score >= 75 || d?.meta_score >= 75) ? "100%" : ((data?.score >= 60 || d?.meta_score >= 60) ? "50%" : "MINIMAL"),
+        allocation: score >= 75 ? "100%" : (score >= 60 ? "50%" : "MINIMAL"),
         riskLevel: riskLevel,
         riskRuin: d?.risk_of_ruin?.risk_level || "MEDIUM",
         riskReward: data?.rr || d?.risk_of_ruin?.risk_reward || "N/A",
-        score: d?.meta_score || data?.score || 0
+        score: score
     };
 }
 
@@ -1153,19 +1236,20 @@ function getExecutionState(vm) {
 
 function renderScore(vm) {
     const scoreBadge = document.getElementById('ee-score-badge');
-    if (!scoreBadge || !vm.score) {
+    const score = extractScore(vm?.score, 0);
+    if (!scoreBadge || !score) {
         if (scoreBadge) scoreBadge.classList.add('hidden');
         return;
     }
     
     scoreBadge.classList.remove('hidden');
-    scoreBadge.innerText = `Score: ${vm.score}`;
+    scoreBadge.innerText = `Score: ${Math.round(score)}`;
     
     // Use semantic CSS classes from style.css (refactored from inline Tailwind)
     scoreBadge.className = 'score-badge';
-    if (vm.score >= 85)      scoreBadge.classList.add('score-badge-high');
-    else if (vm.score >= 65) scoreBadge.classList.add('score-badge-mid');
-    else                     scoreBadge.classList.add('score-badge-low');
+    if (score >= 85)      scoreBadge.classList.add('score-badge-high');
+    else if (score >= 65) scoreBadge.classList.add('score-badge-mid');
+    else                  scoreBadge.classList.add('score-badge-low');
 }
 
 let previousSignalState = null;
@@ -1174,7 +1258,7 @@ function updateExecutionEdge(data) {
     const panel = document.getElementById('execution-edge-panel');
     if (!panel) return;
 
-    if (!data || !data.action) {
+    if (!data || (!data.action && !data.summary && !data.meta)) {
         panel.classList.add('hidden');
         return;
     }
@@ -1820,6 +1904,11 @@ function toggleEEDetails() {
         panel.classList.remove('hidden');
         if (text) text.textContent = "Hide Details";
         if (icon) icon.className = "fas fa-chevron-up text-[8px]";
+        const btn = document.getElementById('ee-toggle-btn');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'true');
+            btn.setAttribute('aria-label', 'Hide Details');
+        }
         
         // Show shimmer for a brief moment to simulate "Preparing Data"
         if (shimmer) {
@@ -1832,6 +1921,11 @@ function toggleEEDetails() {
         panel.classList.add('hidden');
         if (text) text.textContent = "View Details";
         if (icon) icon.className = "fas fa-chevron-down text-[8px]";
+        const btn = document.getElementById('ee-toggle-btn');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'false');
+            btn.setAttribute('aria-label', 'View Details');
+        }
     }
 }
 
@@ -1844,6 +1938,7 @@ function switchEETab(tab) {
         if (btn) {
             btn.classList.remove('border-blue-500', 'text-white');
             btn.classList.add('border-transparent', 'text-gray-500');
+            btn.setAttribute('aria-selected', 'false');
         }
     });
     
@@ -1853,14 +1948,23 @@ function switchEETab(tab) {
     if (activeBtn) {
         activeBtn.classList.remove('border-transparent', 'text-gray-500');
         activeBtn.classList.add('border-blue-500', 'text-white');
+        activeBtn.setAttribute('aria-selected', 'true');
     }
 }
 
 function updateHeroDecisionStrip(data, vm) {
     const heroStrip = document.getElementById('hero-decision-strip');
     if (!heroStrip || !data.summary || !vm) return;
-    
+
+    const canShowHeaderMetrics = window.matchMedia('(min-width: 1536px)').matches;
+    if (!canShowHeaderMetrics) {
+        heroStrip.classList.add('hidden');
+        heroStrip.classList.remove('flex');
+        return;
+    }
+
     heroStrip.classList.remove('hidden');
+    heroStrip.classList.add('flex');
     
     // Top-Level Action Badge in Nav Bar
     const actionBadge = document.getElementById('hero-action-badge');
@@ -2210,8 +2314,8 @@ window.onload = function () {
             }
         };
 
-        if (btnDash) btnDash.addEventListener('click', () => setNavActive('dash'));
-        if (btnIntel) btnIntel.addEventListener('click', () => setNavActive('intel'));
+        if (btnDash) btnDash.setAttribute('aria-pressed', 'true');
+        if (btnIntel) btnIntel.setAttribute('aria-pressed', 'false');
 
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
@@ -2336,9 +2440,11 @@ window.onload = function () {
                     if (btn.dataset.tf === activeTf) {
                         btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
                         btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
+                        btn.setAttribute('aria-pressed', 'true');
                     } else {
                         btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
                         btn.classList.add('text-gray-300', 'hover:bg-gray-800');
+                        btn.setAttribute('aria-pressed', 'false');
                     }
                 });
             };
@@ -2412,12 +2518,13 @@ window.onload = function () {
                 if (btn.dataset.tf === tf) {
                     btn.classList.add('bg-blue-600', 'text-white');
                     btn.classList.remove('text-gray-400');
+                    btn.setAttribute('aria-pressed', 'true');
                 } else {
                     btn.classList.remove('bg-blue-600', 'text-white');
                     btn.classList.add('text-gray-400');
+                    btn.setAttribute('aria-pressed', 'false');
                 }
             });
-            fetchData();
         });
     } catch (e) {
         console.error("Init error:", e);
