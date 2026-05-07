@@ -446,8 +446,9 @@ class MarketIntelligence {
         }).join('');
     }
 
-    setSummaryMode(mode) {
+    setSummaryMode(mode, userInitiated = true) {
         this.summaryMode = mode;
+        if (userInitiated) this.userInteractedSummary = true;
         this._renderSummary();
 
         // Update UI button states
@@ -457,9 +458,11 @@ class MarketIntelligence {
                 if (m === mode) {
                     btn.classList.add('bg-indigo-600', 'text-white');
                     btn.classList.remove('text-gray-400', 'hover:text-white');
+                    btn.setAttribute('aria-selected', 'true');
                 } else {
                     btn.classList.remove('bg-indigo-600', 'text-white');
                     btn.classList.add('text-gray-400', 'hover:text-white');
+                    btn.setAttribute('aria-selected', 'false');
                 }
             }
         });
@@ -586,7 +589,7 @@ class MarketIntelligence {
             else this.summaryMode = 'evening'; // Default to intraday wrap
 
             // Initial UI state for buttons
-            this.setSummaryMode(this.summaryMode);
+            this.setSummaryMode(this.summaryMode, false);
         }
 
         this._renderSummary();
@@ -707,10 +710,15 @@ class MarketIntelligence {
     }
 
     copySummaryToClipboard() {
-        if (!this.summaryData) return;
+        if (!this.summaryData) {
+            if (typeof showToast === 'function') showToast('Summary is still loading. Try again shortly.', 'warning');
+            return;
+        }
         const data = this.summaryData;
-        const activeTab = document.querySelector('.summary-tab.active');
-        const mode = activeTab ? activeTab.dataset.mode : 'wrap';
+        const mode = this.summaryMode || 'evening';
+        const leadingSectors = data.leadingSectors || [];
+        const weakeningSectors = data.weakeningSectors || [];
+        const topStocks = data.topStocks || [];
 
         let text = "";
         const isNeutralMarket = Math.abs(data.marketReturn) <= 0.2;
@@ -718,16 +726,16 @@ class MarketIntelligence {
 
         if (mode === 'morning') {
             text = `🧠 Pre-Market Focus\n`;
-            text += `Strong sectors from previous session: ${data.leadingSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
-            if (data.weakeningSectors.length) text += `Weak areas: ${data.weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
+            text += `Strong sectors from previous session: ${leadingSectors.map(s => s.name || s.sector || s).join(", ") || "None yet"}\n`;
+            if (weakeningSectors.length) text += `Weak areas: ${weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
             text += `Track stocks aligned with strong sectors.`;
         } else {
             text = `🧠 Daily Market Snapshot\n\n`;
             text += `Market: ${marketStatus}\n`;
-            text += `Leading Sectors: ${data.leadingSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
-            if (data.weakeningSectors.length) text += `Weakening: ${data.weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
+            text += `Leading Sectors: ${leadingSectors.map(s => s.name || s.sector || s).join(", ") || "None yet"}\n`;
+            if (weakeningSectors.length) text += `Weakening: ${weakeningSectors.map(s => s.name || s.sector || s).join(", ")}\n`;
 
-            const highConfidenceStocks = (data.topStocks || []).filter(s => s.confidence >= 60);
+            const highConfidenceStocks = topStocks.filter(s => s.confidence >= 60);
             if (highConfidenceStocks.length) {
                 text += `\nTop Aligned Stocks:\n`;
                 highConfidenceStocks.slice(0, 5).forEach(s => {
@@ -739,13 +747,20 @@ class MarketIntelligence {
             text += `\nFocus on strength, stay selective ⚖️`;
         }
 
-        navigator.clipboard.writeText(text).then(() => {
+        const copyText = navigator.clipboard?.writeText
+            ? navigator.clipboard.writeText(text)
+            : Promise.reject(new Error('Clipboard API is unavailable'));
+
+        copyText.then(() => {
             const btn = document.getElementById('copy-summary-btn') || document.querySelector('[onclick*="copySummaryToClipboard"]');
             if (btn) {
                 const originalHtml = btn.innerHTML;
                 btn.innerHTML = '<span class="text-[9px] text-green-400 font-bold uppercase tracking-tighter">COPIED</span>';
                 setTimeout(() => btn.innerHTML = originalHtml, 2000);
             }
+            if (typeof showToast === 'function') showToast('Summary copied.', 'success');
+        }).catch(() => {
+            if (typeof showToast === 'function') showToast('Could not copy summary from this browser context.', 'warning');
         });
     }
 
