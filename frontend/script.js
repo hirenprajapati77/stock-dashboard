@@ -777,7 +777,7 @@ async function fetchData(isBackground = false) {
 
         const isIntel = typeof isIntelligenceModeActive === 'function' && isIntelligenceModeActive();
         const liteParam = isIntel ? '&lite=true' : '';
-        const response = await fetch(${API_URL}?symbol=&tf=&strategy=&_=);
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}${liteParam}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
