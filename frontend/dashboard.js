@@ -81,6 +81,28 @@ class MarketIntelligence {
         }
 
         this.allHits = Array.isArray(hits) ? hits : [];
+        
+        // Auto-fallback for confidence filter if no data at current threshold
+        const filterEl = document.getElementById('confidence-filter');
+        if (filterEl && this.allHits.length > 0) {
+            const currentThreshold = parseInt(filterEl.value);
+            
+            const getCount = (thresh) => this.allHits.filter(h => {
+                const conf = this._calculateConfidence(h);
+                const session = h.session || {};
+                return !(session.quality === "AVOID" || h.sectorState === "LAGGING" || conf.score < thresh);
+            }).length;
+
+            if (getCount(currentThreshold) === 0) {
+                if (currentThreshold !== 60 && getCount(60) > 0) {
+                    filterEl.value = "60";
+                } else if (currentThreshold !== 40 && getCount(40) > 0) {
+                    filterEl.value = "40";
+                } else if (currentThreshold !== 0 && getCount(0) > 0) {
+                    filterEl.value = "0";
+                }
+            }
+        }
         this._renderHitsTable();
         if (window.renderTopPicks) {
             window.renderTopPicks(this.allHits);

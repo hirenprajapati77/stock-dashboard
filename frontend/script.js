@@ -781,6 +781,24 @@ async function fetchData(isBackground = false) {
         const data = await response.json();
 
         if (data && data.meta) {
+            // FIX: Market Closed Default Data Bug
+            if (data.meta.cmp === 0 || !data.meta.cmp) {
+                console.warn("[Fetch] Backend returned 0.00 CMP (Likely weekend/closed). Checking localStorage fallback.");
+                const cached = localStorage.getItem('lastGoodDashboardData_' + symbol);
+                if (cached) {
+                    try {
+                        const parsed = JSON.parse(cached);
+                        if (parsed && parsed.meta && parsed.meta.cmp > 0) {
+                            data = parsed;
+                            data.source = 'fallback';
+                            console.log("[Fetch] Loaded valid fallback data from localStorage.");
+                        }
+                    } catch(e) {}
+                }
+            } else {
+                localStorage.setItem('lastGoodDashboardData_' + symbol, JSON.stringify(data));
+            }
+            
             window.lastReceivedData = data;
             const chartError = document.getElementById('chart-error-msg');
             if (chartError) chartError.classList.add('hidden');
@@ -2733,4 +2751,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
+});
 
+// --- CLOCK AND FALLBACK ENGINE ---
+setInterval(() => {
+    const now = new Date();
+    
+    // 1. Sync Time Clock (IST)
+    const syncTime = document.getElementById('sync-time');
+    if (syncTime) {
+        // Convert to IST safely
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const ist = new Date(utc + istOffset);
+        const hh = String(ist.getHours()).padStart(2, '0');
+        const mm = String(ist.getMinutes()).padStart(2, '0');
+        const ss = String(ist.getSeconds()).padStart(2, '0');
+        syncTime.textContent = `${hh}:${mm}:${ss} IST`;
+    }
+
+    // 2. Market Closed Countdown
+    if (window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED') {
+        const desc = document.getElementById('market-status-desc');
+        if (desc) {
+            const day = now.getDay();
+            let nextOpen = new Date(now);
+            const daysUntilMonday = day === 6 ? 2 : day === 0 ? 1 : (now.getHours() >= 16 ? 1 : 0);
+            
+            if (daysUntilMonday > 0) {
+                nextOpen.setDate(now.getDate() + daysUntilMonday);
+                nextOpen.setHours(9, 15, 0, 0);
+                const diff = nextOpen - now;
+                
+                if (diff > 0) {
+                    const h = Math.floor(diff / 3600000);
+                    const m = Math.floor((diff % 3600000) / 60000);
+                    const s = Math.floor((diff % 60000) / 1000);
+                    desc.innerHTML = `Opens in <b>${h}h ${m}m ${s}s</b> - Showing last session data`;
+                }
+            }
+        }
+    }
+}, 1000);

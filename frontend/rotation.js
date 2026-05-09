@@ -314,8 +314,8 @@ class RotationDashboard {
             alertDate.getFullYear() === today.getFullYear();
 
         const timeDisplay = isToday
-            ? alertDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : alertDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            ? alertDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+            : alertDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
         const div = document.createElement('div');
         const color = this.getQuadrantColor(alert.rs, alert.rm);

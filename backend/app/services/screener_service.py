@@ -642,6 +642,12 @@ class ScreenerService:
             
             # Save to Fallback
             cls._save_fallback(hits, normalized_tf)
+            
+            return {
+                "hits": hits,
+                "sector_concentration": cls._cache.get("sector_concentration", []),
+                "source": "live"
+            }
         else:
             # If hits is empty (e.g., market closed/no volume), try serving the last valid scan
             fallback_data = cls._load_fallback(normalized_tf)

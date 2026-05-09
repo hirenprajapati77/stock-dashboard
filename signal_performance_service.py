@@ -51,7 +51,9 @@ class SignalPerformanceService:
     def compute(cls, timeframe: str = "1D", limit: int = 2000) -> SignalPerformance:
         from app.services.screener_service import ScreenerService
 
-        hits = ScreenerService.get_screener_data(timeframe=timeframe) or []
+        screener_res = ScreenerService.get_screener_data(timeframe=timeframe) or []
+        hits = screener_res.get("hits", []) if isinstance(screener_res, dict) else screener_res
+
         early = ScreenerService.get_early_breakout_setups(timeframe=timeframe, limit=limit) or []
 
         entry_ready_syms = {h.get("symbol") for h in hits if (h.get("entryTag") == "ENTRY_READY")}
