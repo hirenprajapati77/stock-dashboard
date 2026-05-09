@@ -2560,11 +2560,19 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence() {
+async function fetchIntelligence(force = false) {
     try {
+        const now = Date.now();
+        // Throttle: If not forced, and last fetch was < 2 minutes ago, bypass network fetch.
+        // This synchronizes with the backend SYNC_INTERVAL (120s) and makes tab switching instant.
+        if (!force && window._lastIntelFetch && (now - window._lastIntelFetch < 120000)) {
+            console.log("[Intelligence] Serving from UI cache (last fetch < 120s ago)");
+            return;
+        }
+        window._lastIntelFetch = now;
+
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
-        const now = Date.now();
 
         // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
