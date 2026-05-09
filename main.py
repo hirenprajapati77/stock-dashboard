@@ -184,9 +184,11 @@ async def lifespan(app: FastAPI):
                     continue  # Already has a live buffer; don't overwrite
                 # Try to get cached OHLCV from market data layer
                 yf_sym = symbol + ".NS"
-                df = MarketDataService._ohlcv_cache.get(yf_sym)
-                if df is not None and not df.empty:
-                    ScreenerService._realtime_buffers[symbol] = df.tail(100).copy()
+                cache_entry = MarketDataService._ohlcv_cache.get(yf_sym)
+                if cache_entry and 'df' in cache_entry:
+                    df = cache_entry['df']
+                    if not df.empty:
+                        ScreenerService._realtime_buffers[symbol] = df.tail(100).copy()
         except Exception as e:
             print(f"[SafetySync] Buffer populate error: {e}", flush=True)
 
