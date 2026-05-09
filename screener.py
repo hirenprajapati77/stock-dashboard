@@ -11,7 +11,16 @@ class ScreenerService:
             ticker_sym = sym if "." in sym or sym.startswith("^") else f"{sym}.NS"
             ticker = yf.Ticker(ticker_sym)
             
-            # Use fast info retrieval if possible, but we need quarterly financials too
+            # --- CAUSE 1 FIX: Early Exit using fast_info ---
+            try:
+                fast = ticker.fast_info
+                market_cap = fast.get('market_cap', fast.get('marketCap'))
+                if market_cap is not None and market_cap < 5e9:
+                    return None  # Early exit for small caps
+            except Exception:
+                pass
+            
+            # Now fetch full info only for stocks that pass the mcap check
             info = ticker.info
             qf = ticker.quarterly_financials
             
