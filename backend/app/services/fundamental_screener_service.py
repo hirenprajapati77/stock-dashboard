@@ -51,6 +51,16 @@ class FundamentalScreener:
             ticker_sym = MarketDataService.normalize_symbol(sym)
             ticker = yf.Ticker(ticker_sym)
             
+            # --- CAUSE 1 FIX: Early Exit using fast_info ---
+            try:
+                fast = ticker.fast_info
+                m_cap = fast.get('market_cap', fast.get('marketCap'))
+                if m_cap is not None and m_cap < 5e9:
+                    _REJECTION_LOGS[sym] = "Market Cap too low (Fast): " + str(m_cap)
+                    return None
+            except Exception:
+                pass
+            
             if not stats:
                 # Fallback to standard yf (works locally usually)
                 try:
