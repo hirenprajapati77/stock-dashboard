@@ -185,7 +185,7 @@ async def lifespan(app: FastAPI):
     # --- WEBSOCKET STREAMING SERVICE ---
     async def start_websocket_service():
         """Starts FyersSocketService after warmup completes."""
-        await asyncio.sleep(70)  # Wait for warmup + first sync
+        await asyncio.sleep(130)  # Wait safely after warmup (60s sleep + ~60s sync)
         from app.services.screener_service import ScreenerService
         # Build Fyers-format symbol list from screener constituents
         try:

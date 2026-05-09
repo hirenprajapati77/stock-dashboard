@@ -52,7 +52,9 @@ class FyersService:
     @classmethod
     def save_token(cls, token):
         cls._access_token = token
-        os.makedirs(os.path.dirname(fyers_config.token_file), exist_ok=True)
+        dir_name = os.path.dirname(fyers_config.token_file)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         with open(fyers_config.token_file, "w") as f:
             f.write(token)
 
