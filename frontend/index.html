@@ -1376,7 +1376,7 @@
                 <!-- 5. Risk Guidance -->
                 <div class="space-y-2">
                     <div class="flex items-center gap-2 text-indigo-400">
-                        <span class="text-sm font-bold uppercase tracking-widest">5️⃣ Risk Classification</span>
+                        <span class="text-sm font-bold uppercase tracking-widest">6️⃣ Risk Classification</span>
                     </div>
                     <div class="bg-indigo-600/10 border border-indigo-500/20 p-4 rounded-2xl text-center">
                         <p id="expl-ru" class="text-2xl font-bold text-indigo-400 mb-1">1.5 RU</p>
@@ -1451,6 +1451,21 @@
     <script src="rotation.js"></script>
     <script src="dashboard.js"></script>
     <script src="intelligence_ux.js"></script>
+    <script>
+      // Bug Fix: Sync intraday TF buttons with the select dropdown
+      document.querySelectorAll('#intraday-tf-toggle [data-tf]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.getElementById('tf-selector').value = btn.dataset.tf;
+          document.querySelectorAll('#intraday-tf-toggle [data-tf]').forEach(b => {
+            b.classList.remove('bg-blue-600', 'text-white');
+            b.classList.add('text-gray-400');
+          });
+          btn.classList.add('bg-blue-600', 'text-white');
+          btn.classList.remove('text-gray-400');
+          if (typeof fetchData === 'function') fetchData();
+        });
+      });
+    </script>
 </body>
 
 </html>

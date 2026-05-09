@@ -775,7 +775,9 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
+        const isIntel = typeof isIntelligenceModeActive === 'function' && isIntelligenceModeActive();
+        const liteParam = isIntel ? '&lite=true' : '';
+        const response = await fetch(${API_URL}?symbol=&tf=&strategy=&_=);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -2751,7 +2753,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
-});
+
+});
 
 // --- CLOCK AND FALLBACK ENGINE ---
 setInterval(() => {

@@ -52,7 +52,9 @@ class FyersService:
     @classmethod
     def save_token(cls, token):
         cls._access_token = token
-        os.makedirs(os.path.dirname(fyers_config.token_file), exist_ok=True)
+        dir_name = os.path.dirname(fyers_config.token_file)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         with open(fyers_config.token_file, "w") as f: f.write(token)
 
     @classmethod
@@ -128,9 +130,14 @@ class FyersService:
         if not cls._access_token: cls.load_token()
         if not cls._access_token: return None, "No token"
         
+        from datetime import datetime, timedelta
+        _today = datetime.now().strftime("%Y-%m-%d")
+        _one_year_ago = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        
         fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"
         headers = {"Authorization": f"{fyers_config.app_id}:{cls._access_token}"}
-        params = {"symbol": fyers_symbol, "resolution": "D", "date_format": "1", "range_from": "2024-01-01", "range_to": "2024-12-31", "cont_flag": "1"}
+        params = {"symbol": fyers_symbol, "resolution": "D", "date_format": "1",
+                  "range_from": _one_year_ago, "range_to": _today, "cont_flag": "1"}
         
         try:
             url = f"{cls.DATA_URL}/history"

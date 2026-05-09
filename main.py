@@ -161,7 +161,15 @@ async def lifespan(app: FastAPI):
                     # Populate realtime buffers from latest batch data
                     _populate_realtime_buffers(ScreenerService)
                 else:
-                    print("[SafetySync] Market closed. Skipping sync.", flush=True)
+                    print("[SafetySync] Market closed. Serving stale cache if available.", flush=True)
+                    # Cause 2 Fix: If cache is empty (e.g. first weekend load), trigger ONE background scan
+                    from app.services.screener_service import ScreenerService as _SC
+                    if not _SC._intelligence_cache.get("data"):
+                        print("[SafetySync] Cache empty on market-closed — triggering one-time background scan.", flush=True)
+                        try:
+                            await asyncio.to_thread(_SC.update_intelligence_cycle, timeframe="1D")
+                        except Exception as _e:
+                            print(f"[SafetySync] Weekend scan error: {_e}", flush=True)
             except Exception as e:
                 print(f"[SafetySync] Error: {e}", flush=True)
             await asyncio.sleep(SYNC_INTERVAL)
@@ -185,7 +193,7 @@ async def lifespan(app: FastAPI):
     # --- WEBSOCKET STREAMING SERVICE ---
     async def start_websocket_service():
         """Starts FyersSocketService after warmup completes."""
-        await asyncio.sleep(70)  # Wait for warmup + first sync
+        await asyncio.sleep(130)  # Wait safely after warmup (60s sleep + ~60s sync)
         from app.services.screener_service import ScreenerService
         # Build Fyers-format symbol list from screener constituents
         try:
@@ -409,21 +417,28 @@ async def get_market_status():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# Cause 4 Fix: /ping endpoint wakes up Render free-tier on page load (called from frontend)
+@app.get("/ping")
+async def ping():
+    return {"status": "ok", "ts": datetime.now().isoformat()}
+
 @app.get("/api/v1/dashboard", dependencies=[Depends(login_required)])
-async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "1D", strategy: str = "SR"):
+async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "1D", strategy: str = "SR", lite: bool = False):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    print(f"DEBUG: Dashboard Request - {symbol} @ {tf} | Strategy: {strategy}")
+    print(f"DEBUG: Dashboard Request - {symbol} @ {tf} | Strategy: {strategy} | lite={lite}")
     try:
         # 0. Normalize Symbol
         norm_symbol = await asyncio.to_thread(MarketDataService.normalize_symbol, symbol)
 
         # 1. Parallelize ALL Data Fetching (Primary, MTF, Sector)
+        # Cause 3 Fix: Skip MTF when lite=True (Intelligence tab calls)
         higher_tfs = []
-        if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
-        elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
-        elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
-        elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
-        elif tf == "1D": higher_tfs = ["1W", "1M"]
+        if not lite:
+            if tf == "5m": higher_tfs = ["15m", "1H", "1D"]
+            elif tf == "15m": higher_tfs = ["1H", "2H", "1D"]
+            elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
+            elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
+            elif tf == "1D": higher_tfs = ["1W", "1M"]
 
         async def fetch_mtf_wrapper(htf_name):
             try:
