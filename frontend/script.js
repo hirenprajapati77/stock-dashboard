@@ -1429,8 +1429,8 @@ function updateExecutionEdge(data) {
         if (vm.executionSignal === "EXECUTE") {
             nextStep.innerHTML = `Buy at market price (₹${data.meta.cmp}). Target T1 reached? No.`;
         } else if (vm.executionSignal === "WATCH") {
-            const level = data.levels?.resistance?.nearest || data.levels?.supply?.nearest || "---";
-            nextStep.innerHTML = `Wait for breakout above <span class="text-blue-400 font-bold">₹${level}</span> with volume surge.`;
+            const level = data.summary?.nearest_resistance || "---";
+            nextStep.innerHTML = `Wait for breakout above <span class="text-blue-400 font-bold font-mono">₹${level}</span> with volume surge.`;
         } else {
             nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
         }
@@ -1439,7 +1439,7 @@ function updateExecutionEdge(data) {
     // 3. Invalidation
     const invalidation = document.getElementById('invalidation-price');
     if (invalidation) {
-        const sl = data.strategy?.logical_sl || data.summary?.logical_sl || data.levels?.support?.nearest || "---";
+        const sl = data.summary?.stop_loss || data.summary?.nearest_support || "---";
         invalidation.textContent = sl !== "---" ? `₹${sl}` : "₹--.--";
     }
 
