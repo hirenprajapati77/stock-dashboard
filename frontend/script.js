@@ -1716,7 +1716,7 @@ async function loadTopTrades() {
     if (!panel || !list) return;
 
     panel.classList.remove('hidden');
-    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Fetching market intelligence...</div>';
+    list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">Fetching market intelligence...</div>';
 
     try {
         const res = await fetch(INTELLIGENCE_URL);
@@ -1724,7 +1724,7 @@ async function loadTopTrades() {
         
         const data = await res.json();
         if (data.status === 'warming') {
-            list.innerHTML = '<div class="text-indigo-400 text-xs font-bold px-2">Intelligence engine warming up...</div>';
+            list.innerHTML = '<div class="w-full py-8 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse"><i class="fas fa-satellite-dish mr-2"></i>Intelligence engine warming up...</div>';
             return;
         }
 
@@ -1757,7 +1757,7 @@ async function loadTopTrades() {
         });
 
         if (hits.length === 0) {
-            list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">No active setups found at this time.</div>';
+            list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">No active setups found at this time.</div>';
             return;
         }
 
@@ -1829,7 +1829,7 @@ async function loadTopTrades() {
         
     } catch (err) {
         console.error("Scanner error", err);
-        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scanner offline. Check backend.</div>';
+        list.innerHTML = '<div class="w-full py-8 text-center text-red-400 text-xs font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i>Scanner offline. Check backend.</div>';
     }
 }
 
