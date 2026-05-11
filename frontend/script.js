@@ -9,6 +9,8 @@ const HITS_URL = `${API_BASE}/api/v1/momentum-hits`;
 const EARLY_SETUPS_URL = `${API_BASE}/api/v1/early-setups`;
 const SIGNAL_PERF_URL = `${API_BASE}/api/v1/signal-performance`;
 const TRADE_PERF_URL = `${API_BASE}/api/v1/trade-performance`;
+const INTELLIGENCE_URL = `${API_BASE}/api/v1/intelligence`;
+
 
 // ==========================================
 // GLOBAL TRADING STATE
@@ -1551,106 +1553,109 @@ async function loadTopTrades() {
     if (!panel || !list) return;
 
     panel.classList.remove('hidden');
-    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Scanning market for top setups...</div>';
+    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Fetching market intelligence...</div>';
 
     try {
-        const symbolsToScan = ["NSE:RELIANCE-EQ", "NSE:TCS-EQ", "NSE:INFY-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ"];
-        const results = [];
+        const res = await fetch(INTELLIGENCE_URL);
+        if (!res.ok) throw new Error("Failed to fetch intelligence");
         
-        await Promise.all(symbolsToScan.map(async (sym) => {
-            try {
-                const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.status === 'success') {
-                        results.push({ symbol: sym, data: data });
-                    }
-                }
-            } catch (e) { console.warn("Scan failed for", sym); }
-        }));
-        
-        if (results.length === 0) {
-            list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scan failed or no data available.</div>';
+        const data = await res.json();
+        if (data.status === 'warming') {
+            list.innerHTML = '<div class="text-indigo-400 text-xs font-bold px-2">Intelligence engine warming up...</div>';
             return;
         }
 
-        results.sort((a, b) => {
-            const vmA = toViewModel(a.data);
-            const vmB = toViewModel(b.data);
-            
-            const getPriority = (vm) => {
-                if (vm.executionSignal === "EXECUTE") {
-                    return vm.mode === 'OPTIONS' ? 100 : 80;
-                }
-                if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return 60;
-                if (vm.executionSignal === "CLOSED") return 40;
-                return 20;
+        let hits = data.data || [];
+        
+        // Filter and Sort: Pick top 5 high-quality setups
+        // Mapping: STRONG_ENTRY/ENTRY_READY -> Priority 1, WATCHLIST -> Priority 2
+        hits = hits.filter(h => h.entryTag !== 'AVOID' && h.symbol !== 'N/A');
+        
+        hits.sort((a, b) => {
+            const getPriority = (h) => {
+                if (h.entryTag === 'STRONG_ENTRY') return 100;
+                if (h.entryTag === 'ENTRY_READY') return 80;
+                if (h.entryTag === 'WATCHLIST') return 60;
+                return 40;
             };
-            
-            const pA = getPriority(vmA);
-            const pB = getPriority(vmB);
-            
+            const pA = getPriority(a);
+            const pB = getPriority(b);
             if (pA !== pB) return pB - pA;
-            return vmB.score - vmA.score;
+            return (b.score || b.confidence || 0) - (a.score || a.confidence || 0);
         });
 
+        if (hits.length === 0) {
+            list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">No active setups found at this time.</div>';
+            return;
+        }
+
         list.innerHTML = '';
-        results.slice(0, 5).forEach(item => {
-            const vm = toViewModel(item.data);
-            const stateColor = getExecutionState(vm);
+        hits.slice(0, 5).forEach(hit => {
+            const symbol = hit.symbol.includes(':') ? hit.symbol : `NSE:${hit.symbol}-EQ`;
+            const score = Math.round(hit.score || hit.confidence || 0);
             
-            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (isMarketOpen() ? '🟢' : '🌙');
-            const signalText = vm.executionSignal !== '-' ? vm.executionSignal : vm.setupState;
-            const displaySignal = isMarketOpen() ? signalText : `${signalText} (OFF)`;
+            // Map entryTag to UI Signal
+            let displaySignal = hit.entryTag.replace('_', ' ');
+            let stateColor = 'indigo';
             
-            const actionHint = vm.executionSignal === 'EXECUTE' ? 'Ready' : (vm.setupState === 'FORMING' ? 'Forming' : 'Analysis');
+            if (hit.entryTag === 'STRONG_ENTRY') {
+                displaySignal = 'EXECUTE';
+                stateColor = 'green';
+            } else if (hit.entryTag === 'ENTRY_READY') {
+                displaySignal = 'READY';
+                stateColor = 'green';
+            } else if (hit.entryTag === 'WATCHLIST') {
+                displaySignal = 'WATCH';
+                stateColor = 'yellow';
+            }
+
+            const marketOpen = isMarketOpen();
+            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (marketOpen ? '🔵' : '🌙');
+            const signalSuffix = marketOpen ? '' : ' (OFF)';
             
             const card = document.createElement('div');
-            card.className = "min-w-[160px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-gray-600 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0";
+            card.className = "min-w-[170px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-indigo-500/50 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0 relative overflow-hidden";
+            
+            // Add a subtle glow for strong setups
+            if (stateColor === 'green') {
+                card.classList.add('border-green-500/20');
+                card.innerHTML += `<div class="absolute top-0 right-0 w-8 h-8 bg-green-500/10 blur-xl"></div>`;
+            }
+
             card.onclick = () => {
-                document.getElementById('symbol-input').value = item.symbol;
-                fetchData(false);
+                const input = document.getElementById('symbol-input');
+                if (input) {
+                    input.value = symbol;
+                    fetchData(false);
+                }
             };
             
-            const optionBadge = vm.mode === 'OPTIONS' ? `
-                <div class="mt-1 flex items-center gap-1">
-                    <span class="px-1.5 py-0.5 rounded text-[8px] font-black ${vm.optionType === 'CE' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${vm.strike} ${vm.optionType}</span>
-                    <span class="text-[8px] text-gray-600 font-bold">${vm.expiry}</span>
-                </div>
-            ` : '';
-
-            card.innerHTML = `
+            card.innerHTML += `
                 <div class="flex justify-between items-start mb-1">
-                    <span class="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">${item.symbol.replace('NSE:', '').replace('-EQ', '')}</span>
-                    <div class="flex items-center gap-2 z-10">
-                        <span class="text-[10px] font-bold text-gray-500">${vm.score}</span>
+                    <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
+                    <div class="flex items-center gap-1 z-10">
+                        <span class="text-[9px] font-bold text-gray-500">${score}%</span>
                     </div>
                 </div>
-                ${optionBadge}
-                <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                <div class="text-[9px] text-gray-500 font-medium truncate mb-2">${hit.sector || 'Equities'}</div>
+                <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mt-1">
                     <span>${badgeIcon}</span>
-                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}</span>
+                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}${signalSuffix}</span>
                 </div>
-                <div class="mt-1.5 text-[9px] text-gray-500 italic">
-                    ${actionHint}
+                <div class="mt-2 flex items-center justify-between">
+                    <span class="text-[8px] text-gray-600 uppercase font-bold">${hit.momentumStrength || 'Active'}</span>
+                    <span class="text-[8px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${hit.grade || 'C'}</span>
                 </div>
             `;
             list.appendChild(card);
-            
-            if (vm.executionSignal === "EXECUTE") {
-                if (TradingAssistant.isPinned(item.symbol) || TradingAssistant.state.alerts.find(a => a.symbol === item.symbol)) {
-                    showToast(`🚀 EXECUTE Triggered for ${item.symbol}!`, 'success');
-                } else {
-                    showToast(`🚀 New setup found: ${item.symbol}`, 'success');
-                }
-            }
         });
         
     } catch (err) {
         console.error("Scanner error", err);
-        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Error running scanner.</div>';
+        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scanner offline. Check backend.</div>';
     }
 }
+
 
 function updateUI(data, isBackground = false) {
     try {
@@ -2758,6 +2763,8 @@ window.addEventListener('message', (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     TradingAssistant.init();
     checkFyersStatus();
+    // Populate Top Trades Scanner
+    loadTopTrades();
     // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
