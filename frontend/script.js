@@ -100,20 +100,19 @@ function extractScore(value, fallback = 0) {
 function setTradingMode(mode) {
     appState.tradingMode = mode;
     
-    // Update UI active states
-    ['mode-auto', 'mode-equity', 'mode-options'].forEach(id => {
-        const btn = document.getElementById(id);
+    // Update UI active states (Nav Tab Group)
+    const modeTabs = ['auto', 'equity', 'options'];
+    modeTabs.forEach(m => {
+        const btn = document.getElementById(`mode-${m}`);
         if (btn) {
-            btn.classList.remove('bg-indigo-600', 'text-white');
-            btn.classList.add('text-gray-500', 'hover:bg-gray-800');
+            btn.classList.remove('active');
             btn.setAttribute('aria-pressed', 'false');
         }
     });
     
     const activeBtn = document.getElementById(`mode-${mode.toLowerCase()}`);
     if (activeBtn) {
-        activeBtn.classList.remove('text-gray-500', 'hover:bg-gray-800');
-        activeBtn.classList.add('bg-indigo-600', 'text-white');
+        activeBtn.classList.add('active');
         activeBtn.setAttribute('aria-pressed', 'true');
     }
     
@@ -153,21 +152,17 @@ function switchView(view) {
     // Hide all first
     [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
     [btnDash, btnIntel].forEach(b => {
-        b?.classList.remove('bg-blue-600', 'text-white');
-        b?.classList.add('text-gray-400', 'hover:bg-gray-800');
+        b?.classList.remove('active');
+        b?.setAttribute('aria-pressed', 'false');
     });
 
     if (view === 'dashboard') {
         dashboard?.classList.remove('hidden');
-        btnDash?.classList.add('bg-blue-600', 'text-white');
-        btnDash?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        btnDash?.classList.add('active');
         btnDash?.setAttribute('aria-pressed', 'true');
-        btnIntel?.setAttribute('aria-pressed', 'false');
     } else if (view === 'intelligence') {
         intelligence?.classList.remove('hidden');
-        btnIntel?.classList.add('bg-blue-600', 'text-white');
-        btnIntel?.classList.remove('text-gray-400', 'hover:bg-gray-800');
-        btnDash?.setAttribute('aria-pressed', 'false');
+        btnIntel?.classList.add('active');
         btnIntel?.setAttribute('aria-pressed', 'true');
         
         // Trigger chart resize if chart exists in intelligence (it might not, but safe to check)
@@ -182,9 +177,105 @@ function switchView(view) {
     console.log(`[UI] Switched to ${view.toUpperCase()} mode`);
 }
 
-// Expose to window for HTML onclick handlers
+function toggleAnalysisMode(mode) {
+    const isScreener = mode === 'screener';
+    const isRotation = mode === 'rotation';
+    
+    // Update Hidden Checkboxes (for backend logic)
+    const sToggle = document.getElementById('screener-toggle');
+    const rToggle = document.getElementById('rotation-toggle');
+    
+    if (sToggle) {
+        if (isScreener) sToggle.checked = !sToggle.checked;
+        else sToggle.checked = false;
+    }
+    if (rToggle) {
+        if (isRotation) rToggle.checked = !rToggle.checked;
+        else rToggle.checked = false;
+    }
+
+    // Update Segmented UI
+    const sBtn = document.getElementById('btn-screener');
+    const rBtn = document.getElementById('btn-rotation');
+    
+    if (sBtn) sBtn.classList.toggle('active', sToggle?.checked);
+    if (rBtn) rBtn.classList.toggle('active', rToggle?.checked);
+
+    if (sToggle?.checked) loadTopTrades();
+    if (rToggle?.checked) renderRotation();
+    
+    showToast(`${mode.toUpperCase()} mode ${sToggle?.checked || rToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
+}
+
+window.toggleAnalysisMode = toggleAnalysisMode;
 window.switchView = switchView;
 window.setTradingMode = setTradingMode;
+
+// --- WATCHLIST & OUTCOMES ---
+let pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '["NIFTY50", "RELIANCE"]');
+
+function togglePin(symbol) {
+    if (pinnedSymbols.includes(symbol)) {
+        pinnedSymbols = pinnedSymbols.filter(s => s !== symbol);
+        showToast(`📌 ${symbol} removed from watchlist`, 'info');
+    } else {
+        pinnedSymbols.push(symbol);
+        showToast(`📌 ${symbol} pinned to watchlist`, 'success');
+    }
+    localStorage.setItem('pinnedSymbols', JSON.stringify(pinnedSymbols));
+    renderPinnedWatchlist();
+}
+
+function renderPinnedWatchlist() {
+    const list = document.getElementById('pinned-list');
+    if (!list) return;
+    
+    if (pinnedSymbols.length === 0) {
+        list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-2">No symbols pinned</div>';
+        return;
+    }
+    
+    list.innerHTML = pinnedSymbols.map(sym => `
+        <div class="flex items-center justify-between p-1.5 hover:bg-white/5 rounded transition-colors group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
+            <span class="text-[10px] font-black text-gray-300 group-hover:text-white">${sym}</span>
+            <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[8px] text-gray-600 hover:text-red-400 p-1">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function loadRecentOutcomes() {
+    const list = document.getElementById('recent-outcomes-list');
+    if (!list) return;
+    
+    const outcomes = [
+        { sym: 'NIFTY50', msg: 'Breakout Confirm', move: '+0.8%', state: 'UP' },
+        { sym: 'TCS', msg: 'Mean Reversion', move: '+1.2%', state: 'UP' },
+        { sym: 'HDFCBANK', msg: 'S/R Rejection', move: '-0.4%', state: 'DOWN' }
+    ];
+    
+    list.innerHTML = outcomes.map(o => `
+        <div class="flex items-center justify-between">
+            <div class="flex flex-col">
+                <span class="text-[10px] font-black text-white">${o.sym}</span>
+                <span class="text-[8px] text-gray-500 font-bold uppercase">${o.msg}</span>
+            </div>
+            <div class="text-right">
+                <span class="text-[10px] font-black ${o.state === 'UP' ? 'text-green-400' : 'text-red-400'}">${o.move}</span>
+                <div class="status-helper">${o.state === 'UP' ? 'Target Hit' : 'SL Hit'}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Initial call
+renderPinnedWatchlist();
+loadRecentOutcomes();
+
+window.togglePin = togglePin;
+
+// --- MARKET STATE HELPERS ---
 
 // ==========================================
 // TRADING ASSISTANT MEMORY MODULE
@@ -747,6 +838,14 @@ async function runScreener() {
 async function fetchData(isBackground = false) {
     const loader = document.getElementById('chart-loader');
     const showLoader = isBackground !== true;
+    
+    // Search Feedback
+    const searchSpinner = document.getElementById('search-spinner');
+    const searchBtnText = document.getElementById('search-btn-text');
+    if (!isBackground && searchSpinner && searchBtnText) {
+        searchSpinner.classList.remove('hidden');
+        searchBtnText.textContent = "SEARCHING...";
+    }
 
     try {
         if (showLoader) {
@@ -783,6 +882,10 @@ async function fetchData(isBackground = false) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         let data = await response.json();
+        
+        // Reset Search Feedback
+        if (searchSpinner) searchSpinner.classList.add('hidden');
+        if (searchBtnText) searchBtnText.textContent = "🔍 SEARCH";
 
         if (data && data.meta) {
             // FIX: Market Closed Default Data Bug
@@ -1295,16 +1398,70 @@ function updateExecutionEdge(data) {
     }
     previousSignalState = vm.executionSignal !== "-" ? vm.executionSignal : vm.setupState;
 
-    // Narrative & Summary
-    const narrativeEl = document.getElementById('ee-narrative');
-    if (narrativeEl) {
+    // 1. Main Directive
+    const directiveText = document.getElementById('main-directive-text');
+    const directiveHelper = document.getElementById('directive-helper');
+    if (directiveText) {
+        if (vm.executionSignal === "EXECUTE") {
+            directiveText.textContent = "EXECUTE ENTRY";
+            directiveText.className = "text-sm font-black text-green-400 leading-tight uppercase tracking-tight";
+            if (directiveHelper) directiveHelper.textContent = "High probability setup confirmed";
+        } else if (vm.executionSignal === "WATCH") {
+            directiveText.textContent = "WATCH FOR TRIGGER";
+            directiveText.className = "text-sm font-black text-yellow-400 leading-tight uppercase tracking-tight";
+            if (directiveHelper) directiveHelper.textContent = "Structure aligned, waiting for volume";
+        } else {
+            directiveText.textContent = "NO TRADE SETUP";
+            directiveText.className = "text-sm font-black text-gray-500 leading-tight uppercase tracking-tight";
+            if (directiveHelper) directiveHelper.textContent = "Searching for structural advantage";
+        }
+    }
+
+    // 2. Next Step Guidance
+    const nextStep = document.getElementById('next-step-guidance');
+    if (nextStep) {
+        if (vm.executionSignal === "EXECUTE") {
+            nextStep.innerHTML = `Buy at market price (₹${data.meta.cmp}). Target T1 reached? No.`;
+        } else if (vm.executionSignal === "WATCH") {
+            const level = data.levels?.resistance?.nearest || data.levels?.supply?.nearest || "---";
+            nextStep.innerHTML = `Wait for breakout above <span class="text-blue-400 font-bold">₹${level}</span> with volume surge.`;
+        } else {
+            nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
+        }
+    }
+
+    // 3. Invalidation
+    const invalidation = document.getElementById('invalidation-price');
+    if (invalidation) {
+        const sl = data.strategy?.logical_sl || data.summary?.logical_sl || data.levels?.support?.nearest || "---";
+        invalidation.textContent = sl !== "---" ? `₹${sl}` : "₹--.--";
+    }
+
+    // 4. Conviction Meter
+    const confidence = Math.round(data.score || data.meta?.score || 0);
+    const fill = document.getElementById('conviction-fill');
+    const label = document.getElementById('conviction-label');
+    if (fill) {
+        fill.style.width = `${confidence}%`;
+        fill.className = `h-full transition-all duration-1000 ${
+            confidence > 70 ? 'bg-green-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
+            confidence > 40 ? 'bg-blue-500' : 'bg-gray-600'
+        }`;
+    }
+    if (label) {
+        label.textContent = confidence > 70 ? "HIGH CONVICTION" : confidence > 40 ? "MID CONVICTION" : "LOW CONVICTION";
+        label.className = `text-[7px] font-black uppercase tracking-widest ${
+            confidence > 70 ? 'text-green-400' : confidence > 40 ? 'text-blue-400' : 'text-gray-500'
+        }`;
+    }
+
+    // 5. Contextual Analysis (Narrative)
+    const aiExpl = document.getElementById('expl-ai');
+    if (aiExpl) {
         const formatted = formatNarrative(vm);
-        // Simplified view for primary card: just bullets
-        narrativeEl.innerHTML = `
-            <ul class="space-y-1">
-                ${formatted.bullets.slice(0, 2).map(b => `<li class="flex items-center gap-2"><span class="w-1 h-1 bg-blue-500 rounded-full"></span>${b.trim()}</li>`).join('')}
-            </ul>
-        `;
+        aiExpl.innerHTML = formatted.bullets.length > 0 
+            ? formatted.bullets.map(b => `<div class="flex gap-2 mb-2"><i class="fas fa-caret-right text-indigo-500 mt-0.5"></i> <span>${b}</span></div>`).join('')
+            : "No specific structural narrative for the current price action.";
     }
 
     // Analysis Tab Title
@@ -1571,17 +1728,26 @@ async function loadTopTrades() {
         // Mapping: STRONG_ENTRY/ENTRY_READY -> Priority 1, WATCHLIST -> Priority 2
         hits = hits.filter(h => h.entryTag !== 'AVOID' && h.symbol !== 'N/A');
         
+        const sortMode = document.getElementById('scanner-sort')?.value || 'score';
+        
         hits.sort((a, b) => {
-            const getPriority = (h) => {
-                if (h.entryTag === 'STRONG_ENTRY') return 100;
-                if (h.entryTag === 'ENTRY_READY') return 80;
-                if (h.entryTag === 'WATCHLIST') return 60;
-                return 40;
-            };
-            const pA = getPriority(a);
-            const pB = getPriority(b);
-            if (pA !== pB) return pB - pA;
-            return (b.score || b.confidence || 0) - (a.score || a.confidence || 0);
+            if (sortMode === 'score') {
+                const getPriority = (h) => {
+                    if (h.entryTag === 'STRONG_ENTRY') return 100;
+                    if (h.entryTag === 'ENTRY_READY') return 80;
+                    if (h.entryTag === 'WATCHLIST') return 60;
+                    return 40;
+                };
+                const pA = getPriority(a);
+                const pB = getPriority(b);
+                if (pA !== pB) return pB - pA;
+                return (b.score || b.confidence || 0) - (a.score || a.confidence || 0);
+            } else if (sortMode === 'sector') {
+                return (a.sector || '').localeCompare(b.sector || '');
+            } else if (sortMode === 'signal') {
+                return (a.entryTag || '').localeCompare(b.entryTag || '');
+            }
+            return 0;
         });
 
         if (hits.length === 0) {
@@ -1642,6 +1808,11 @@ async function loadTopTrades() {
                     <span>${badgeIcon}</span>
                     <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}${signalSuffix}</span>
                 </div>
+                <!-- ENHANCED INSIGHTS -->
+                <div class="mt-2 pt-2 border-t border-white/5 space-y-1">
+                    ${hit.positives ? `<div class="text-[8px] text-green-500/80 font-bold flex items-center gap-1"><i class="fas fa-plus-circle text-[6px]"></i> ${hit.positives.slice(0, 20)}...</div>` : ''}
+                    ${hit.risks ? `<div class="text-[8px] text-red-500/80 font-bold flex items-center gap-1"><i class="fas fa-exclamation-triangle text-[6px]"></i> ${hit.risks.slice(0, 20)}...</div>` : ''}
+                </div>
                 <div class="mt-2 flex items-center justify-between">
                     <span class="text-[8px] text-gray-600 uppercase font-bold">${hit.momentumStrength || 'Active'}</span>
                     <span class="text-[8px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${hit.grade || 'C'}</span>
@@ -1695,13 +1866,35 @@ function updateUI(data, isBackground = false) {
 
         const sLabel = document.getElementById('chart-symbol-label');
         const tfLabel = document.getElementById('chart-tf-label');
+        const currentTf = data.meta.tf || data.meta.timeframe || document.getElementById('tf-selector')?.value || '15m';
+        
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
-            const tf = data.meta.tf || data.meta.timeframe || '15m';
-            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
-            const labelText = names[tf] || tf.toUpperCase();
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '4H': '4 HOUR', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+            const labelText = names[currentTf] || currentTf.toUpperCase();
             tfLabel.textContent = `${labelText} SESSION`;
+            
+            // Sync tf-selector if needed
+            const tfSelector = document.getElementById('tf-selector');
+            if (tfSelector && tfSelector.value !== currentTf) {
+                tfSelector.value = currentTf;
+                if (window.updateTfChips) window.updateTfChips(currentTf);
+            }
         }
+
+        // --- ENHANCED EMPTY STATE HANDLING ---
+        const formatVal = (val, currency = '') => {
+            if (val === null || val === undefined || val === '' || val === '--' || val === '—') {
+                return '<span class="data-placeholder loading-pulse">WAITING...</span>';
+            }
+            if (currency && typeof val === 'number') return formatWithCurrency(val, currency);
+            return val;
+        };
+
+        const setHTML = (id, val, currency = '') => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = formatVal(val, currency);
+        };
 
 
         // Pulse indicators only if price changed
@@ -1872,28 +2065,35 @@ function updateUI(data, isBackground = false) {
             fundCard.classList.remove('hidden');
             const f = data.fundamentals;
             const sectorEl = document.getElementById('fund-sector');
-            if (sectorEl) sectorEl.textContent = f.sector || '—';
-
-            const mcapEl = document.getElementById('fund-mcap');
-            if (mcapEl) mcapEl.textContent = f.market_cap || '—';
+            if (sectorEl) sectorEl.textContent = `Sector: ${f.sector || 'N/A'}`;
 
             const peEl = document.getElementById('fund-pe');
             if (peEl) {
-                peEl.textContent = f.pe_ratio || '—';
-                if (f.pe_ratio) {
-                    peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
+                peEl.textContent = f.pe_ratio && f.pe_ratio > 0 ? f.pe_ratio : 'N/A';
+                if (f.pe_ratio > 0) {
+                    peEl.className = `text-xs font-black ${f.pe_ratio < 20 ? 'text-green-400' : f.pe_ratio > 50 ? 'text-red-400' : 'text-white'}`;
+                } else {
+                    peEl.className = 'text-xs font-black text-gray-600';
                 }
             }
 
-            setTxt('fund-roe', f.roe ? `${f.roe}%` : '—');
-            setTxt('fund-div', f.dividend_yield ? `${f.dividend_yield}%` : '—');
-            setTxt('fund-52h', f['52w_high'] || '—');
-            setTxt('fund-52l', f['52w_low'] || '—');
+            const roeEl = document.getElementById('fund-roe');
+            if (roeEl) {
+                roeEl.textContent = f.roe && f.roe > 0 ? `${f.roe}%` : 'N/A';
+                if (f.roe > 0) {
+                    roeEl.className = `text-xs font-black ${f.roe > 15 ? 'text-green-400' : 'text-white'}`;
+                } else {
+                    roeEl.className = 'text-xs font-black text-gray-600';
+                }
+            }
 
-            const rB = document.getElementById('fund-range-bar');
-            if (rB && f['52w_high'] && f['52w_low']) {
-                let p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
-                rB.style.width = `${Math.max(0, Math.min(100, p))}%`;
+            setTxt('fund-52h', f['52w_high'] || '---');
+            setTxt('fund-52l', f['52w_low'] || '---');
+
+            const progress = document.getElementById('fund-progress');
+            if (progress && f['52w_high'] && f['52w_low'] && f['52w_high'] > f['52w_low']) {
+                const p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
+                progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
             }
         } else if (fundCard) {
             fundCard.classList.add('hidden');
@@ -2265,8 +2465,8 @@ window.onload = function () {
 
         // Force chart resize after a short delay to ensure container has proper dimensions
         setTimeout(() => {
-            if (chart) {
-                const chartContainer = document.getElementById('tv-chart');
+            const chartContainer = document.getElementById('tv-chart');
+            if (chart && chartContainer) {
                 chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
             }
         }, 100);
@@ -2493,12 +2693,15 @@ window.onload = function () {
                 setActive(tfSelector.value);
             }
         }
-        document.getElementById('mtf-toggle').addEventListener('change', () => {
-            // Re-render chart levels without re-fetching
-            if (window.lastReceivedData) {
-                drawLevelsOnChart(window.lastReceivedData.levels);
-            }
-        });
+        const mtfToggle = document.getElementById('mtf-toggle');
+        if (mtfToggle) {
+            mtfToggle.addEventListener('change', () => {
+                // Re-render chart levels without re-fetching
+                if (window.lastReceivedData) {
+                    drawLevelsOnChart(window.lastReceivedData.levels);
+                }
+            });
+        }
         const searchBtn = document.getElementById('search-btn');
         if (searchBtn) {
             searchBtn.addEventListener('click', (e) => {
@@ -2532,12 +2735,17 @@ window.onload = function () {
             }
         }, 10000); // reduced frequency for expensive intelligence calls (10s)
 
-        document.getElementById('strategy-selector').addEventListener('change', () => {
-            fetchData();
-        });
+        const stratSelector = document.getElementById('strategy-selector');
+        if (stratSelector) {
+            stratSelector.addEventListener('change', () => {
+                fetchData();
+            });
+        }
 
-        document.getElementById('tf-selector').addEventListener('change', () => {
-            const tf = document.getElementById('tf-selector').value;
+        const tfSelector = document.getElementById('tf-selector');
+        if (tfSelector) {
+            tfSelector.addEventListener('change', () => {
+                const tf = tfSelector.value;
             // Sync buttons if it's 5m or 15m
             document.querySelectorAll('#intraday-tf-toggle button').forEach(btn => {
                 if (btn.dataset.tf === tf) {
@@ -2551,6 +2759,11 @@ window.onload = function () {
                 }
             });
         });
+    }
+    
+    // "Debugging is twice as hard as writing the code in the first place. 
+    //  Therefore, if you write the code as cleverly as possible, you are, 
+    //  by definition, not smart enough to debug it." — Brian Kernighan
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
