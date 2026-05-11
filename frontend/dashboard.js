@@ -1069,10 +1069,15 @@ class MarketIntelligence {
             const laggingSector = hit.sectorState === "LAGGING";
             const belowThreshold = conf.score < threshold;
 
-            if (avoidSession || laggingSector || belowThreshold) {
+            // Strict filtering only applies if user isn't asking for "All Signals"
+            if (threshold > 0 && (avoidSession || laggingSector)) {
                 if (window.location.search.includes('debug=true')) {
                     console.log(`[Filter] ${hit.symbol} hidden: session=${session.quality}, sector=${hit.sectorState}, score=${conf.score}% (threshold=${threshold})`);
                 }
+                return false;
+            }
+            
+            if (belowThreshold) {
                 return false;
             }
 
