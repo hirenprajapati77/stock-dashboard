@@ -227,22 +227,25 @@ function togglePin(symbol) {
 }
 
 function renderPinnedWatchlist() {
-    const list = document.getElementById('pinned-list');
-    if (!list) return;
+    const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
     
-    if (pinnedSymbols.length === 0) {
-        list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-2">No symbols pinned</div>';
-        return;
-    }
-    
-    list.innerHTML = pinnedSymbols.map(sym => `
-        <div class="flex items-center justify-between p-1.5 hover:bg-white/5 rounded transition-colors group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
-            <span class="text-[10px] font-black text-gray-300 group-hover:text-white">${sym}</span>
-            <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[8px] text-gray-600 hover:text-red-400 p-1">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-    `).join('');
+    lists.forEach(list => {
+        if (!list) return;
+        
+        if (pinnedSymbols.length === 0) {
+            list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-2 uppercase tracking-widest">Awaiting symbol pin...</div>';
+            return;
+        }
+        
+        list.innerHTML = pinnedSymbols.map(sym => `
+            <div class="flex items-center justify-between p-1.5 hover:bg-white/5 rounded transition-colors group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
+                <span class="text-[10px] font-black text-gray-300 group-hover:text-white uppercase tracking-tight">${sym}</span>
+                <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[8px] text-gray-600 hover:text-red-400 p-1">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `).join('');
+    });
 }
 
 function loadRecentOutcomes() {
@@ -468,19 +471,22 @@ const TradingAssistant = {
     },
     
     renderWatchlist() {
-        const list = document.getElementById('ta-watchlist-list');
-        if (!list) return;
-        if (this.state.watchlist.length === 0) {
-            list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</div>';
-            return;
-        }
+        const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
         
-        list.innerHTML = this.state.watchlist.map(sym => `
-            <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
-                <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
-                <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
-            </div>
-        `).join('');
+        lists.forEach(list => {
+            if (!list) return;
+            if (this.state.watchlist.length === 0) {
+                list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-2 uppercase tracking-widest">Pin symbols from scanner</div>';
+                return;
+            }
+            
+            list.innerHTML = this.state.watchlist.map(sym => `
+                <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
+                    <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
+                    <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
+                </div>
+            `).join('');
+        });
     }
 };
 
@@ -3022,3 +3028,15 @@ setInterval(() => {
         }
     }
 }, 1000);
+
+// Initialize UI listeners
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('tf-selector')?.addEventListener('change', function(e) {
+        const tf = e.target.value;
+        const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '4H': '4 HOUR', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+        const labelText = names[tf] || tf.toUpperCase();
+        const tfLabel = document.getElementById('chart-tf-label');
+        if (tfLabel) tfLabel.textContent = `${labelText} SESSION`;
+        if (typeof fetchData === 'function') fetchData();
+    });
+});

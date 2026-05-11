@@ -45,12 +45,12 @@
 
             <!-- VIEW NAVIGATION CLUSTER -->
             <div class="flex-grow flex justify-center">
-                <nav class="nav-tab-group" aria-label="Dashboard Views">
+                <nav class="nav-tab-group" aria-label="Dashboard Views" style="gap: 12px; padding: 4px;">
                     <button id="view-dashboard" onclick="switchView('dashboard')" class="nav-tab active" aria-pressed="true">DASHBOARD</button>
                     <button id="view-intelligence" onclick="switchView('intelligence')" class="nav-tab" aria-pressed="false">INTELLIGENCE</button>
-                    <div class="w-[1px] h-3 bg-gray-700/50 self-center mx-1"></div>
+                    <div class="w-[1px] h-3 bg-gray-700/50 self-center mx-2"></div>
                     <button id="toggle-tracking-btn" onclick="toggleTrackingModeColumn()"
-                            class="nav-tab flex items-center gap-1.5"
+                            class="nav-tab flex items-center gap-2"
                             aria-label="Toggle Tracking Sidebar">
                         <i class="fas fa-list-ul text-[8px]" aria-hidden="true"></i> TRACKING
                     </button>
@@ -58,10 +58,10 @@
             </div>
 
             <!-- TRADING MODE CLUSTER -->
-            <div class="flex items-center gap-3 justify-end flex-shrink-0">
-                <div class="flex flex-col items-end mr-1">
-                    <span class="text-[7px] font-black text-gray-500 uppercase tracking-widest mb-1">Execution Mode</span>
-                    <nav class="nav-tab-group" aria-label="Trading Modes">
+            <div class="flex items-center gap-4 justify-end flex-shrink-0">
+                <div class="flex flex-col items-end mr-2">
+                    <span class="text-[7px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Execution Mode</span>
+                    <nav class="nav-tab-group" aria-label="Trading Modes" style="gap: 8px;">
                         <button id="mode-auto" onclick="setTradingMode('AUTO')" class="nav-tab nav-tab-indigo active" aria-pressed="true">AUTO</button>
                         <button id="mode-equity" onclick="setTradingMode('EQUITY')" class="nav-tab" aria-pressed="false">EQUITY</button>
                         <button id="mode-options" onclick="setTradingMode('OPTIONS')" class="nav-tab" aria-pressed="false">OPTIONS</button>
@@ -171,13 +171,14 @@
                     <div class="p-2 bg-blue-500/10 rounded-lg">
                         <span class="text-xl">📊</span>
                     </div>
-                    <div>
+                                 <div class="flex flex-col">
                         <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Market Breadth</h3>
                         <div class="flex items-baseline gap-2">
-                            <span id="breadth-score" class="text-xl font-bold mono text-blue-400">0%</span>
-                            <span id="breadth-label" class="text-[9px] font-bold text-gray-500">POOR</span>
+                            <span id="breadth-score" class="text-xl font-bold mono text-blue-400">Awaiting...</span>
+                            <span id="breadth-label" class="text-[9px] font-bold text-gray-500 uppercase">SYNCING</span>
                         </div>
                     </div>
+   </div>
                 </div>
                 <div class="col-span-2">
                     <div class="flex justify-between items-end mb-1">
@@ -760,7 +761,7 @@
                         </span>
                     </p>
                     <div class="flex items-baseline gap-2">
-                        <span id="cmp" class="text-2xl font-bold mono">—</span>
+                        <span id="cmp" class="text-2xl font-bold mono">Scanning...</span>
                         <span id="price-change" class="text-xs font-medium">+0.00%</span>
                     </div>
                 </div>
@@ -940,7 +941,7 @@
                                     <div class="space-y-2">
                                         <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
                                             <span id="micro-label-1" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Volume Surge</span>
-                                            <span id="ee-micro-val-1" class="text-[10px] font-black text-white">---</span>
+                                            <span id="outcome-entry" class="text-[10px] font-black text-white">Awaiting...</span>
                                         </div>
                                         <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
                                             <span id="micro-label-2" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Trend Intensity</span>
@@ -1145,15 +1146,15 @@
                                 </div>
                             </div>
                             
-                            <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-4">
                                 <!-- Action Tag -->
                                 <div id="chart-header-action" class="hidden"></div>
-                                <button onclick="zoomReset()" class="px-2 py-1 bg-white/5 border border-white/5 rounded-lg text-gray-400 hover:text-white hover:border-white/10 transition-all flex items-center gap-2" aria-label="Reset Chart Zoom">
+                                <button onclick="zoomReset()" class="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white hover:border-white/20 transition-all flex items-center gap-2" aria-label="Reset Chart Zoom">
                                     <i class="fas fa-compress-arrows-alt text-[10px]" aria-hidden="true"></i>
-                                    <span class="text-[8px] font-bold">RESET</span>
+                                    <span class="text-[8px] font-bold">RESET ZOOM</span>
                                 </button>
                                 
-                                <button onclick="window.toggleFullscreenChart()" class="px-2 py-1 bg-white/5 border border-white/5 rounded-lg text-gray-400 hover:text-white hover:border-white/10 transition-all flex items-center gap-2" aria-label="Toggle Fullscreen">
+                                <button onclick="window.toggleFullscreenChart()" class="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white hover:border-white/20 transition-all flex items-center gap-2" aria-label="Toggle Fullscreen">
                                     <i class="fas fa-expand-alt text-[10px]" aria-hidden="true"></i>
                                     <span class="text-[8px] font-bold">FULLSCREEN</span>
                                 </button>
@@ -1171,27 +1172,14 @@
                     </div>
                 </div>
 
-                <!-- Right: Pro Intelligence Sidebar -->
                 <div class="intelligence-sidebar space-y-4">
                     <!-- Pinned Watchlist (NEW) -->
-                    <div id="pinned-watchlist" class="glass-card overflow-hidden border border-purple-500/20">
+                    <div id="pinned-watchlist-sidebar" class="glass-card overflow-hidden border border-purple-500/20">
                         <div class="px-4 py-2 border-b border-purple-500/10 bg-purple-500/5 flex justify-between items-center">
                             <h3 class="font-black text-[9px] uppercase tracking-widest text-purple-400">Pinned Watchlist</h3>
                             <i class="fas fa-thumbtack text-[8px] text-purple-500/50"></i>
                         </div>
-                        <div id="pinned-list" class="p-2 space-y-1">
-                            <div class="text-[9px] text-gray-600 italic text-center py-2">No symbols pinned</div>
-                        </div>
-                    </div>
-
-                <div class="intelligence-sidebar space-y-4">
-                    <!-- Pinned Watchlist (NEW) -->
-                    <div id="pinned-watchlist" class="glass-card overflow-hidden border border-purple-500/20">
-                        <div class="px-4 py-2 border-b border-purple-500/10 bg-purple-500/5 flex justify-between items-center">
-                            <h3 class="font-black text-[9px] uppercase tracking-widest text-purple-400">Pinned Watchlist</h3>
-                            <i class="fas fa-thumbtack text-[8px] text-purple-500/50"></i>
-                        </div>
-                        <div id="pinned-list" class="p-2 space-y-1">
+                        <div id="pinned-list-sidebar" class="p-2 space-y-1">
                             <div class="text-[9px] text-gray-600 italic text-center py-2">No symbols pinned</div>
                         </div>
                     </div>
@@ -1206,14 +1194,21 @@
                             </button>
                         </div>
                         <div class="p-4 space-y-6 max-h-[300px] overflow-y-auto custom-scrollbar">
-                            <div>
-                                <p class="text-gray-500 text-[9px] uppercase font-black tracking-widest mb-3">Resistances</p>
-                                <div id="resistance-list" class="space-y-1.5"></div>
-                            </div>
-                            <div>
-                                <p class="text-gray-500 text-[9px] uppercase font-black tracking-widest mb-3">Supports</p>
-                                <div id="support-list" class="space-y-1.5"></div>
-                            </div>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="w-1.5 h-1.5 bg-indigo-500 rounded-full"></div>
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-indigo-400">Critical Resistances</span>
+                                </div>
+                                <div id="resistance-list" class="space-y-1.5">
+                                    <div class="text-[10px] text-gray-600 italic">Calculating levels...</div>
+                                </div>
+                                
+                                <div class="flex items-center gap-2 mt-6 mb-3">
+                                    <div class="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-blue-400">Major Supports</span>
+                                </div>
+                                <div id="support-list" class="space-y-1.5">
+                                    <div class="text-[10px] text-gray-600 italic">Calculating levels...</div>
+                                </div>
                         </div>
                     </div>
 
@@ -1255,7 +1250,7 @@
                                     <p class="text-[7px] font-bold text-red-400 uppercase tracking-widest mb-1 flex items-center gap-1">
                                         <i class="fas fa-shield-alt"></i> Invalidation
                                     </p>
-                                    <p id="invalidation-price" class="text-[10px] font-black text-white">₹--.--</p>
+                                    <p id="invalidation-price" class="text-[10px] font-black text-white">Awaiting...</p>
                                     <p class="status-helper">Risk point: Exit below this level</p>
                                 </div>
                             </div>
