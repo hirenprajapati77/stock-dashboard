@@ -1427,10 +1427,18 @@ function updateExecutionEdge(data) {
     const nextStep = document.getElementById('next-step-guidance');
     if (nextStep) {
         if (vm.executionSignal === "EXECUTE") {
-            nextStep.innerHTML = `Buy at market price (₹${data.meta.cmp}). Target T1 reached? No.`;
+            const entry = data.decision?.entry_price || data.meta?.cmp;
+            const target = data.decision?.target_price || data.summary?.target;
+            const entryFmt = entry ? `₹${parseFloat(entry).toFixed(2)}` : '₹--.--';
+            const targetFmt = target ? `₹${parseFloat(target).toFixed(2)}` : 'T1';
+            nextStep.innerHTML = `Buy at <span class="text-green-400 font-bold font-mono">${entryFmt}</span>. Target: <span class="text-blue-400 font-bold font-mono">${targetFmt}</span>`;
         } else if (vm.executionSignal === "WATCH") {
-            const level = data.summary?.nearest_resistance || "---";
-            nextStep.innerHTML = `Wait for breakout above <span class="text-blue-400 font-bold font-mono">₹${level}</span> with volume surge.`;
+            // nearest_resistance can be null (JSON null) when no zones are above CMP
+            const nr = data.summary?.nearest_resistance;
+            const levelFmt = (nr !== null && nr !== undefined)
+                ? `<span class="text-blue-400 font-bold font-mono">₹${parseFloat(nr).toFixed(2)}</span>`
+                : `<span class="text-gray-500 font-mono">resistance zone</span>`;
+            nextStep.innerHTML = `Wait for breakout above ${levelFmt} with volume surge.`;
         } else {
             nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
         }
@@ -1439,8 +1447,13 @@ function updateExecutionEdge(data) {
     // 3. Invalidation
     const invalidation = document.getElementById('invalidation-price');
     if (invalidation) {
-        const sl = data.summary?.stop_loss || data.summary?.nearest_support || "---";
-        invalidation.textContent = sl !== "---" ? `₹${sl}` : "₹--.--";
+        // Try: decision stop_loss → summary stop_loss → nearest_support → fallback
+        const sl = data.decision?.stop_loss
+            ?? data.summary?.stop_loss
+            ?? data.summary?.nearest_support;
+        invalidation.textContent = (sl !== null && sl !== undefined)
+            ? `₹${parseFloat(sl).toFixed(2)}`
+            : '₹--.--';
     }
 
     // 4. Conviction Meter
