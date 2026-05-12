@@ -252,6 +252,12 @@ function loadRecentOutcomes(data = null) {
     const list = document.getElementById('recent-outcomes-list');
     if (!list) return;
     
+    // Clear list if we are awaiting or have no data
+    if (!data && !window._lastTradePerfData) {
+        list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-1">Syncing recent outcomes...</div>';
+        return;
+    }
+    
     // If no data, try to pull from window cache
     const d = data || window._lastTradePerfData;
     if (!d) return;
@@ -1492,14 +1498,20 @@ function updateExecutionEdge(data) {
     // 3. Invalidation
     const invalidation = document.getElementById('invalidation-price');
     if (invalidation) {
-        // Try each source in priority order — skip falsy / zero values (₹0.00 is invalid)
+        // Try each source in priority order — skip falsy / zero / invalid values
+        const isValidPrice = (p) => {
+            const val = parseFloat(p);
+            return !isNaN(val) && val > 0.01; // Avoid ₹0.00 precisely
+        };
+
         const slRaw = (
-            (data.decision?.stop_loss > 0 && data.decision.stop_loss) ||
-            (data.summary?.stop_loss > 0 && data.summary.stop_loss) ||
-            (data.summary?.nearest_support > 0 && data.summary.nearest_support) ||
+            (isValidPrice(data.decision?.stop_loss) ? data.decision.stop_loss : null) ||
+            (isValidPrice(data.summary?.stop_loss) ? data.summary.stop_loss : null) ||
+            (isValidPrice(data.summary?.nearest_support) ? data.summary.nearest_support : null) ||
             null
         );
-        invalidation.textContent = slRaw != null
+        
+        invalidation.textContent = slRaw !== null
             ? `₹${parseFloat(slRaw).toFixed(2)}`
             : '₹--.--';
     }
@@ -2983,18 +2995,18 @@ async function fetchIntelligence(force = false) {
             if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
                 intelligenceApp.updateSignalPerformance(perfData);
             }
-            if (tradePerfData) {
-                if (typeof intelligenceApp.updateTradePerformance === 'function') {
-                    intelligenceApp.updateTradePerformance(tradePerfData);
-                }
-                // Sync the main dashboard's Recent Outcomes panel
-                if (typeof window.loadRecentOutcomes === 'function') {
-                    window.loadRecentOutcomes(tradePerfData);
-                }
-            }
             if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
                 intelligenceApp.updateWatchlist(watchlistData);
             }
+        }
+
+        // 4. Global Dashboard Sync (Outside intelligenceApp block)
+        if (tradePerfData) {
+            // Sync the main dashboard's Recent Outcomes panel
+            if (typeof window.loadRecentOutcomes === 'function') {
+                window.loadRecentOutcomes(tradePerfData);
+            }
+        }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
                 intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'live');
