@@ -9,8 +9,6 @@ const HITS_URL = `${API_BASE}/api/v1/momentum-hits`;
 const EARLY_SETUPS_URL = `${API_BASE}/api/v1/early-setups`;
 const SIGNAL_PERF_URL = `${API_BASE}/api/v1/signal-performance`;
 const TRADE_PERF_URL = `${API_BASE}/api/v1/trade-performance`;
-const INTELLIGENCE_URL = `${API_BASE}/api/v1/intelligence`;
-
 
 // ==========================================
 // GLOBAL TRADING STATE
@@ -20,100 +18,22 @@ const appState = {
     resolvedMode: 'EQUITY'
 };
 
-function formatLocalTimeSafe(value) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '--:--:--';
-
-    try {
-        return new Intl.DateTimeFormat('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        }).format(date);
-    } catch (err) {
-        const pad = (n) => String(n).padStart(2, '0');
-        return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-    }
-}
-
-function hideDashboardLoaders() {
-    if (window._loaderTimeout) {
-        clearTimeout(window._loaderTimeout);
-        window._loaderTimeout = null;
-    }
-
-    ['chart-loader', 'global-page-loader', 'global-loader'].forEach(id => {
-        const loader = document.getElementById(id);
-        if (loader) {
-            loader.classList.add('hidden');
-            loader.style.display = 'none';
-        }
-    });
-}
-
-function showChartSyncError(message) {
-    const chartParent = document.getElementById('chart-parent');
-    if (!chartParent) return;
-
-    let errDiv = document.getElementById('chart-error-msg');
-    if (!errDiv) {
-        errDiv = document.createElement('div');
-        errDiv.id = 'chart-error-msg';
-        errDiv.className = 'absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/90 z-50 rounded-2xl border border-yellow-500/30';
-        chartParent.appendChild(errDiv);
-    }
-
-    errDiv.classList.remove('hidden');
-    errDiv.innerHTML = `
-        <div class="flex flex-col items-center gap-3">
-            <span class="text-3xl" aria-hidden="true">!</span>
-            <p class="text-yellow-500 font-bold text-lg">Sync Delayed</p>
-            <p class="text-xs text-gray-400 max-w-[300px]">${message}</p>
-            <button onclick="window.fetchData()" class="mt-2 px-6 py-2 bg-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all shadow-lg">RETRY SYNC</button>
-        </div>
-    `;
-}
-
-function extractScore(value, fallback = 0) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-        const parsed = parseFloat(value);
-        return Number.isFinite(parsed) ? parsed : fallback;
-    }
-    if (value && typeof value === 'object') {
-        const candidates = [
-            value.meta_score,
-            value.score,
-            value.total,
-            value.value,
-            value.confidence,
-            value.final_score
-        ];
-        for (const candidate of candidates) {
-            const parsed = extractScore(candidate, NaN);
-            if (Number.isFinite(parsed)) return parsed;
-        }
-    }
-    return fallback;
-}
-
 function setTradingMode(mode) {
     appState.tradingMode = mode;
     
-    // Update UI active states (Nav Tab Group)
-    const modeTabs = ['auto', 'equity', 'options'];
-    modeTabs.forEach(m => {
-        const btn = document.getElementById(`mode-${m}`);
+    // Update UI active states
+    ['mode-auto', 'mode-equity', 'mode-options'].forEach(id => {
+        const btn = document.getElementById(id);
         if (btn) {
-            btn.classList.remove('active');
-            btn.setAttribute('aria-pressed', 'false');
+            btn.classList.remove('bg-indigo-600', 'text-white');
+            btn.classList.add('text-gray-500', 'hover:bg-gray-800');
         }
     });
     
     const activeBtn = document.getElementById(`mode-${mode.toLowerCase()}`);
     if (activeBtn) {
-        activeBtn.classList.add('active');
-        activeBtn.setAttribute('aria-pressed', 'true');
+        activeBtn.classList.remove('text-gray-500', 'hover:bg-gray-800');
+        activeBtn.classList.add('bg-indigo-600', 'text-white');
     }
     
     // Refresh UI if we have data
@@ -130,7 +50,7 @@ function resolveMode(userMode, data) {
     const d = data?.decision || {};
     const opt = d.option_selector || data.options || {};
     const hasOption = !!(opt.strike || data.options?.strike);
-    const confidence = extractScore(d?.meta_score, extractScore(data?.score, 0));
+    const confidence = data?.score || d?.meta_score || 0;
 
     // AUTO Prioritization: Promote to Options if setup is high-confidence
     if (userMode === 'AUTO') {
@@ -143,159 +63,45 @@ function resolveMode(userMode, data) {
 
 function switchView(view) {
     const dashboard = document.getElementById('standard-dashboard');
-    const intelligence = document.getElementById('intelligence-section');
-    const rotation = document.getElementById('rotation-section');
+    const intelligence = document.getElementById('execution-edge-panel');
+    const scanner = document.getElementById('top-trades-panel');
     
     const btnDash = document.getElementById('view-dashboard');
     const btnIntel = document.getElementById('view-intelligence');
 
-    // Hide all first
-    [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
-    [btnDash, btnIntel].forEach(b => {
-        b?.classList.remove('active');
-        b?.setAttribute('aria-pressed', 'false');
-    });
-
     if (view === 'dashboard') {
         dashboard?.classList.remove('hidden');
-        btnDash?.classList.add('active');
-        btnDash?.setAttribute('aria-pressed', 'true');
-    } else if (view === 'intelligence') {
-        intelligence?.classList.remove('hidden');
-        btnIntel?.classList.add('active');
-        btnIntel?.setAttribute('aria-pressed', 'true');
+        intelligence?.classList.add('hidden');
+        scanner?.classList.add('hidden');
         
-        // Trigger chart resize if chart exists in intelligence (it might not, but safe to check)
+        btnDash?.classList.add('bg-blue-600', 'text-white');
+        btnDash?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        
+        btnIntel?.classList.remove('bg-blue-600', 'text-white');
+        btnIntel?.classList.add('text-gray-400', 'hover:bg-gray-800');
+    } else {
+        dashboard?.classList.add('hidden');
+        intelligence?.classList.remove('hidden');
+        scanner?.classList.remove('hidden');
+        
+        btnIntel?.classList.add('bg-blue-600', 'text-white');
+        btnIntel?.classList.remove('text-gray-400', 'hover:bg-gray-800');
+        
+        btnDash?.classList.remove('bg-blue-600', 'text-white');
+        btnDash?.classList.add('text-gray-400', 'hover:bg-gray-800');
+        
+        // Trigger chart resize when switching to intelligence
         setTimeout(() => {
             if (window.chart) window.chart.resize();
         }, 100);
-
-        // Fetch intelligence data if needed
-        if (typeof fetchIntelligence === 'function') fetchIntelligence();
     }
     
     console.log(`[UI] Switched to ${view.toUpperCase()} mode`);
 }
 
-function toggleAnalysisMode(mode) {
-    const isScreener = mode === 'screener';
-    const isRotation = mode === 'rotation';
-    
-    // Update Hidden Checkboxes (for backend logic)
-    const sToggle = document.getElementById('screener-toggle');
-    const rToggle = document.getElementById('rotation-toggle');
-    
-    if (sToggle) {
-        if (isScreener) sToggle.checked = !sToggle.checked;
-        else sToggle.checked = false;
-    }
-    if (rToggle) {
-        if (isRotation) rToggle.checked = !rToggle.checked;
-        else rToggle.checked = false;
-    }
-
-    // Update Segmented UI
-    const sBtn = document.getElementById('btn-screener');
-    const rBtn = document.getElementById('btn-rotation');
-    
-    if (sBtn) sBtn.classList.toggle('active', sToggle?.checked);
-    if (rBtn) rBtn.classList.toggle('active', rToggle?.checked);
-
-    if (sToggle?.checked) loadTopTrades();
-    if (rToggle?.checked) renderRotation();
-    
-    showToast(`${mode.toUpperCase()} mode ${sToggle?.checked || rToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
-}
-
-window.toggleAnalysisMode = toggleAnalysisMode;
+// Expose to window for HTML onclick handlers
 window.switchView = switchView;
 window.setTradingMode = setTradingMode;
-
-// --- WATCHLIST & OUTCOMES ---
-let pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '["NIFTY50", "RELIANCE"]');
-
-function togglePin(symbol) {
-    if (pinnedSymbols.includes(symbol)) {
-        pinnedSymbols = pinnedSymbols.filter(s => s !== symbol);
-        showToast(`📌 ${symbol} removed from watchlist`, 'info');
-    } else {
-        pinnedSymbols.push(symbol);
-        showToast(`📌 ${symbol} pinned to watchlist`, 'success');
-    }
-    localStorage.setItem('pinnedSymbols', JSON.stringify(pinnedSymbols));
-    renderPinnedWatchlist();
-}
-
-function renderPinnedWatchlist() {
-    const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
-    
-    lists.forEach(list => {
-        if (!list) return;
-        
-        if (pinnedSymbols.length === 0) {
-            list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-2 uppercase tracking-widest">Awaiting symbol pin...</div>';
-            return;
-        }
-        
-        list.innerHTML = pinnedSymbols.map(sym => `
-            <div class="flex items-center justify-between p-1.5 hover:bg-white/5 rounded transition-colors group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
-                <span class="text-[10px] font-black text-gray-300 group-hover:text-white uppercase tracking-tight">${sym}</span>
-                <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[8px] text-gray-600 hover:text-red-400 p-1">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `).join('');
-    });
-}
-
-function loadRecentOutcomes(data = null) {
-    const list = document.getElementById('recent-outcomes-list');
-    if (!list) return;
-    
-    // If no data, try to pull from window cache
-    const d = data || window._lastTradePerfData;
-    if (!d) return;
-    
-    window._lastTradePerfData = d;
-    
-    // Combine winners and losers for the list
-    const winners = (d.bestSetups || []).slice(0, 2).map(o => ({ ...o, state: 'UP' }));
-    const losers = (d.worstSetups || []).slice(0, 1).map(o => ({ ...o, state: 'DOWN' }));
-    const outcomes = [...winners, ...losers];
-    
-    if (outcomes.length === 0) {
-        list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-1">No recent outcomes recorded...</div>';
-        return;
-    }
-
-    list.innerHTML = outcomes.map(o => {
-        const pnl = parseFloat(o.pnlR || 0);
-        const moveLabel = pnl >= 0 ? `+${pnl.toFixed(1)}R` : `${pnl.toFixed(1)}R`;
-        const statusLabel = pnl >= 0 ? 'Target Hit' : 'SL Hit';
-        
-        return `
-        <div class="flex items-center justify-between group cursor-pointer hover:bg-white/5 p-1 rounded transition-colors" onclick="document.getElementById('symbol-input').value='${o.symbol}'; fetchData();">
-            <div class="flex flex-col">
-                <span class="text-[10px] font-black text-white group-hover:text-indigo-400 transition-colors">${o.symbol}</span>
-                <span class="text-[8px] text-gray-500 font-bold uppercase">${o.sector || 'Equities'}</span>
-            </div>
-            <div class="text-right">
-                <span class="text-[10px] font-black ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${moveLabel}</span>
-                <div class="status-helper">${statusLabel}</div>
-            </div>
-        </div>
-        `;
-    }).join('');
-}
-window.loadRecentOutcomes = loadRecentOutcomes;
-
-// Initial call
-renderPinnedWatchlist();
-loadRecentOutcomes();
-
-window.togglePin = togglePin;
-
-// --- MARKET STATE HELPERS ---
 
 // ==========================================
 // TRADING ASSISTANT MEMORY MODULE
@@ -488,22 +294,19 @@ const TradingAssistant = {
     },
     
     renderWatchlist() {
-        const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
+        const list = document.getElementById('ta-watchlist-list');
+        if (!list) return;
+        if (this.state.watchlist.length === 0) {
+            list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</div>';
+            return;
+        }
         
-        lists.forEach(list => {
-            if (!list) return;
-            if (this.state.watchlist.length === 0) {
-                list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-2 uppercase tracking-widest">Pin symbols from scanner</div>';
-                return;
-            }
-            
-            list.innerHTML = this.state.watchlist.map(sym => `
-                <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
-                    <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
-                    <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
-                </div>
-            `).join('');
-        });
+        list.innerHTML = this.state.watchlist.map(sym => `
+            <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
+                <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
+                <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
+            </div>
+        `).join('');
     }
 };
 
@@ -668,7 +471,7 @@ function applyMarketStatusState(ms) {
         }
         
         desc.textContent = ms.message + ' - Showing last session data';
-        time.textContent = 'Status as of: ' + formatLocalTimeSafe(ms.last_updated);
+        time.textContent = 'Status as of: ' + new Date(ms.last_updated).toLocaleTimeString();
     } else {
         banner.classList.add('hidden');
     }
@@ -859,33 +662,23 @@ async function runScreener() {
     }
 }
 async function fetchData(isBackground = false) {
-    const loader = document.getElementById('chart-loader');
+    const loader = document.getElementById('loading-overlay');
     const showLoader = isBackground !== true;
-    
-    // Search Feedback
-    const searchSpinner = document.getElementById('search-spinner');
-    const searchBtnText = document.getElementById('search-btn-text');
-    if (!isBackground && searchSpinner && searchBtnText) {
-        searchSpinner.classList.remove('hidden');
-        searchBtnText.textContent = "SEARCHING...";
-    }
 
     try {
-        if (showLoader) {
-            if (loader) {
-                loader.classList.remove('hidden');
-                loader.style.display = 'flex';
-            }
+        if (loader && showLoader) {
+            loader.classList.remove('hidden');
+            loader.style.display = 'flex';
 
-            // Centralized Safeguard: Ensure loader is hidden even if fetch hangs
+            // Centralized Safeguard: Hide loader after 15s if it hangs
             if (window._loaderTimeout) clearTimeout(window._loaderTimeout);
             window._loaderTimeout = setTimeout(() => {
                 if (loader && !loader.classList.contains('hidden')) {
-                    hideDashboardLoaders();
-                    showChartSyncError("The market data sync is taking longer than expected. You can retry without refreshing the page.");
-                    showToast("Sync is taking longer than expected. Please retry.", "warning");
+                    console.warn("[UI] Loader safeguard triggered after 15s timeout.");
+                    loader.classList.add('hidden');
+                    loader.style.display = 'none';
                 }
-            }, 20000); // Increased to 20s for slow networks, with toast feedback
+            }, 15000);
         }
 
         const symbolInput = document.getElementById('symbol-input');
@@ -899,39 +692,13 @@ async function fetchData(isBackground = false) {
 
         console.log(`[Fetch] ${symbol} @ ${tf} | Strategy: ${strategy} (Background: ${isBackground})`);
 
-        const isIntel = typeof isIntelligenceModeActive === 'function' && isIntelligenceModeActive();
-        const liteParam = isIntel ? '&lite=true' : '';
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}${liteParam}&_=${Date.now()}`);
+        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}&_=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        let data = await response.json();
-        
-        // Reset Search Feedback
-        if (searchSpinner) searchSpinner.classList.add('hidden');
-        if (searchBtnText) searchBtnText.textContent = "🔍 SEARCH";
+        const data = await response.json();
 
         if (data && data.meta) {
-            // FIX: Market Closed Default Data Bug
-            if (data.meta.cmp === 0 || !data.meta.cmp) {
-                console.warn("[Fetch] Backend returned 0.00 CMP (Likely weekend/closed). Checking localStorage fallback.");
-                const cached = localStorage.getItem('lastGoodDashboardData_' + symbol);
-                if (cached) {
-                    try {
-                        const parsed = JSON.parse(cached);
-                        if (parsed && parsed.meta && parsed.meta.cmp > 0) {
-                            data = parsed;
-                            data.source = 'fallback';
-                            console.log("[Fetch] Loaded valid fallback data from localStorage.");
-                        }
-                    } catch(e) {}
-                }
-            } else {
-                localStorage.setItem('lastGoodDashboardData_' + symbol, JSON.stringify(data));
-            }
-            
             window.lastReceivedData = data;
-            const chartError = document.getElementById('chart-error-msg');
-            if (chartError) chartError.classList.add('hidden');
             
             // Update live indicator based on source
             const liveIndicator = document.getElementById('live-indicator');
@@ -1024,8 +791,11 @@ async function fetchData(isBackground = false) {
         }
 
     } finally {
-        // ALWAYS try to hide loaders in finally if it was showing
-        hideDashboardLoaders();
+        // ALWAYS try to hide loader in finally if it was showing
+        if (loader) {
+            loader.classList.add('hidden');
+            loader.style.display = 'none';
+        }
     }
 }
 window.fetchData = fetchData;
@@ -1047,15 +817,9 @@ function updateStrategyUI(data) {
         document.getElementById('metric-adx').textContent = `${adxVal.toFixed(1)} (${adxText})`;
         document.getElementById('metric-adx').className = `text-sm font-bold ${adxVal > 25 ? 'text-up' : 'text-white'}`;
 
-        // Volume — use a single canonical source to avoid conflicting values across sections.
-        // Priority: insights.volRatio (engine-computed ratio) → data.volume_ratio (API top-level) → 1.0
-        const volRatio = parseFloat(insights.volRatio ?? data.volume_ratio ?? metrics.volRatio ?? 1);
-        const volLabel = volRatio >= 2.0 ? 'Surge 🔥' : volRatio >= 1.5 ? 'Elevated' : volRatio >= 1.2 ? 'Above Avg' : 'Normal';
-        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volLabel}`;
-        document.getElementById('metric-volume').className = `text-sm font-bold ${
-            volRatio >= 1.5 ? 'text-up' :
-            volRatio >= 1.2 ? 'text-blue-400' : 'text-white'
-        }`;
+        const volRatio = parseFloat(insights.volRatio || metrics.volRatio || 1);
+        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volRatio > 1.2 ? 'Spike' : 'Normal'}`;
+        document.getElementById('metric-volume').className = `text-sm font-bold ${volRatio > 1.2 ? 'text-up' : 'text-white'}`;
 
         const setupText = (insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : '');
         document.getElementById('metric-setup').textContent = setupText || 'No Setup';
@@ -1067,26 +831,10 @@ function updateStrategyUI(data) {
         document.getElementById('metric-sr').textContent = s0 ? `${distS}% from S` : 'No Level';
         document.getElementById('metric-sr').className = `text-sm font-bold ${parseFloat(distS) < 2 ? 'text-up' : 'text-white'}`;
 
-        // ----- RISKS panel -----
-        // Resolve momentum from tech first, then from the V5 decision regime as a fallback.
-        // This prevents the narrative saying "TRENDING" while risks show "WEAK".
-        const rawMo = (tech.momentumStrength || '').toUpperCase();
-        const regimeRaw = summary.market_regime
-            || data.decision?.market_regime?.regime
-            || 'UNKNOWN';
-        let mo;
-        if (rawMo && rawMo !== 'UNKNOWN') {
-            mo = rawMo;
-        } else if (regimeRaw.includes('TRENDING') || regimeRaw.includes('RISK_ON')) {
-            mo = 'MODERATE'; // regime implies momentum exists; avoid contradicting TRENDING narrative
-        } else {
-            mo = 'WEAK';
-        }
+        // Update Risks
+        const mo = (tech.momentumStrength || 'WEAK').toUpperCase();
         document.getElementById('metric-momentum').textContent = mo;
-        document.getElementById('metric-momentum').className = `text-sm font-bold ${
-            mo === 'STRONG' ? 'text-up' :
-            mo === 'MODERATE' ? 'text-white' : 'text-down'
-        }`;
+        document.getElementById('metric-momentum').className = `text-sm font-bold ${mo === 'STRONG' ? 'text-white' : 'text-down'}`;
 
         const vola = tech.volHigh ? 'High Volatility' : 'Stable';
         document.getElementById('metric-vola').textContent = vola;
@@ -1096,15 +844,9 @@ function updateStrategyUI(data) {
         document.getElementById('metric-sector').textContent = sector;
         document.getElementById('metric-sector').className = `text-sm font-bold ${['LEADING', 'IMPROVING'].includes(sector) ? 'text-white' : 'text-down'}`;
 
-        // Regime — colour-code all known states not just RISK_ON
-        const regime = regimeRaw.replace(/_/g, ' ');
-        document.getElementById('metric-regime').textContent = regime;
-        const regimeIsPositive = regimeRaw === 'RISK_ON' || regimeRaw.startsWith('TRENDING');
-        const regimeIsNeutral  = regimeRaw === 'STABLE' || regimeRaw === 'UNKNOWN';
-        document.getElementById('metric-regime').className = `text-sm font-bold ${
-            regimeIsPositive ? 'text-up' :
-            regimeIsNeutral  ? 'text-white' : 'text-down'
-        }`;
+        const regime = summary.market_regime || 'UNKNOWN';
+        document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
+        document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
 
         // Toggle specific strategy panels
         const swingPanel = document.getElementById('strategy-swing-metrics');
@@ -1231,7 +973,7 @@ function toViewModel(data) {
 
     // SESSION ECHO: If market is closed, reconstruct the last valid signal based on score
     if (!marketOpen && (executionSignal === "REJECT" || executionSignal === "NONE")) {
-        const score = extractScore(d?.meta_score, extractScore(data?.score, 0));
+        const score = data?.score || d?.meta_score || 0;
         if (score >= 75) {
             executionSignal = "EXECUTE";
         } else if (score >= 60) {
@@ -1289,8 +1031,7 @@ function toViewModel(data) {
         return `${v} (Balanced)`;
     };
 
-    const score = extractScore(d?.meta_score, extractScore(data?.score, 0));
-    const riskLevel = score >= 60 ? "LOW" : "HIGH";
+    const riskLevel = data?.score >= 60 ? "LOW" : "HIGH";
     const premium = parseFloat(opt.premium_entry || opt.premium || 0);
     const lotSize = parseInt(opt.lot_size || (data?.meta?.symbol?.includes('NIFTY') ? 50 : 25));
 
@@ -1345,11 +1086,11 @@ function toViewModel(data) {
         pcr: getPCRState(data.insights?.pcr || opt.pcr || d?.microstructure?.pcr),
         isSuggestedStrike: isSuggested,
         
-        allocation: score >= 75 ? "100%" : (score >= 60 ? "50%" : "MINIMAL"),
+        allocation: (data?.score >= 75 || d?.meta_score >= 75) ? "100%" : ((data?.score >= 60 || d?.meta_score >= 60) ? "50%" : "MINIMAL"),
         riskLevel: riskLevel,
         riskRuin: d?.risk_of_ruin?.risk_level || "MEDIUM",
         riskReward: data?.rr || d?.risk_of_ruin?.risk_reward || "N/A",
-        score: score
+        score: d?.meta_score || data?.score || 0
     };
 }
 
@@ -1412,20 +1153,19 @@ function getExecutionState(vm) {
 
 function renderScore(vm) {
     const scoreBadge = document.getElementById('ee-score-badge');
-    const score = extractScore(vm?.score, 0);
-    if (!scoreBadge || !score) {
+    if (!scoreBadge || !vm.score) {
         if (scoreBadge) scoreBadge.classList.add('hidden');
         return;
     }
     
     scoreBadge.classList.remove('hidden');
-    scoreBadge.innerText = `Score: ${Math.round(score)}`;
+    scoreBadge.innerText = `Score: ${vm.score}`;
     
     // Use semantic CSS classes from style.css (refactored from inline Tailwind)
     scoreBadge.className = 'score-badge';
-    if (score >= 85)      scoreBadge.classList.add('score-badge-high');
-    else if (score >= 65) scoreBadge.classList.add('score-badge-mid');
-    else                  scoreBadge.classList.add('score-badge-low');
+    if (vm.score >= 85)      scoreBadge.classList.add('score-badge-high');
+    else if (vm.score >= 65) scoreBadge.classList.add('score-badge-mid');
+    else                     scoreBadge.classList.add('score-badge-low');
 }
 
 let previousSignalState = null;
@@ -1434,7 +1174,7 @@ function updateExecutionEdge(data) {
     const panel = document.getElementById('execution-edge-panel');
     if (!panel) return;
 
-    if (!data || (!data.action && !data.summary && !data.meta)) {
+    if (!data || !data.action) {
         panel.classList.add('hidden');
         return;
     }
@@ -1449,98 +1189,16 @@ function updateExecutionEdge(data) {
     }
     previousSignalState = vm.executionSignal !== "-" ? vm.executionSignal : vm.setupState;
 
-    // 1. Main Directive
-    const directiveText = document.getElementById('main-directive-text');
-    const directiveHelper = document.getElementById('directive-helper');
-    if (directiveText) {
-        if (vm.executionSignal === "EXECUTE") {
-            directiveText.textContent = "EXECUTE ENTRY";
-            directiveText.className = "text-sm font-black text-green-400 leading-tight uppercase tracking-tight";
-            if (directiveHelper) directiveHelper.textContent = "High probability setup confirmed";
-        } else if (vm.executionSignal === "WATCH") {
-            directiveText.textContent = "WATCH FOR TRIGGER";
-            directiveText.className = "text-sm font-black text-yellow-400 leading-tight uppercase tracking-tight";
-            if (directiveHelper) directiveHelper.textContent = "Structure aligned, waiting for volume";
-        } else {
-            directiveText.textContent = "NO TRADE SETUP";
-            directiveText.className = "text-sm font-black text-gray-500 leading-tight uppercase tracking-tight";
-            if (directiveHelper) directiveHelper.textContent = "Searching for structural advantage";
-        }
-    }
-
-    // 2. Next Step Guidance
-    const nextStep = document.getElementById('next-step-guidance');
-    if (nextStep) {
-        if (vm.executionSignal === "EXECUTE") {
-            const entry = data.decision?.entry_price || data.meta?.cmp;
-            const target = data.decision?.target_price || data.summary?.target;
-            const entryFmt = entry ? `₹${parseFloat(entry).toFixed(2)}` : '₹--.--';
-            const targetFmt = target ? `₹${parseFloat(target).toFixed(2)}` : 'T1';
-            nextStep.innerHTML = `Buy at <span class="text-green-400 font-bold font-mono">${entryFmt}</span>. Target: <span class="text-blue-400 font-bold font-mono">${targetFmt}</span>`;
-        } else if (vm.executionSignal === "WATCH") {
-            // nearest_resistance can be null (JSON null) when no zones are above CMP
-            const nr = data.summary?.nearest_resistance;
-            const levelFmt = (nr !== null && nr !== undefined)
-                ? `<span class="text-blue-400 font-bold font-mono">₹${parseFloat(nr).toFixed(2)}</span>`
-                : `<span class="text-gray-500 font-mono">resistance zone</span>`;
-            nextStep.innerHTML = `Wait for breakout above ${levelFmt} with volume surge.`;
-        } else {
-            nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
-        }
-    }
-
-    // 3. Invalidation
-    const invalidation = document.getElementById('invalidation-price');
-    if (invalidation) {
-        // Try each source in priority order — skip falsy / zero values (₹0.00 is invalid)
-        const slRaw = (
-            (data.decision?.stop_loss > 0 && data.decision.stop_loss) ||
-            (data.summary?.stop_loss > 0 && data.summary.stop_loss) ||
-            (data.summary?.nearest_support > 0 && data.summary.nearest_support) ||
-            null
-        );
-        invalidation.textContent = slRaw != null
-            ? `₹${parseFloat(slRaw).toFixed(2)}`
-            : '₹--.--';
-    }
-
-    // 4. Conviction Meter
-    // Widen score lookup: decision.meta_score → data.score → meta.score → summary score → 0
-    // For WATCH signals on index symbols, apply a floor of 45 to avoid misleading LOW CONVICTION
-    let confidence = Math.round(
-        extractScore(data.decision?.meta_score,
-            extractScore(data.score,
-                extractScore(data.meta?.score,
-                    extractScore(data.summary?.score, 0)
-                )
-            )
-        )
-    );
-    // If the execution signal is WATCH but score resolved to 0, apply a floor
-    if (confidence === 0 && vm.executionSignal === 'WATCH') confidence = 45;
-    const fill = document.getElementById('conviction-fill');
-    const label = document.getElementById('conviction-label');
-    if (fill) {
-        fill.style.width = `${confidence}%`;
-        fill.className = `h-full transition-all duration-1000 ${
-            confidence > 70 ? 'bg-green-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-            confidence > 40 ? 'bg-blue-500' : 'bg-gray-600'
-        }`;
-    }
-    if (label) {
-        label.textContent = confidence > 70 ? "HIGH CONVICTION" : confidence > 40 ? "MID CONVICTION" : "LOW CONVICTION";
-        label.className = `text-[7px] font-black uppercase tracking-widest ${
-            confidence > 70 ? 'text-green-400' : confidence > 40 ? 'text-blue-400' : 'text-gray-500'
-        }`;
-    }
-
-    // 5. Contextual Analysis (Narrative)
-    const aiExpl = document.getElementById('expl-ai');
-    if (aiExpl) {
+    // Narrative & Summary
+    const narrativeEl = document.getElementById('ee-narrative');
+    if (narrativeEl) {
         const formatted = formatNarrative(vm);
-        aiExpl.innerHTML = formatted.bullets.length > 0 
-            ? formatted.bullets.map(b => `<div class="flex gap-2 mb-2"><i class="fas fa-caret-right text-indigo-500 mt-0.5"></i> <span>${b}</span></div>`).join('')
-            : "No specific structural narrative for the current price action.";
+        // Simplified view for primary card: just bullets
+        narrativeEl.innerHTML = `
+            <ul class="space-y-1">
+                ${formatted.bullets.slice(0, 2).map(b => `<li class="flex items-center gap-2"><span class="w-1 h-1 bg-blue-500 rounded-full"></span>${b.trim()}</li>`).join('')}
+            </ul>
+        `;
     }
 
     // Analysis Tab Title
@@ -1789,123 +1447,106 @@ async function loadTopTrades() {
     if (!panel || !list) return;
 
     panel.classList.remove('hidden');
-    list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">Fetching market intelligence...</div>';
+    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Scanning market for top setups...</div>';
 
     try {
-        const res = await fetch(INTELLIGENCE_URL);
-        if (!res.ok) throw new Error("Failed to fetch intelligence");
+        const symbolsToScan = ["NSE:RELIANCE-EQ", "NSE:TCS-EQ", "NSE:INFY-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ"];
+        const results = [];
         
-        const data = await res.json();
-        if (data.status === 'warming') {
-            list.innerHTML = '<div class="w-full py-8 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse"><i class="fas fa-satellite-dish mr-2"></i>Intelligence engine warming up...</div>';
-            return;
-        }
-
-        let hits = data.data || [];
-        
-        // Filter and Sort: Pick top 5 high-quality setups
-        // Mapping: STRONG_ENTRY/ENTRY_READY -> Priority 1, WATCHLIST -> Priority 2
-        hits = hits.filter(h => h.entryTag !== 'AVOID' && h.symbol !== 'N/A');
-        
-        const sortMode = document.getElementById('scanner-sort')?.value || 'score';
-        
-        hits.sort((a, b) => {
-            if (sortMode === 'score') {
-                const getPriority = (h) => {
-                    if (h.entryTag === 'STRONG_ENTRY') return 100;
-                    if (h.entryTag === 'ENTRY_READY') return 80;
-                    if (h.entryTag === 'WATCHLIST') return 60;
-                    return 40;
-                };
-                const pA = getPriority(a);
-                const pB = getPriority(b);
-                if (pA !== pB) return pB - pA;
-                return (b.score || b.confidence || 0) - (a.score || a.confidence || 0);
-            } else if (sortMode === 'sector') {
-                return (a.sector || '').localeCompare(b.sector || '');
-            } else if (sortMode === 'signal') {
-                return (a.entryTag || '').localeCompare(b.entryTag || '');
-            }
-            return 0;
-        });
-
-        if (hits.length === 0) {
-            list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">No active setups found at this time.</div>';
-            return;
-        }
-
-        list.innerHTML = '';
-        hits.slice(0, 5).forEach(hit => {
-            const symbol = hit.symbol.includes(':') ? hit.symbol : `NSE:${hit.symbol}-EQ`;
-            const score = Math.round(hit.score || hit.confidence || 0);
-            
-            // Map entryTag to UI Signal
-            let displaySignal = hit.entryTag.replace('_', ' ');
-            let stateColor = 'indigo';
-            
-            if (hit.entryTag === 'STRONG_ENTRY') {
-                displaySignal = 'EXECUTE';
-                stateColor = 'green';
-            } else if (hit.entryTag === 'ENTRY_READY') {
-                displaySignal = 'READY';
-                stateColor = 'green';
-            } else if (hit.entryTag === 'WATCHLIST') {
-                displaySignal = 'WATCH';
-                stateColor = 'yellow';
-            }
-
-            const marketOpen = isMarketOpen();
-            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (marketOpen ? '🔵' : '🌙');
-            const signalSuffix = marketOpen ? '' : ' (OFF)';
-            
-            const card = document.createElement('div');
-            card.className = "min-w-[170px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-indigo-500/50 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0 relative overflow-hidden";
-            
-            // Add a subtle glow for strong setups
-            if (stateColor === 'green') {
-                card.classList.add('border-green-500/20');
-                card.innerHTML += `<div class="absolute top-0 right-0 w-8 h-8 bg-green-500/10 blur-xl"></div>`;
-            }
-
-            card.onclick = () => {
-                const input = document.getElementById('symbol-input');
-                if (input) {
-                    input.value = symbol;
-                    fetchData(false);
+        await Promise.all(symbolsToScan.map(async (sym) => {
+            try {
+                const res = await fetch(`${API_URL}?symbol=${encodeURIComponent(sym)}&tf=15m&strategy=SR`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.status === 'success') {
+                        results.push({ symbol: sym, data: data });
+                    }
                 }
+            } catch (e) { console.warn("Scan failed for", sym); }
+        }));
+        
+        if (results.length === 0) {
+            list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scan failed or no data available.</div>';
+            return;
+        }
+
+        results.sort((a, b) => {
+            const vmA = toViewModel(a.data);
+            const vmB = toViewModel(b.data);
+            
+            const getPriority = (vm) => {
+                if (vm.executionSignal === "EXECUTE") {
+                    return vm.mode === 'OPTIONS' ? 100 : 80;
+                }
+                if (vm.executionSignal === "WATCH" || vm.setupState === "FORMING") return 60;
+                if (vm.executionSignal === "CLOSED") return 40;
+                return 20;
             };
             
-            card.innerHTML += `
+            const pA = getPriority(vmA);
+            const pB = getPriority(vmB);
+            
+            if (pA !== pB) return pB - pA;
+            return vmB.score - vmA.score;
+        });
+
+        list.innerHTML = '';
+        results.slice(0, 5).forEach(item => {
+            const vm = toViewModel(item.data);
+            const stateColor = getExecutionState(vm);
+            
+            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (isMarketOpen() ? '🟢' : '🌙');
+            const signalText = vm.executionSignal !== '-' ? vm.executionSignal : vm.setupState;
+            const displaySignal = isMarketOpen() ? signalText : `${signalText} (OFF)`;
+            
+            const actionHint = vm.executionSignal === 'EXECUTE' ? 'Ready' : (vm.setupState === 'FORMING' ? 'Forming' : 'Analysis');
+            
+            const card = document.createElement('div');
+            card.className = "min-w-[160px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-gray-600 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0";
+            card.onclick = () => {
+                document.getElementById('symbol-input').value = item.symbol;
+                fetchData(false);
+            };
+            
+            const optionBadge = vm.mode === 'OPTIONS' ? `
+                <div class="mt-1 flex items-center gap-1">
+                    <span class="px-1.5 py-0.5 rounded text-[8px] font-black ${vm.optionType === 'CE' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${vm.strike} ${vm.optionType}</span>
+                    <span class="text-[8px] text-gray-600 font-bold">${vm.expiry}</span>
+                </div>
+            ` : '';
+
+            card.innerHTML = `
                 <div class="flex justify-between items-start mb-1">
-                    <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
-                    <div class="flex items-center gap-1 z-10">
-                        <span class="text-[9px] font-bold text-gray-500">${score}%</span>
+                    <span class="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">${item.symbol.replace('NSE:', '').replace('-EQ', '')}</span>
+                    <div class="flex items-center gap-2 z-10">
+                        <span class="text-[10px] font-bold text-gray-500">${vm.score}</span>
                     </div>
                 </div>
-                <div class="text-[9px] text-gray-500 font-medium truncate mb-2">${hit.sector || 'Equities'}</div>
-                <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mt-1">
+                ${optionBadge}
+                <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
                     <span>${badgeIcon}</span>
-                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}${signalSuffix}</span>
+                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}</span>
                 </div>
-                <!-- ENHANCED INSIGHTS -->
-                <div class="mt-2 pt-2 border-t border-white/5 space-y-1">
-                    ${hit.positives ? `<div class="text-[8px] text-green-500/80 font-bold flex items-center gap-1"><i class="fas fa-plus-circle text-[6px]"></i> ${hit.positives.slice(0, 20)}...</div>` : ''}
-                    ${hit.risks ? `<div class="text-[8px] text-red-500/80 font-bold flex items-center gap-1"><i class="fas fa-exclamation-triangle text-[6px]"></i> ${hit.risks.slice(0, 20)}...</div>` : ''}
-                </div>
-                <div class="mt-2 flex items-center justify-between">
-                    <span class="text-[8px] text-gray-600 uppercase font-bold">${hit.momentumStrength || 'Active'}</span>
-                    <span class="text-[8px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${hit.grade || 'C'}</span>
+                <div class="mt-1.5 text-[9px] text-gray-500 italic">
+                    ${actionHint}
                 </div>
             `;
             list.appendChild(card);
+            
+            if (vm.executionSignal === "EXECUTE") {
+                if (TradingAssistant.isPinned(item.symbol) || TradingAssistant.state.alerts.find(a => a.symbol === item.symbol)) {
+                    showToast(`🚀 EXECUTE Triggered for ${item.symbol}!`, 'success');
+                } else {
+                    showToast(`🚀 New setup found: ${item.symbol}`, 'success');
+                }
+            }
         });
         
     } catch (err) {
         console.error("Scanner error", err);
-        list.innerHTML = '<div class="w-full py-8 text-center text-red-400 text-xs font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i>Scanner offline. Check backend.</div>';
+        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Error running scanner.</div>';
     }
 }
-
 
 function updateUI(data, isBackground = false) {
     try {
@@ -1945,35 +1586,13 @@ function updateUI(data, isBackground = false) {
 
         const sLabel = document.getElementById('chart-symbol-label');
         const tfLabel = document.getElementById('chart-tf-label');
-        const currentTf = data.meta.tf || data.meta.timeframe || document.getElementById('tf-selector')?.value || '15m';
-        
         if (sLabel) sLabel.textContent = data.meta.symbol || 'NIFTY50';
         if (tfLabel) {
-            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '4H': '4 HOUR', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
-            const labelText = names[currentTf] || currentTf.toUpperCase();
+            const tf = data.meta.tf || data.meta.timeframe || '15m';
+            const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
+            const labelText = names[tf] || tf.toUpperCase();
             tfLabel.textContent = `${labelText} SESSION`;
-            
-            // Sync tf-selector if needed
-            const tfSelector = document.getElementById('tf-selector');
-            if (tfSelector && tfSelector.value !== currentTf) {
-                tfSelector.value = currentTf;
-                if (window.updateTfChips) window.updateTfChips(currentTf);
-            }
         }
-
-        // --- ENHANCED EMPTY STATE HANDLING ---
-        const formatVal = (val, currency = '') => {
-            if (val === null || val === undefined || val === '' || val === '--' || val === '—') {
-                return '<span class="data-placeholder loading-pulse">WAITING...</span>';
-            }
-            if (currency && typeof val === 'number') return formatWithCurrency(val, currency);
-            return val;
-        };
-
-        const setHTML = (id, val, currency = '') => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = formatVal(val, currency);
-        };
 
 
         // Pulse indicators only if price changed
@@ -2138,67 +1757,34 @@ function updateUI(data, isBackground = false) {
             });
         }
 
-        // 6. Fundamentals / Core Health
+        // 6. Fundamentals
         const fundCard = document.getElementById('fundamentals-card');
         if (data.fundamentals && fundCard) {
             fundCard.classList.remove('hidden');
             const f = data.fundamentals;
-
-            // Detect index symbols — indices don't have P/E, ROE, etc.
-            const sym = (data.meta?.symbol || '').toUpperCase();
-            const isIndex = sym.startsWith('NIFTY') || sym.startsWith('^') ||
-                ['SENSEX','BANKNIFTY','FINNIFTY'].includes(sym);
-
             const sectorEl = document.getElementById('fund-sector');
-            if (sectorEl) sectorEl.textContent = isIndex ? 'Index (No Fundamentals)' : `Sector: ${f.sector || 'N/A'}`;
+            if (sectorEl) sectorEl.textContent = f.sector || '—';
+
+            const mcapEl = document.getElementById('fund-mcap');
+            if (mcapEl) mcapEl.textContent = f.market_cap || '—';
 
             const peEl = document.getElementById('fund-pe');
             if (peEl) {
-                if (isIndex) {
-                    peEl.textContent = 'N/A (Index)';
-                    peEl.className = 'text-xs font-black text-gray-500 italic';
-                } else {
-                    peEl.textContent = f.pe_ratio && f.pe_ratio > 0 ? f.pe_ratio : 'N/A';
-                    peEl.className = `text-xs font-black ${
-                        f.pe_ratio > 0
-                            ? (f.pe_ratio < 20 ? 'text-green-400' : f.pe_ratio > 50 ? 'text-red-400' : 'text-white')
-                            : 'text-gray-600'
-                    }`;
+                peEl.textContent = f.pe_ratio || '—';
+                if (f.pe_ratio) {
+                    peEl.className = `text-sm font-bold ${f.pe_ratio < 20 ? 'text-up' : f.pe_ratio > 50 ? 'text-down' : 'text-white'}`;
                 }
             }
 
-            const roeEl = document.getElementById('fund-roe');
-            if (roeEl) {
-                if (isIndex) {
-                    roeEl.textContent = 'N/A (Index)';
-                    roeEl.className = 'text-xs font-black text-gray-500 italic';
-                } else {
-                    roeEl.textContent = f.roe && f.roe > 0 ? `${f.roe}%` : 'N/A';
-                    roeEl.className = `text-xs font-black ${
-                        f.roe > 0 ? (f.roe > 15 ? 'text-green-400' : 'text-white') : 'text-gray-600'
-                    }`;
-                }
-            }
+            setTxt('fund-roe', f.roe ? `${f.roe}%` : '—');
+            setTxt('fund-div', f.dividend_yield ? `${f.dividend_yield}%` : '—');
+            setTxt('fund-52h', f['52w_high'] || '—');
+            setTxt('fund-52l', f['52w_low'] || '—');
 
-            if (isIndex) {
-                // Show 52W range for index from API data.meta if fundamentals lack it
-                const hi = f['52w_high'] || data.meta?.yearHigh;
-                const lo = f['52w_low']  || data.meta?.yearLow;
-                setTxt('fund-52h', hi ? `₹${parseFloat(hi).toLocaleString()}` : 'N/A (Index)');
-                setTxt('fund-52l', lo ? `₹${parseFloat(lo).toLocaleString()}` : 'N/A (Index)');
-                const progress = document.getElementById('fund-progress');
-                if (progress && hi && lo && hi > lo) {
-                    const p = ((data.meta.cmp - lo) / (hi - lo)) * 100;
-                    progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
-                }
-            } else {
-                setTxt('fund-52h', f['52w_high'] || '---');
-                setTxt('fund-52l', f['52w_low'] || '---');
-                const progress = document.getElementById('fund-progress');
-                if (progress && f['52w_high'] && f['52w_low'] && f['52w_high'] > f['52w_low']) {
-                    const p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
-                    progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
-                }
+            const rB = document.getElementById('fund-range-bar');
+            if (rB && f['52w_high'] && f['52w_low']) {
+                let p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
+                rB.style.width = `${Math.max(0, Math.min(100, p))}%`;
             }
         } else if (fundCard) {
             fundCard.classList.add('hidden');
@@ -2234,11 +1820,6 @@ function toggleEEDetails() {
         panel.classList.remove('hidden');
         if (text) text.textContent = "Hide Details";
         if (icon) icon.className = "fas fa-chevron-up text-[8px]";
-        const btn = document.getElementById('ee-toggle-btn');
-        if (btn) {
-            btn.setAttribute('aria-expanded', 'true');
-            btn.setAttribute('aria-label', 'Hide Details');
-        }
         
         // Show shimmer for a brief moment to simulate "Preparing Data"
         if (shimmer) {
@@ -2251,11 +1832,6 @@ function toggleEEDetails() {
         panel.classList.add('hidden');
         if (text) text.textContent = "View Details";
         if (icon) icon.className = "fas fa-chevron-down text-[8px]";
-        const btn = document.getElementById('ee-toggle-btn');
-        if (btn) {
-            btn.setAttribute('aria-expanded', 'false');
-            btn.setAttribute('aria-label', 'View Details');
-        }
     }
 }
 
@@ -2268,7 +1844,6 @@ function switchEETab(tab) {
         if (btn) {
             btn.classList.remove('border-blue-500', 'text-white');
             btn.classList.add('border-transparent', 'text-gray-500');
-            btn.setAttribute('aria-selected', 'false');
         }
     });
     
@@ -2278,23 +1853,14 @@ function switchEETab(tab) {
     if (activeBtn) {
         activeBtn.classList.remove('border-transparent', 'text-gray-500');
         activeBtn.classList.add('border-blue-500', 'text-white');
-        activeBtn.setAttribute('aria-selected', 'true');
     }
 }
 
 function updateHeroDecisionStrip(data, vm) {
     const heroStrip = document.getElementById('hero-decision-strip');
     if (!heroStrip || !data.summary || !vm) return;
-
-    const canShowHeaderMetrics = window.matchMedia('(min-width: 1536px)').matches;
-    if (!canShowHeaderMetrics) {
-        heroStrip.classList.add('hidden');
-        heroStrip.classList.remove('flex');
-        return;
-    }
-
+    
     heroStrip.classList.remove('hidden');
-    heroStrip.classList.add('flex');
     
     // Top-Level Action Badge in Nav Bar
     const actionBadge = document.getElementById('hero-action-badge');
@@ -2496,16 +2062,19 @@ function drawLevelsOnChart(levels, fullData = null) {
         const primarySupports = (levels.primary?.supports || []).filter(l => l.timeframe !== 'ZONE');
         const primaryResists = (levels.primary?.resistances || []).filter(l => l.timeframe !== 'ZONE');
 
-        primarySupports.forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
-        primaryResists.forEach(lv => addLine(lv, '#94A3B8', 'RES'));
+        // Take 2 nearest each
+        primarySupports.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#3B82F6', 'SUP'));
+            
+        primaryResists.sort((a,b) => Math.abs(a.price - cmp) - Math.abs(b.price - cmp))
+            .slice(0, 2).forEach(lv => addLine(lv, '#94A3B8', 'RES'));
     } 
     else if (strategy === 'DEMAND_SUPPLY') {
         const demand = (levels.primary?.supports || []).filter(l => l.timeframe === 'ZONE');
         const supply = (levels.primary?.resistances || []).filter(l => l.timeframe === 'ZONE');
 
-        // Use hex colors to guarantee compatibility with all browser engines in LightweightCharts
-        demand.forEach(lv => addLine(lv, '#22C55E', 'DEMAND', false));
-        supply.forEach(lv => addLine(lv, '#EF4444', 'SUPPLY', false));
+        demand.forEach(lv => addLine(lv, 'rgba(34, 197, 94, 0.5)', 'DEMAND', false));
+        supply.forEach(lv => addLine(lv, 'rgba(239, 68, 68, 0.5)', 'SUPPLY', false));
     }
     else if (strategy === 'SWING') {
         const primarySupports = levels.primary?.supports || [];
@@ -2515,11 +2084,16 @@ function drawLevelsOnChart(levels, fullData = null) {
         primaryResists.forEach(lv => addLine(lv, '#8B5CF6', 'SWING RES'));
     }
     else if (strategy === 'FIBONACCI') {
+        // In FIB mode, data structure changed to levels.primary
         const supports = levels.primary?.supports || [];
         const resistances = levels.primary?.resistances || [];
         
-        // Show all ratios instead of just 3 to give a proper "Fibo" experience
-        [...supports, ...resistances].forEach(l => addLine(l, '#A855F7', l.label || 'FIB', true));
+        // Show only key ratios: 38.2, 50, 61.8 (0.382, 0.5, 0.618)
+        const keyRatios = [0.382, 0.5, 0.618];
+        
+        [...supports, ...resistances]
+            .filter(l => keyRatios.includes(l.ratio))
+            .forEach(l => addLine(l, '#A855F7', l.label, true));
     }
 }
 
@@ -2570,8 +2144,8 @@ window.onload = function () {
 
         // Force chart resize after a short delay to ensure container has proper dimensions
         setTimeout(() => {
-            const chartContainer = document.getElementById('tv-chart');
-            if (chart && chartContainer) {
+            if (chart) {
+                const chartContainer = document.getElementById('tv-chart');
                 chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
             }
         }, 100);
@@ -2644,15 +2218,14 @@ window.onload = function () {
             }
         };
 
-        if (btnDash) btnDash.setAttribute('aria-pressed', 'true');
-        if (btnIntel) btnIntel.setAttribute('aria-pressed', 'false');
+        if (btnDash) btnDash.addEventListener('click', () => setNavActive('dash'));
+        if (btnIntel) btnIntel.addEventListener('click', () => setNavActive('intel'));
 
         // Autocomplete Logic
         const searchInput = document.getElementById('symbol-input');
         const resultsDiv = document.getElementById('search-results');
         let searchTimeout;
         let selectedIndex = -1;
-        let searchController = null;
 
         searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
@@ -2666,13 +2239,7 @@ window.onload = function () {
 
             searchTimeout = setTimeout(async () => {
                 try {
-                    if (searchController) {
-                        searchController.abort();
-                    }
-                    searchController = new AbortController();
-                    const signal = searchController.signal;
-
-                    const res = await fetch(`${SEARCH_URL}?q=${query}`, { signal });
+                    const res = await fetch(`${SEARCH_URL}?q=${query}`);
                     const results = await res.json();
 
                     resultsDiv.innerHTML = '';
@@ -2700,9 +2267,7 @@ window.onload = function () {
                         resultsDiv.classList.add('hidden');
                     }
                 } catch (err) {
-                    if (err.name !== 'AbortError') {
-                        console.error("Search error:", err);
-                    }
+                    console.error("Search error:", err);
                 }
             }, 300);
         });
@@ -2770,11 +2335,9 @@ window.onload = function () {
                     if (btn.dataset.tf === activeTf) {
                         btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
                         btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
-                        btn.setAttribute('aria-pressed', 'true');
                     } else {
                         btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
                         btn.classList.add('text-gray-300', 'hover:bg-gray-800');
-                        btn.setAttribute('aria-pressed', 'false');
                     }
                 });
             };
@@ -2798,15 +2361,12 @@ window.onload = function () {
                 setActive(tfSelector.value);
             }
         }
-        const mtfToggle = document.getElementById('mtf-toggle');
-        if (mtfToggle) {
-            mtfToggle.addEventListener('change', () => {
-                // Re-render chart levels without re-fetching
-                if (window.lastReceivedData) {
-                    drawLevelsOnChart(window.lastReceivedData.levels);
-                }
-            });
-        }
+        document.getElementById('mtf-toggle').addEventListener('change', () => {
+            // Re-render chart levels without re-fetching
+            if (window.lastReceivedData) {
+                drawLevelsOnChart(window.lastReceivedData.levels);
+            }
+        });
         const searchBtn = document.getElementById('search-btn');
         if (searchBtn) {
             searchBtn.addEventListener('click', (e) => {
@@ -2840,35 +2400,24 @@ window.onload = function () {
             }
         }, 10000); // reduced frequency for expensive intelligence calls (10s)
 
-        const stratSelector = document.getElementById('strategy-selector');
-        if (stratSelector) {
-            stratSelector.addEventListener('change', () => {
-                fetchData();
-            });
-        }
+        document.getElementById('strategy-selector').addEventListener('change', () => {
+            fetchData();
+        });
 
-        const tfSelector = document.getElementById('tf-selector');
-        if (tfSelector) {
-            tfSelector.addEventListener('change', () => {
-                const tf = tfSelector.value;
+        document.getElementById('tf-selector').addEventListener('change', () => {
+            const tf = document.getElementById('tf-selector').value;
             // Sync buttons if it's 5m or 15m
             document.querySelectorAll('#intraday-tf-toggle button').forEach(btn => {
                 if (btn.dataset.tf === tf) {
                     btn.classList.add('bg-blue-600', 'text-white');
                     btn.classList.remove('text-gray-400');
-                    btn.setAttribute('aria-pressed', 'true');
                 } else {
                     btn.classList.remove('bg-blue-600', 'text-white');
                     btn.classList.add('text-gray-400');
-                    btn.setAttribute('aria-pressed', 'false');
                 }
             });
+            fetchData();
         });
-    }
-    
-    // "Debugging is twice as hard as writing the code in the first place. 
-    //  Therefore, if you write the code as cleverly as possible, you are, 
-    //  by definition, not smart enough to debug it." — Brian Kernighan
     } catch (e) {
         console.error("Init error:", e);
         const chartParent = document.getElementById('chart-parent');
@@ -2883,19 +2432,11 @@ window.onload = function () {
     }
 };
 
-async function fetchIntelligence(force = false) {
+async function fetchIntelligence() {
     try {
-        const now = Date.now();
-        // Throttle: If not forced, and last fetch was < 2 minutes ago, bypass network fetch.
-        // This synchronizes with the backend SYNC_INTERVAL (120s) and makes tab switching instant.
-        if (!force && window._lastIntelFetch && (now - window._lastIntelFetch < 120000)) {
-            console.log("[Intelligence] Serving from UI cache (last fetch < 120s ago)");
-            return;
-        }
-        window._lastIntelFetch = now;
-
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
+        const now = Date.now();
 
         // 1. Fetch data in parallel
         const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
@@ -2983,14 +2524,8 @@ async function fetchIntelligence(force = false) {
             if (perfData && typeof intelligenceApp.updateSignalPerformance === 'function') {
                 intelligenceApp.updateSignalPerformance(perfData);
             }
-            if (tradePerfData) {
-                if (typeof intelligenceApp.updateTradePerformance === 'function') {
-                    intelligenceApp.updateTradePerformance(tradePerfData);
-                }
-                // Sync the main dashboard's Recent Outcomes panel
-                if (typeof window.loadRecentOutcomes === 'function') {
-                    window.loadRecentOutcomes(tradePerfData);
-                }
+            if (tradePerfData && typeof intelligenceApp.updateTradePerformance === 'function') {
+                intelligenceApp.updateTradePerformance(tradePerfData);
             }
             if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
                 intelligenceApp.updateWatchlist(watchlistData);
@@ -3087,61 +2622,7 @@ window.addEventListener('message', (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     TradingAssistant.init();
     checkFyersStatus();
-    // Populate Top Trades Scanner
-    loadTopTrades();
     // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
 });
 
-// --- CLOCK AND FALLBACK ENGINE ---
-setInterval(() => {
-    const now = new Date();
-    
-    // 1. Sync Time Clock (IST)
-    const syncTime = document.getElementById('sync-time');
-    if (syncTime) {
-        // Convert to IST safely
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const ist = new Date(utc + istOffset);
-        const hh = String(ist.getHours()).padStart(2, '0');
-        const mm = String(ist.getMinutes()).padStart(2, '0');
-        const ss = String(ist.getSeconds()).padStart(2, '0');
-        syncTime.textContent = `${hh}:${mm}:${ss} IST`;
-    }
-
-    // 2. Market Closed Countdown
-    if (window.currentMarketStatus && window.currentMarketStatus.mode === 'CLOSED') {
-        const desc = document.getElementById('market-status-desc');
-        if (desc) {
-            const day = now.getDay();
-            let nextOpen = new Date(now);
-            const daysUntilMonday = day === 6 ? 2 : day === 0 ? 1 : (now.getHours() >= 16 ? 1 : 0);
-            
-            if (daysUntilMonday > 0) {
-                nextOpen.setDate(now.getDate() + daysUntilMonday);
-                nextOpen.setHours(9, 15, 0, 0);
-                const diff = nextOpen - now;
-                
-                if (diff > 0) {
-                    const h = Math.floor(diff / 3600000);
-                    const m = Math.floor((diff % 3600000) / 60000);
-                    const s = Math.floor((diff % 60000) / 1000);
-                    desc.innerHTML = `Opens in <b>${h}h ${m}m ${s}s</b> - Showing last session data`;
-                }
-            }
-        }
-    }
-}, 1000);
-
-// Initialize UI listeners
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('tf-selector')?.addEventListener('change', function(e) {
-        const tf = e.target.value;
-        const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '4H': '4 HOUR', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
-        const labelText = names[tf] || tf.toUpperCase();
-        const tfLabel = document.getElementById('chart-tf-label');
-        if (tfLabel) tfLabel.textContent = `${labelText} SESSION`;
-        if (typeof fetchData === 'function') fetchData();
-    });
-});
