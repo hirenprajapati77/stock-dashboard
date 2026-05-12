@@ -6,6 +6,771 @@
     "details": {
       "tf": "15m"
     },
+    "timestamp": "2026-05-12T07:44:24.381289"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-12T07:42:37.925548"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "1D"
+    },
+    "timestamp": "2026-05-11T14:40:37.850395"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "1D"
+    },
+    "timestamp": "2026-05-11T14:38:32.638992"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "1D"
+    },
+    "timestamp": "2026-05-11T14:36:34.723221"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T14:34:33.926017"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T13:18:31.485390"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T13:01:16.328830"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:59:23.071348"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:57:05.990805"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:54:57.248322"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:52:47.922216"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:52:45.426987"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:50:47.092212"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:48:38.280740"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:46:27.224880"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:44:16.984769"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:42:06.792007"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:39:58.840685"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:37:55.529741"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:35:47.142812"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:33:35.385558"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:31:38.154504"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:29:25.561694"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:27:18.530001"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:25:05.346089"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:23:06.901486"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:21:05.395407"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:18:57.645878"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:16:55.375330"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:14:56.942849"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:12:55.607488"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:10:48.288635"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:08:46.031157"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:06:47.963381"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:04:35.390331"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:02:39.366214"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T12:00:25.799687"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:59:36.160286"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:58:25.507302"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:56:37.121289"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:56:26.097684"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:54:27.221017"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:52:16.375529"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:51:28.265729"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:50:21.005181"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:48:05.660760"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:47:10.411049"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:46:28.793101"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:46:11.071289"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:43:59.211731"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:42:44.912399"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:41:49.871497"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:40:33.697438"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:39:48.316583"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:37:45.638491"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:36:46.138497"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:35:46.017659"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:33:39.846851"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:31:37.714908"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:29:30.335786"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:27:25.456921"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:25:27.821438"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:23:15.949626"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:21:09.053467"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:18:55.625669"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:16:47.858430"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:14:35.774163"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:12:37.542009"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:10:28.606847"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:08:16.880664"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:06:07.201829"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:04:07.322340"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T11:02:08.191565"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:59:58.659769"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:57:57.222481"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:55:46.777490"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:53:53.332490"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:51:47.174373"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:49:38.587256"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:47:37.189821"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:45:25.430836"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:43:27.541312"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:41:15.675162"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
+    "timestamp": "2026-05-11T10:39:27.067522"
+  },
+  {
+    "kind": "API_FAILURE",
+    "endpoint": "/api/v1/signal-performance",
+    "message": "'str' object has no attribute 'get'",
+    "details": {
+      "tf": "15m"
+    },
     "timestamp": "2026-05-07T05:59:50.398219"
   },
   {

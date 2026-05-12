@@ -270,7 +270,9 @@ class MarketIntelligence {
         const sectors = Object.entries(sectorData || {})
             .map(([name, data]) => ({ name, ...data }))
             .filter(s => s.metrics)
-            .sort((a, b) => (b.metrics.momentumScore || 0) - (a.metrics.momentumScore || 0))
+            // Sort by rotationScore (0-100 normalized composite) — always differentiates sectors
+            // Falls back to momentumScore then 0 for robustness
+            .sort((a, b) => (b.metrics.rotationScore || b.metrics.momentumScore || 0) - (a.metrics.rotationScore || a.metrics.momentumScore || 0))
             .slice(0, 10); // Top 10 for alpha focus
 
         if (sectors.length === 0) {
@@ -279,24 +281,50 @@ class MarketIntelligence {
         }
 
         grid.innerHTML = sectors.map(sector => {
-            const score = sector.metrics.momentumScore || 0;
+            // Use rotationScore (0-100 composite: RS + Acceleration + Breadth) for the bar
+            // This is always differentiated across sectors, unlike momentumScore which
+            // collapses to the same value on broad crash/rally days
+            const rotScore = sector.metrics.rotationScore != null ? sector.metrics.rotationScore : (sector.metrics.momentumScore || 0);
+            const progress = Math.min(100, Math.max(0, rotScore)); // Already 0-100
+
+            // Actual sector % change for display (sr = sector_return, stored as decimal e.g. -0.071)
+            const srRaw = sector.metrics.sr != null ? sector.metrics.sr : null;
+            const srPct = srRaw != null ? (srRaw * 100) : null;
+            const srLabel = srPct != null
+                ? `${srPct >= 0 ? '+' : ''}${srPct.toFixed(2)}%`
+                : `${rotScore.toFixed(1)}`;
+            const srColor = srPct == null ? 'text-gray-400'
+                : srPct > 0.5 ? 'text-green-400'
+                : srPct < -0.5 ? 'text-red-400'
+                : 'text-yellow-400';
+
             const state = sector.metrics.state || 'NEUTRAL';
-            const progress = Math.min(100, Math.max(0, (score / 150) * 100)); // Normalize score to 100
-            
             let colorClass = 'bg-blue-500';
             if (state === 'LEADING') colorClass = 'bg-green-500';
             if (state === 'LAGGING') colorClass = 'bg-red-500';
             if (state === 'WEAKENING') colorClass = 'bg-amber-500';
+            if (state === 'IMPROVING') colorClass = 'bg-blue-400';
+
+            // State badge color
+            const stateBadge = state === 'LEADING' ? 'text-green-400'
+                : state === 'LAGGING' ? 'text-red-400'
+                : state === 'WEAKENING' ? 'text-amber-400'
+                : state === 'IMPROVING' ? 'text-blue-400'
+                : 'text-gray-500';
 
             return `
                 <div class="heatmap-card group cursor-pointer" onclick="window.focusSector('${sector.name}')">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-[10px] font-black text-white uppercase tracking-tighter">${sector.name.replace('NIFTY_', '').replace('_', ' ')}</span>
-                        <span class="text-[9px] font-bold text-gray-400 font-mono">${score.toFixed(1)}</span>
+                    <div class="flex justify-between items-center mb-1.5">
+                        <span class="text-[10px] font-black text-white uppercase tracking-tighter">${sector.name.replace('NIFTY_', '').replace(/_/g, ' ')}</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-[8px] font-bold uppercase ${stateBadge}">${state}</span>
+                            <span class="text-[10px] font-bold font-mono ${srColor}">${srLabel}</span>
+                        </div>
                     </div>
                     <div class="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
                         <div class="h-full ${colorClass} transition-all duration-1000" style="width: ${progress}%"></div>
                     </div>
+                    <div class="mt-1 text-[8px] text-gray-600 font-mono text-right">RS Score: ${rotScore.toFixed(1)}</div>
                 </div>
             `;
         }).join('');
