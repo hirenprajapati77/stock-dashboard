@@ -122,12 +122,24 @@ def detect_early_breakout(df: pd.DataFrame) -> EarlyBreakoutResult:
     high20 = float(sdf["high"].iloc[max(0, last_idx - 19): last_idx + 1].max())
     near_resistance = close >= ((1.0 - (resistance_proximity_pct / 100.0)) * high20)
 
-    signal = bool(tight_range and vol_buildup and higher_lows and near_resistance)
-    tooltip = (
-        "Stock showing early accumulation with tight range and volume build-up. Potential breakout candidate."
-        if signal
-        else "Early breakout conditions not fully met"
-    )
+    # 5) Trend Filter (EMA20)
+    ema20 = sdf["close"].ewm(span=20, adjust=False).mean()
+    is_bullish = close > float(ema20.iloc[last_idx])
+
+    # 6) Strength Check (Must not be a massive down day)
+    prev_close = float(sdf["close"].iloc[last_idx - 1]) if last_idx > 0 else close
+    not_crashing = close >= (prev_close * 0.985) # Allow minor dips but not > 1.5% drop
+
+    signal = bool(tight_range and vol_buildup and higher_lows and near_resistance and is_bullish and not_crashing)
+    
+    if signal:
+        tooltip = "Stock showing early accumulation with tight range and volume build-up. Bullish trend confirmed."
+    elif not is_bullish:
+        tooltip = "Stock is in a bearish trend (below EMA20). Skipping breakout setup."
+    elif not not_crashing:
+        tooltip = "Stock experienced a significant drop today. Skipping breakout setup."
+    else:
+        tooltip = "Early breakout conditions not fully met"
 
     details = {
         "rangePct": round(range_pct * 100, 2),
@@ -137,6 +149,8 @@ def detect_early_breakout(df: pd.DataFrame) -> EarlyBreakoutResult:
         "near20dHigh": bool(near_resistance),
         "tightRange": bool(tight_range),
         "volumeBuildup": bool(vol_buildup),
+        "isBullish": bool(is_bullish),
+        "notCrashing": bool(not_crashing),
         "high20": round(high20, 2),
         "config": {
             "rangeThresholdPct": float(range_threshold_pct),
