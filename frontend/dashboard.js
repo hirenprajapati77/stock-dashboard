@@ -1069,10 +1069,15 @@ class MarketIntelligence {
             const laggingSector = hit.sectorState === "LAGGING";
             const belowThreshold = conf.score < threshold;
 
-            if (avoidSession || laggingSector || belowThreshold) {
+            // Strict filtering only applies if user isn't asking for "All Signals"
+            if (threshold > 0 && (avoidSession || laggingSector)) {
                 if (window.location.search.includes('debug=true')) {
                     console.log(`[Filter] ${hit.symbol} hidden: session=${session.quality}, sector=${hit.sectorState}, score=${conf.score}% (threshold=${threshold})`);
                 }
+                return false;
+            }
+            
+            if (belowThreshold) {
                 return false;
             }
 
@@ -1624,62 +1629,67 @@ window.fetchDataForSymbol = (symbol, options = {}) => {
     const rotTog = document.getElementById('rotation-toggle');
     const fromIntelligence = !!options.fromIntelligence;
 
-    if (input) {
-        let mappedSymbol = symbol;
-        if (symbol.startsWith('NIFTY_')) {
-            const mapping = {
-                "NIFTY_BANK": "^NSEBANK",
-                "NIFTY_IT": "^CNXIT",
-                "NIFTY_FMCG": "^CNXFMCG",
-                "NIFTY_METAL": "^CNXMETAL",
-                "NIFTY_PHARMA": "^CNXPHARMA",
-                "NIFTY_ENERGY": "^CNXENERGY",
-                "NIFTY_AUTO": "^CNXAUTO",
-                "NIFTY_REALTY": "^CNXREALTY",
-                "NIFTY_PSU_BANK": "^CNXPSUBANK",
-                "NIFTY_MEDIA": "^CNXMEDIA"
-            };
-            mappedSymbol = mapping[symbol] || symbol.replace('NIFTY_', '^CNX');
-        }
-        input.value = mappedSymbol;
+    if (!input) return;
 
-        if (fromIntelligence) {
-            const syncEl = document.getElementById('hits-sync-status');
-            if (syncEl) {
-                syncEl.innerHTML = `<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>OPENING ${mappedSymbol} DETAILS...`;
-                setTimeout(() => {
-                    syncEl.innerHTML = '<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>LIVE SYNC';
-                }, 2500);
-            }
-        }
-
-        if (intelTog && intelTog.checked) {
-            intelTog.checked = false;
-            intelTog.dispatchEvent(new Event('change'));
-        } else if (!intelTog && fromIntelligence) {
-            document.getElementById('intelligence-section')?.classList.add('hidden');
-            document.getElementById('rotation-section')?.classList.add('hidden');
-            document.getElementById('standard-dashboard')?.classList.remove('hidden');
-            document.getElementById('view-dashboard')?.classList.add('bg-blue-600', 'text-white');
-            document.getElementById('view-dashboard')?.classList.remove('text-gray-400');
-            document.getElementById('view-intelligence')?.classList.remove('bg-blue-600', 'text-white');
-            document.getElementById('view-intelligence')?.classList.add('text-gray-400');
-        }
-        if (rotTog && rotTog.checked) {
-            rotTog.checked = false;
-            rotTog.dispatchEvent(new Event('change'));
-        }
-
-        setTimeout(() => {
-            if (window.fetchData) {
-                // Keep Details action responsive from Intelligence view by avoiding full-screen overlay
-                // while still performing a real foreground fetch/error flow.
-                window.fetchData(fromIntelligence ? { showLoader: false, isBackground: false } : false);
-            } else {
-                console.error("fetchData not found on window object!");
-            }
-        }, 50);
+    // 1. Map sector index names to tradeable symbols
+    let mappedSymbol = symbol;
+    if (symbol.startsWith('NIFTY_')) {
+        const mapping = {
+            "NIFTY_BANK": "^NSEBANK",
+            "NIFTY_IT": "^CNXIT",
+            "NIFTY_FMCG": "^CNXFMCG",
+            "NIFTY_METAL": "^CNXMETAL",
+            "NIFTY_PHARMA": "^CNXPHARMA",
+            "NIFTY_ENERGY": "^CNXENERGY",
+            "NIFTY_AUTO": "^CNXAUTO",
+            "NIFTY_REALTY": "^CNXREALTY",
+            "NIFTY_PSU_BANK": "^CNXPSUBANK",
+            "NIFTY_MEDIA": "^CNXMEDIA"
+        };
+        mappedSymbol = mapping[symbol] || symbol.replace('NIFTY_', '^CNX');
     }
+    input.value = mappedSymbol;
+
+    // 2. Show status feedback in the intelligence bar
+    if (fromIntelligence) {
+        const syncEl = document.getElementById('hits-sync-status');
+        if (syncEl) {
+            syncEl.innerHTML = `<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>OPENING ${mappedSymbol} DETAILS...`;
+            setTimeout(() => {
+                syncEl.innerHTML = '<span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>LIVE SYNC';
+            }, 2500);
+        }
+    }
+
+    // 3. Switch to Dashboard view FIRST (synchronously) so fetchData doesn't
+    //    think it's still in Intelligence mode and skip the loader / use lite=true
+    if (intelTog && intelTog.checked) {
+        intelTog.checked = false;
+        intelTog.dispatchEvent(new Event('change'));
+    } else if (fromIntelligence) {
+        // Fallback: manually toggle view sections
+        document.getElementById('intelligence-section')?.classList.add('hidden');
+        document.getElementById('rotation-section')?.classList.add('hidden');
+        document.getElementById('standard-dashboard')?.classList.remove('hidden');
+        document.getElementById('view-dashboard')?.classList.add('bg-blue-600', 'text-white');
+        document.getElementById('view-dashboard')?.classList.remove('text-gray-400');
+        document.getElementById('view-intelligence')?.classList.remove('bg-blue-600', 'text-white');
+        document.getElementById('view-intelligence')?.classList.add('text-gray-400');
+    }
+    if (rotTog && rotTog.checked) {
+        rotTog.checked = false;
+        rotTog.dispatchEvent(new Event('change'));
+    }
+
+    // 4. Delay fetch slightly so DOM transition settles, then fire with FULL loader
+    //    Pass false (not an object) — fetchData only accepts a boolean.
+    setTimeout(() => {
+        if (window.fetchData) {
+            window.fetchData(false); // false = foreground fetch → shows loader + spinner
+        } else {
+            console.error("fetchData not found on window object!");
+        }
+    }, 80);
 };
 
 window.renderTopPicks = (hits) => {

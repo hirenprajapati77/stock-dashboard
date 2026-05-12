@@ -1030,9 +1030,15 @@ function updateStrategyUI(data) {
         document.getElementById('metric-adx').textContent = `${adxVal.toFixed(1)} (${adxText})`;
         document.getElementById('metric-adx').className = `text-sm font-bold ${adxVal > 25 ? 'text-up' : 'text-white'}`;
 
-        const volRatio = parseFloat(insights.volRatio || metrics.volRatio || 1);
-        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volRatio > 1.2 ? 'Spike' : 'Normal'}`;
-        document.getElementById('metric-volume').className = `text-sm font-bold ${volRatio > 1.2 ? 'text-up' : 'text-white'}`;
+        // Volume — use a single canonical source to avoid conflicting values across sections.
+        // Priority: insights.volRatio (engine-computed ratio) → data.volume_ratio (API top-level) → 1.0
+        const volRatio = parseFloat(insights.volRatio ?? data.volume_ratio ?? metrics.volRatio ?? 1);
+        const volLabel = volRatio >= 2.0 ? 'Surge 🔥' : volRatio >= 1.5 ? 'Elevated' : volRatio >= 1.2 ? 'Above Avg' : 'Normal';
+        document.getElementById('metric-volume').textContent = `${volRatio.toFixed(2)}x ${volLabel}`;
+        document.getElementById('metric-volume').className = `text-sm font-bold ${
+            volRatio >= 1.5 ? 'text-up' :
+            volRatio >= 1.2 ? 'text-blue-400' : 'text-white'
+        }`;
 
         const setupText = (insights.retest ? 'Retest' : '') + (insights.retest && tech.isBreakout ? ' + ' : '') + (tech.isBreakout ? 'Breakout' : '');
         document.getElementById('metric-setup').textContent = setupText || 'No Setup';
@@ -1044,10 +1050,26 @@ function updateStrategyUI(data) {
         document.getElementById('metric-sr').textContent = s0 ? `${distS}% from S` : 'No Level';
         document.getElementById('metric-sr').className = `text-sm font-bold ${parseFloat(distS) < 2 ? 'text-up' : 'text-white'}`;
 
-        // Update Risks
-        const mo = (tech.momentumStrength || 'WEAK').toUpperCase();
+        // ----- RISKS panel -----
+        // Resolve momentum from tech first, then from the V5 decision regime as a fallback.
+        // This prevents the narrative saying "TRENDING" while risks show "WEAK".
+        const rawMo = (tech.momentumStrength || '').toUpperCase();
+        const regimeRaw = summary.market_regime
+            || data.decision?.market_regime?.regime
+            || 'UNKNOWN';
+        let mo;
+        if (rawMo && rawMo !== 'UNKNOWN') {
+            mo = rawMo;
+        } else if (regimeRaw.includes('TRENDING') || regimeRaw.includes('RISK_ON')) {
+            mo = 'MODERATE'; // regime implies momentum exists; avoid contradicting TRENDING narrative
+        } else {
+            mo = 'WEAK';
+        }
         document.getElementById('metric-momentum').textContent = mo;
-        document.getElementById('metric-momentum').className = `text-sm font-bold ${mo === 'STRONG' ? 'text-white' : 'text-down'}`;
+        document.getElementById('metric-momentum').className = `text-sm font-bold ${
+            mo === 'STRONG' ? 'text-up' :
+            mo === 'MODERATE' ? 'text-white' : 'text-down'
+        }`;
 
         const vola = tech.volHigh ? 'High Volatility' : 'Stable';
         document.getElementById('metric-vola').textContent = vola;
@@ -1057,9 +1079,15 @@ function updateStrategyUI(data) {
         document.getElementById('metric-sector').textContent = sector;
         document.getElementById('metric-sector').className = `text-sm font-bold ${['LEADING', 'IMPROVING'].includes(sector) ? 'text-white' : 'text-down'}`;
 
-        const regime = summary.market_regime || 'UNKNOWN';
-        document.getElementById('metric-regime').textContent = regime.replace('_', ' ');
-        document.getElementById('metric-regime').className = `text-sm font-bold ${regime === 'RISK_ON' ? 'text-white' : 'text-down'}`;
+        // Regime — colour-code all known states not just RISK_ON
+        const regime = regimeRaw.replace(/_/g, ' ');
+        document.getElementById('metric-regime').textContent = regime;
+        const regimeIsPositive = regimeRaw === 'RISK_ON' || regimeRaw.startsWith('TRENDING');
+        const regimeIsNeutral  = regimeRaw === 'STABLE' || regimeRaw === 'UNKNOWN';
+        document.getElementById('metric-regime').className = `text-sm font-bold ${
+            regimeIsPositive ? 'text-up' :
+            regimeIsNeutral  ? 'text-white' : 'text-down'
+        }`;
 
         // Toggle specific strategy panels
         const swingPanel = document.getElementById('strategy-swing-metrics');
@@ -1427,10 +1455,18 @@ function updateExecutionEdge(data) {
     const nextStep = document.getElementById('next-step-guidance');
     if (nextStep) {
         if (vm.executionSignal === "EXECUTE") {
-            nextStep.innerHTML = `Buy at market price (₹${data.meta.cmp}). Target T1 reached? No.`;
+            const entry = data.decision?.entry_price || data.meta?.cmp;
+            const target = data.decision?.target_price || data.summary?.target;
+            const entryFmt = entry ? `₹${parseFloat(entry).toFixed(2)}` : '₹--.--';
+            const targetFmt = target ? `₹${parseFloat(target).toFixed(2)}` : 'T1';
+            nextStep.innerHTML = `Buy at <span class="text-green-400 font-bold font-mono">${entryFmt}</span>. Target: <span class="text-blue-400 font-bold font-mono">${targetFmt}</span>`;
         } else if (vm.executionSignal === "WATCH") {
-            const level = data.levels?.resistance?.nearest || data.levels?.supply?.nearest || "---";
-            nextStep.innerHTML = `Wait for breakout above <span class="text-blue-400 font-bold">₹${level}</span> with volume surge.`;
+            // nearest_resistance can be null (JSON null) when no zones are above CMP
+            const nr = data.summary?.nearest_resistance;
+            const levelFmt = (nr !== null && nr !== undefined)
+                ? `<span class="text-blue-400 font-bold font-mono">₹${parseFloat(nr).toFixed(2)}</span>`
+                : `<span class="text-gray-500 font-mono">resistance zone</span>`;
+            nextStep.innerHTML = `Wait for breakout above ${levelFmt} with volume surge.`;
         } else {
             nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
         }
@@ -1439,8 +1475,13 @@ function updateExecutionEdge(data) {
     // 3. Invalidation
     const invalidation = document.getElementById('invalidation-price');
     if (invalidation) {
-        const sl = data.strategy?.logical_sl || data.summary?.logical_sl || data.levels?.support?.nearest || "---";
-        invalidation.textContent = sl !== "---" ? `₹${sl}` : "₹--.--";
+        // Try: decision stop_loss → summary stop_loss → nearest_support → fallback
+        const sl = data.decision?.stop_loss
+            ?? data.summary?.stop_loss
+            ?? data.summary?.nearest_support;
+        invalidation.textContent = (sl !== null && sl !== undefined)
+            ? `₹${parseFloat(sl).toFixed(2)}`
+            : '₹--.--';
     }
 
     // 4. Conviction Meter
@@ -1716,7 +1757,7 @@ async function loadTopTrades() {
     if (!panel || !list) return;
 
     panel.classList.remove('hidden');
-    list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">Fetching market intelligence...</div>';
+    list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">Fetching market intelligence...</div>';
 
     try {
         const res = await fetch(INTELLIGENCE_URL);
@@ -1724,7 +1765,7 @@ async function loadTopTrades() {
         
         const data = await res.json();
         if (data.status === 'warming') {
-            list.innerHTML = '<div class="text-indigo-400 text-xs font-bold px-2">Intelligence engine warming up...</div>';
+            list.innerHTML = '<div class="w-full py-8 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse"><i class="fas fa-satellite-dish mr-2"></i>Intelligence engine warming up...</div>';
             return;
         }
 
@@ -1757,7 +1798,7 @@ async function loadTopTrades() {
         });
 
         if (hits.length === 0) {
-            list.innerHTML = '<div class="text-gray-500 text-xs italic px-2">No active setups found at this time.</div>';
+            list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">No active setups found at this time.</div>';
             return;
         }
 
@@ -1829,7 +1870,7 @@ async function loadTopTrades() {
         
     } catch (err) {
         console.error("Scanner error", err);
-        list.innerHTML = '<div class="text-red-400 text-xs font-bold px-2">Scanner offline. Check backend.</div>';
+        list.innerHTML = '<div class="w-full py-8 text-center text-red-400 text-xs font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i>Scanner offline. Check backend.</div>';
     }
 }
 
@@ -2065,41 +2106,67 @@ function updateUI(data, isBackground = false) {
             });
         }
 
-        // 6. Fundamentals
+        // 6. Fundamentals / Core Health
         const fundCard = document.getElementById('fundamentals-card');
         if (data.fundamentals && fundCard) {
             fundCard.classList.remove('hidden');
             const f = data.fundamentals;
+
+            // Detect index symbols — indices don't have P/E, ROE, etc.
+            const sym = (data.meta?.symbol || '').toUpperCase();
+            const isIndex = sym.startsWith('NIFTY') || sym.startsWith('^') ||
+                ['SENSEX','BANKNIFTY','FINNIFTY'].includes(sym);
+
             const sectorEl = document.getElementById('fund-sector');
-            if (sectorEl) sectorEl.textContent = `Sector: ${f.sector || 'N/A'}`;
+            if (sectorEl) sectorEl.textContent = isIndex ? 'Index (No Fundamentals)' : `Sector: ${f.sector || 'N/A'}`;
 
             const peEl = document.getElementById('fund-pe');
             if (peEl) {
-                peEl.textContent = f.pe_ratio && f.pe_ratio > 0 ? f.pe_ratio : 'N/A';
-                if (f.pe_ratio > 0) {
-                    peEl.className = `text-xs font-black ${f.pe_ratio < 20 ? 'text-green-400' : f.pe_ratio > 50 ? 'text-red-400' : 'text-white'}`;
+                if (isIndex) {
+                    peEl.textContent = 'N/A (Index)';
+                    peEl.className = 'text-xs font-black text-gray-500 italic';
                 } else {
-                    peEl.className = 'text-xs font-black text-gray-600';
+                    peEl.textContent = f.pe_ratio && f.pe_ratio > 0 ? f.pe_ratio : 'N/A';
+                    peEl.className = `text-xs font-black ${
+                        f.pe_ratio > 0
+                            ? (f.pe_ratio < 20 ? 'text-green-400' : f.pe_ratio > 50 ? 'text-red-400' : 'text-white')
+                            : 'text-gray-600'
+                    }`;
                 }
             }
 
             const roeEl = document.getElementById('fund-roe');
             if (roeEl) {
-                roeEl.textContent = f.roe && f.roe > 0 ? `${f.roe}%` : 'N/A';
-                if (f.roe > 0) {
-                    roeEl.className = `text-xs font-black ${f.roe > 15 ? 'text-green-400' : 'text-white'}`;
+                if (isIndex) {
+                    roeEl.textContent = 'N/A (Index)';
+                    roeEl.className = 'text-xs font-black text-gray-500 italic';
                 } else {
-                    roeEl.className = 'text-xs font-black text-gray-600';
+                    roeEl.textContent = f.roe && f.roe > 0 ? `${f.roe}%` : 'N/A';
+                    roeEl.className = `text-xs font-black ${
+                        f.roe > 0 ? (f.roe > 15 ? 'text-green-400' : 'text-white') : 'text-gray-600'
+                    }`;
                 }
             }
 
-            setTxt('fund-52h', f['52w_high'] || '---');
-            setTxt('fund-52l', f['52w_low'] || '---');
-
-            const progress = document.getElementById('fund-progress');
-            if (progress && f['52w_high'] && f['52w_low'] && f['52w_high'] > f['52w_low']) {
-                const p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
-                progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
+            if (isIndex) {
+                // Show 52W range for index from API data.meta if fundamentals lack it
+                const hi = f['52w_high'] || data.meta?.yearHigh;
+                const lo = f['52w_low']  || data.meta?.yearLow;
+                setTxt('fund-52h', hi ? `₹${parseFloat(hi).toLocaleString()}` : 'N/A (Index)');
+                setTxt('fund-52l', lo ? `₹${parseFloat(lo).toLocaleString()}` : 'N/A (Index)');
+                const progress = document.getElementById('fund-progress');
+                if (progress && hi && lo && hi > lo) {
+                    const p = ((data.meta.cmp - lo) / (hi - lo)) * 100;
+                    progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
+                }
+            } else {
+                setTxt('fund-52h', f['52w_high'] || '---');
+                setTxt('fund-52l', f['52w_low'] || '---');
+                const progress = document.getElementById('fund-progress');
+                if (progress && f['52w_high'] && f['52w_low'] && f['52w_high'] > f['52w_low']) {
+                    const p = ((data.meta.cmp - f['52w_low']) / (f['52w_high'] - f['52w_low'])) * 100;
+                    progress.style.width = `${Math.max(0, Math.min(100, p))}%`;
+                }
             }
         } else if (fundCard) {
             fundCard.classList.add('hidden');

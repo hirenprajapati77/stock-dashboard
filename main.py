@@ -293,14 +293,23 @@ def _to_price_list(levels):
 
 
 def _resolve_summary_levels(cmp, supports, resistances, mtf_levels):
-    primary_supports = [p for p in _to_price_list(supports) if p < cmp]
-    primary_resistances = [p for p in _to_price_list(resistances) if p > cmp]
+    # Merge primary + MTF so one pool doesn't mask the other
+    all_supports = _to_price_list(supports) + _to_price_list((mtf_levels or {}).get("supports", []))
+    all_resistances = _to_price_list(resistances) + _to_price_list((mtf_levels or {}).get("resistances", []))
 
-    mtf_supports = [p for p in _to_price_list((mtf_levels or {}).get("supports", [])) if p < cmp]
-    mtf_resistances = [p for p in _to_price_list((mtf_levels or {}).get("resistances", [])) if p > cmp]
+    below_cmp = sorted([p for p in all_supports if p < cmp], reverse=True)
+    above_cmp = sorted([p for p in all_resistances if p > cmp])
 
-    nearest_support = max(primary_supports) if primary_supports else (max(mtf_supports) if mtf_supports else None)
-    nearest_resistance = min(primary_resistances) if primary_resistances else (min(mtf_resistances) if mtf_resistances else None)
+    # Deduplicate within 0.1% tolerance
+    def _dedup(prices):
+        result = []
+        for p in prices:
+            if not result or abs(p - result[-1]) / result[-1] > 0.001:
+                result.append(p)
+        return result
+
+    nearest_support = _dedup(below_cmp)[0] if below_cmp else None
+    nearest_resistance = _dedup(above_cmp)[0] if above_cmp else None
     return nearest_support, nearest_resistance
 
 
