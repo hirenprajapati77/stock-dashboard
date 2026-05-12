@@ -2890,7 +2890,7 @@ window.onload = function () {
             `;
         }
     }
-});
+};
 
 async function fetchIntelligence(force = false) {
     try {
