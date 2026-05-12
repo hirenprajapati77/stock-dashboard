@@ -2893,7 +2893,7 @@ window.onload = function () {
             `;
         }
     }
-};
+});
 
 async function fetchIntelligence(force = false) {
     try {
@@ -2998,15 +2998,6 @@ async function fetchIntelligence(force = false) {
             if (watchlistData && typeof intelligenceApp.updateWatchlist === 'function') {
                 intelligenceApp.updateWatchlist(watchlistData);
             }
-        }
-
-        // 4. Global Dashboard Sync (Outside intelligenceApp block)
-        if (tradePerfData) {
-            // Sync the main dashboard's Recent Outcomes panel
-            if (typeof window.loadRecentOutcomes === 'function') {
-                window.loadRecentOutcomes(tradePerfData);
-            }
-        }
             if (sectorData && sectorData.data && Object.keys(sectorData.data).length > 0) {
                 window.lastSectorData = sectorData.data;
                 intelligenceApp.updateSectors(sectorData.data, sectorData.alerts || [], sectorData.source || 'live');
@@ -3021,6 +3012,14 @@ async function fetchIntelligence(force = false) {
             } else if (sectorData) {
                 // Handle empty but valid responses (e.g., fallback)
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
+            }
+        }
+
+        // 4. Global Dashboard Sync (Outside intelligenceApp block)
+        if (tradePerfData) {
+            // Sync the main dashboard's Recent Outcomes panel
+            if (typeof window.loadRecentOutcomes === 'function') {
+                window.loadRecentOutcomes(tradePerfData);
             }
         }
     } catch (e) {
