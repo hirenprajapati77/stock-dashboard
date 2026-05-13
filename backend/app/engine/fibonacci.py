@@ -50,11 +50,12 @@ class FibonacciEngine:
 
         # Classify as supports or resistances based on current CMP
         cmp = float(df['close'].iloc[-1])
-        supports = [l for l in levels if l['price'] < cmp]
+        # Use <= and >= to ensure extreme levels are included in the summary stats
+        supports = [l for l in levels if l['price'] <= cmp]
         # Sort supports newest/nearest first (highest price first)
         supports = sorted(supports, key=lambda x: x['price'], reverse=True)
         
-        resistances = [l for l in levels if l['price'] > cmp]
+        resistances = [l for l in levels if l['price'] >= cmp]
         # Sort resistances nearest first (lowest price first)
         resistances = sorted(resistances, key=lambda x: x['price'])
         

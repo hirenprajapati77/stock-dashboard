@@ -218,3 +218,30 @@ class InsightEngine:
             return float(round(curr_vol / avg_daily_vol, 2))
             
         return 1.0
+
+    @staticmethod
+    def get_technical_summary(df: pd.DataFrame) -> dict:
+        """
+        Returns a comprehensive summary of technical metrics for the dashboard.
+        """
+        if df is None or df.empty:
+            return {
+                "adx": 0.0,
+                "volRatio": 1.0,
+                "emaBias": "Neutral",
+                "structure": "NEUTRAL",
+                "isBreakout": False,
+                "isHammer": False
+            }
+            
+        from app.engine.regime import MarketRegimeEngine
+        
+        return {
+            "adx": InsightEngine.get_adx(df),
+            "volRatio": InsightEngine.get_volume_ratio(df),
+            "emaBias": InsightEngine.get_ema_bias(df),
+            "structure": InsightEngine.get_structure_bias(df),
+            "isBreakout": InsightEngine.is_inside_candle(df), # Simplified placeholder or implement proper breakout
+            "isHammer": InsightEngine.detect_hammer(df),
+            "regime": MarketRegimeEngine.detect_regime(df)
+        }

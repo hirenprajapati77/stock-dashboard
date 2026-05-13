@@ -84,52 +84,55 @@
                 <input type="checkbox" id="rotation-toggle" class="hidden">
             </div>
 
-            <!-- CENTER: SEARCH (PRIMARY ACTION) -->
-            <div class="flex-grow flex justify-center px-4 max-w-[600px]">
-                <div class="relative w-full">
-                    <div class="flex items-center w-full">
-                        <div class="flex items-center space-x-2 bg-[#111827] px-3 py-1.5 rounded-l-lg border border-gray-700 border-r-0 w-full focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all shadow-inner">
-                            <i class="fas fa-search text-gray-500 text-[10px]"></i>
-                            <input type="text" id="symbol-input" value="NIFTY50" class="bg-transparent border-none text-[11px] font-black text-white focus:outline-none w-full uppercase placeholder-gray-600" placeholder="SEARCH SYMBOL (e.g. TCS, HDFC)">
+            <!-- SYMBOL-SPECIFIC CONTROLS (Can be hidden in Market Intelligence mode) -->
+            <div id="symbol-controls-wrapper" class="flex items-center flex-grow">
+                <!-- CENTER: SEARCH (PRIMARY ACTION) -->
+                <div class="flex-grow flex justify-center px-4 max-w-[600px]">
+                    <div class="relative w-full">
+                        <div class="flex items-center w-full">
+                            <div class="flex items-center space-x-2 bg-[#111827] px-3 py-1.5 rounded-l-lg border border-gray-700 border-r-0 w-full focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all shadow-inner">
+                                <i class="fas fa-search text-gray-500 text-[10px]"></i>
+                                <input type="text" id="symbol-input" value="NIFTY50" class="bg-transparent border-none text-[11px] font-black text-white focus:outline-none w-full uppercase placeholder-gray-600" placeholder="SEARCH SYMBOL (e.g. TCS, HDFC)">
+                            </div>
+                            <button id="search-btn" type="button" class="btn-primary px-6 py-2 h-full rounded-r-lg text-[10px] uppercase tracking-widest transition-all shrink-0 whitespace-nowrap flex items-center gap-2" aria-label="Search symbol">
+                                <div id="search-spinner" class="search-loading-spinner hidden"></div>
+                                <span id="search-btn-text">🔍 SEARCH</span>
+                            </button>
                         </div>
-                        <button id="search-btn" type="button" class="btn-primary px-6 py-2 h-full rounded-r-lg text-[10px] uppercase tracking-widest transition-all shrink-0 whitespace-nowrap flex items-center gap-2" aria-label="Search symbol">
-                            <div id="search-spinner" class="search-loading-spinner hidden"></div>
-                            <span id="search-btn-text">🔍 SEARCH</span>
-                        </button>
+                        <div id="search-results" class="absolute top-[calc(100%+4px)] left-0 w-full bg-gray-900 border border-gray-700 rounded-lg hidden z-[100] shadow-2xl max-h-64 overflow-y-auto divide-y divide-gray-800"></div>
                     </div>
-                    <div id="search-results" class="absolute top-[calc(100%+4px)] left-0 w-full bg-gray-900 border border-gray-700 rounded-lg hidden z-[100] shadow-2xl max-h-64 overflow-y-auto divide-y divide-gray-800"></div>
                 </div>
-            </div>
 
-            <!-- RIGHT: SETTINGS CLUSTER -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-                <div class="control-cluster">
-                    <div id="intraday-tf-toggle" class="flex items-center gap-1" role="group" aria-label="Intraday timeframe">
-                        <button data-tf="5m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white" aria-pressed="false">5M</button>
-                        <button data-tf="15m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white" aria-pressed="true">15M</button>
-                        <div class="w-[1px] h-3 bg-gray-700 mx-1"></div>
-                        <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none" aria-label="Select timeframe">
-                            <option value="5m">5M</option>
-                            <option value="15m" selected>15M</option>
-                            <option value="1H">1H</option>
-                            <option value="4H">4H</option>
-                            <option value="1D">1D</option>
+                <!-- RIGHT: SETTINGS CLUSTER -->
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <div class="control-cluster">
+                        <div id="intraday-tf-toggle" class="flex items-center gap-1" role="group" aria-label="Intraday timeframe">
+                            <button data-tf="5m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white" aria-pressed="false">5M</button>
+                            <button data-tf="15m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white" aria-pressed="true">15M</button>
+                            <div class="w-[1px] h-3 bg-gray-700 mx-1"></div>
+                            <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none" aria-label="Select timeframe">
+                                <option value="5m">5M</option>
+                                <option value="15m" selected>15M</option>
+                                <option value="1H">1H</option>
+                                <option value="4H">4H</option>
+                                <option value="1D">1D</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="control-cluster">
+                        <select id="strategy-selector" class="bg-transparent border-none text-[10px] font-black text-blue-400 uppercase focus:outline-none cursor-pointer" data-tooltip="Choose entry algorithm">
+                            <option value="SR" selected>S/R PRO</option>
+                            <option value="FIBONACCI">FIBO EDGE</option>
+                            <option value="DEMAND_SUPPLY">SUPPLY/DEMAND</option>
+                            <option value="SWING">TREND RIDER</option>
                         </select>
                     </div>
-                </div>
-                
-                <div class="control-cluster">
-                    <select id="strategy-selector" class="bg-transparent border-none text-[10px] font-black text-blue-400 uppercase focus:outline-none cursor-pointer" data-tooltip="Choose entry algorithm">
-                        <option value="SR" selected>S/R PRO</option>
-                        <option value="FIB">FIBO EDGE</option>
-                        <option value="DS">SUPPLY/DEMAND</option>
-                        <option value="TREND">TREND RIDER</option>
-                    </select>
-                </div>
 
-                <div class="flex items-center gap-2 ml-2 border-l border-white/5 pl-3">
-                    <input type="checkbox" id="mtf-toggle" class="w-3 h-3 cursor-pointer accent-blue-500" checked>
-                    <span class="text-[9px] font-bold text-gray-500 uppercase">MTF Lines</span>
+                    <div class="flex items-center gap-2 ml-2 border-l border-white/5 pl-3">
+                        <input type="checkbox" id="mtf-toggle" class="w-3 h-3 cursor-pointer accent-blue-500" checked>
+                        <span class="text-[9px] font-bold text-gray-500 uppercase">MTF Lines</span>
+                    </div>
                 </div>
             </div>
         </div>
