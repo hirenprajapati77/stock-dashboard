@@ -642,7 +642,7 @@ function initRotation() {
     }
 }
 
-function zoomReset() {
+function rotationZoomReset() {
     if (rotationApp) {
         rotationApp.zoom = 1.0;
         rotationApp.panX = 0;

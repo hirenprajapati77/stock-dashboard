@@ -659,13 +659,28 @@ class ScreenerService:
         else:
             # If hits is empty (e.g., market closed/no volume), try serving the last valid scan
             fallback_data = cls._load_fallback(normalized_tf)
+            
+            # Transition to ready state even if we serve fallback/empty to stop the "warming" spinner
+            cls._intelligence_cache["status"] = "ready"
+            
             if fallback_data:
                 print(f"DEBUG: 0 hits found live, returning fallback EOD data for {normalized_tf}")
+                
+                # Sync the background cache so the precomputed API stays responsive
+                cls._intelligence_cache["data"] = fallback_data
+                cls._intelligence_cache["last_updated"] = datetime.now()
+                
                 return {
                     "hits": fallback_data,
                     "sector_concentration": cls._calculate_sector_concentration(fallback_data),
                     "source": "fallback"
                 }
+            
+            return {
+                "hits": [],
+                "sector_concentration": [],
+                "source": "live"
+            }
 
         
     @classmethod
