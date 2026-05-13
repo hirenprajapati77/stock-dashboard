@@ -217,7 +217,23 @@ window.setTradingMode = setTradingMode;
 // --- WATCHLIST & OUTCOMES ---
 let pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '["NIFTY50", "RELIANCE"]');
 
+window.zoomReset = function() {
+    console.log('[Zoom] Resetting all views...');
+    // 1. Reset Technical Chart
+    if (typeof chart !== 'undefined' && chart) {
+        chart.timeScale().fitContent();
+    }
+    // 2. Reset Rotation Canvas
+    if (typeof rotationZoomReset === 'function') {
+        rotationZoomReset();
+    }
+    showToast('Zoom Reset', 'info');
+};
+
 function togglePin(symbol) {
+    if (!symbol) return;
+    symbol = symbol.toUpperCase().replace('.NS', '');
+    
     if (pinnedSymbols.includes(symbol)) {
         pinnedSymbols = pinnedSymbols.filter(s => s !== symbol);
         showToast(`📌 ${symbol} removed from watchlist`, 'info');
@@ -230,20 +246,26 @@ function togglePin(symbol) {
 }
 
 function renderPinnedWatchlist() {
-    const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
+    const lists = document.querySelectorAll('[id^="ta-watchlist-list"], #pinned-list-sidebar');
+    const counts = document.querySelectorAll('#ta-watchlist-count');
     
+    counts.forEach(c => c.textContent = pinnedSymbols.length);
+
     lists.forEach(list => {
         if (!list) return;
         
         if (pinnedSymbols.length === 0) {
-            list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-2 uppercase tracking-widest">Awaiting symbol pin...</div>';
+            list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-4 uppercase tracking-widest w-full col-span-full">Awaiting symbol pin...</div>';
             return;
         }
         
         list.innerHTML = pinnedSymbols.map(sym => `
-            <div class="flex items-center justify-between p-1.5 hover:bg-white/5 rounded transition-colors group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
-                <span class="text-[10px] font-black text-gray-300 group-hover:text-white uppercase tracking-tight">${sym}</span>
-                <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[8px] text-gray-600 hover:text-red-400 p-1">
+            <div class="flex items-center justify-between p-2 hover:bg-white/5 bg-gray-900/20 border border-white/5 rounded-lg transition-all group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-gray-300 group-hover:text-blue-400 uppercase tracking-tight">${sym}</span>
+                    <span class="text-[7px] text-gray-600 font-bold uppercase">Manual Pin</span>
+                </div>
+                <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[10px] text-gray-700 hover:text-red-500 p-1 transition-colors">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -497,7 +519,7 @@ const TradingAssistant = {
     },
     
     renderWatchlist() {
-        const lists = document.querySelectorAll('#ta-watchlist-list, #pinned-list-sidebar');
+        const lists = document.querySelectorAll('[id^="ta-watchlist-list"], #pinned-list-sidebar');
         
         lists.forEach(list => {
             if (!list) return;
@@ -1937,7 +1959,10 @@ async function loadTopTrades() {
             card.innerHTML += `
                 <div class="flex justify-between items-start mb-1">
                     <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
-                    <div class="flex items-center gap-1 z-10">
+                    <div class="flex items-center gap-2 z-10">
+                        <button onclick="event.stopPropagation(); togglePin('${hit.symbol.replace('.NS', '')}')" class="text-[10px] text-gray-600 hover:text-purple-400 p-1" title="Pin to watchlist">
+                            <i class="fas fa-thumbtack"></i>
+                        </button>
                         <span class="text-[9px] font-bold text-gray-500">${score}%</span>
                     </div>
                 </div>

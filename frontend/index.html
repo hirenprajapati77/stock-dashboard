@@ -564,7 +564,7 @@
                                 <div class="flex items-center justify-between mb-3">
                                     <h3 class="text-[10px] font-bold uppercase tracking-widest text-yellow-400 flex items-center gap-1.5"><span class="text-xs">⭐</span> Pinned Watchlist</h3>
                                 </div>
-                                <div id="ta-watchlist-list" class="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                                <div id="ta-watchlist-list-top" class="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
                                     <div class="text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</div>
                                 </div>
                             </div>
@@ -644,7 +644,7 @@
                                 class="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                             <span id="playback-date" class="text-[10px] font-mono text-white min-w-[70px]">Today</span>
                         </div>
-                        <button onclick="zoomReset()"
+                        <button onclick="rotationZoomReset()"
                             class="p-2 bg-gray-900/80 border border-gray-700 rounded-lg text-gray-400 hover:text-white">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -743,7 +743,7 @@
                                     </h3>
                                     <span id="ta-watchlist-count" class="text-[9px] px-1.5 py-0.5 bg-gray-800 text-gray-500 rounded font-bold">0</span>
                                 </div>
-                                <div id="ta-watchlist-list" class="grid grid-cols-2 gap-2">
+                                <div id="ta-watchlist-list-main" class="grid grid-cols-2 gap-2">
                                     <p class="col-span-2 text-[10px] text-gray-500 italic w-full text-center py-1">Pin symbols from the scanner.</p>
                                 </div>
                             </div>
