@@ -487,6 +487,10 @@ class ScreenerService:
             is_expired = last_err and "Fyers Token Expired" in str(last_err)
             print(f"WARNING: No stock data fetched for screener (Expired: {is_expired}). Using fallback.", flush=True)
             fb_list = cls._load_fallback(normalized_tf)
+            
+            # Transition to ready even on fallback to stop 'warming' spinner
+            cls._intelligence_cache["status"] = "ready"
+            
             return {
                 "hits": fb_list,
                 "sector_concentration": cls._calculate_sector_concentration(fb_list),
@@ -636,9 +640,13 @@ class ScreenerService:
                 "status": "ready"
             }
             
-            # Archive Signals (V6: Persistent historical signals)
+            # Archive & Track Signals
             if normalized_tf == "1D":
+                from app.services.signal_archive_service import SignalArchiveService
+                from app.services.trade_tracking_service import TradeTrackingService
+                
                 SignalArchiveService.archive_signals(hits)
+                TradeTrackingService.log_trades(hits)
             
             # Save to Fallback
             cls._save_fallback(hits, normalized_tf)

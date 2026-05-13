@@ -165,11 +165,8 @@ class SignalArchiveService:
             "winRateLiftVsBaseline": float(round(prioritized_win_rate - round(win_rate, 2), 2)) if high_med else 0.0,
         }
 
-        # Improvement 3: System Performance Stability
-        if total < 30:
+        # System Performance Stability: Show what we have even if sample is small
+        if total < 5:
             res["insufficientData"] = True
-            # Mask sensitive metrics when data is insufficient for reliable stats
-            res["winRate"] = 0
-            res["avgReturn"] = 0
             
         return res

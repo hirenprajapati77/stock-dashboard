@@ -148,6 +148,7 @@ function switchView(view) {
     
     const btnDash = document.getElementById('view-dashboard');
     const btnIntel = document.getElementById('view-intelligence');
+    const symbolControls = document.getElementById('symbol-controls-wrapper');
 
     // Hide all first
     [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
@@ -160,10 +161,12 @@ function switchView(view) {
         dashboard?.classList.remove('hidden');
         btnDash?.classList.add('active');
         btnDash?.setAttribute('aria-pressed', 'true');
+        symbolControls?.classList.remove('hidden'); // Show symbol controls on dashboard
     } else if (view === 'intelligence') {
         intelligence?.classList.remove('hidden');
         btnIntel?.classList.add('active');
         btnIntel?.setAttribute('aria-pressed', 'true');
+        symbolControls?.classList.add('hidden'); // Hide symbol controls on intelligence
         
         // Trigger chart resize if chart exists in intelligence (it might not, but safe to check)
         setTimeout(() => {
@@ -1049,8 +1052,8 @@ function updateStrategyUI(data) {
 
         // Update Positives
         const adxVal = parseFloat(insights.adx || metrics.adx || 0);
-        const adxText = adxVal > 25 ? 'Strong Trend' : adxVal > 15 ? 'Moderate' : 'Weak';
-        document.getElementById('metric-adx').textContent = `${adxVal.toFixed(1)} (${adxText})`;
+        const adxText = adxVal > 25 ? 'Strong Trend' : adxVal > 15 ? 'Moderate' : adxVal > 0 ? 'Weak' : 'Scanning...';
+        document.getElementById('metric-adx').textContent = adxVal > 0 ? `${adxVal.toFixed(1)} (${adxText})` : 'Scanning...';
         document.getElementById('metric-adx').className = `text-sm font-bold ${adxVal > 25 ? 'text-up' : 'text-white'}`;
 
         // Volume — use a single canonical source to avoid conflicting values across sections.
@@ -1176,13 +1179,14 @@ function formatVal(v) {
 }
 
 function formatWithCurrency(val, currency = 'INR') {
-    if (val === undefined || val === null || val === '—' || val === '---') return '—';
+    if (val === undefined || val === null || val === '—' || val === '---' || val === 0 || val === '0' || val === 0.0) return '—';
     const symbolMap = { 'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£' };
     const currencySym = symbolMap[currency] || '₹';
     
     if (typeof val === 'number') return `${currencySym}${val.toFixed(2)}`;
     const num = parseFloat(val);
     if (!isNaN(num)) return `${currencySym}${num.toFixed(2)}`;
+    return '—';
 }
 
 let scanInterval;
@@ -1390,9 +1394,36 @@ function updateHeroDecisionStrip(data, vm) {
         if (hSLLabel) hSLLabel.textContent = "STOP LOSS";
         if (hTargetLabel) hTargetLabel.textContent = "TARGET";
         
-        if (hEntry) hEntry.textContent = formatWithCurrency(data.decision.entry_price || data.meta.cmp, data.meta.currency);
-        if (hSL) hSL.textContent = formatWithCurrency(data.decision.stop_loss || data.summary.stop_loss, data.meta.currency);
-        if (hTarget) hTarget.textContent = formatWithCurrency(data.decision.target_price, data.meta.currency);
+        if (hStatus) hStatus.textContent = data.decision?.recommendation || data.summary?.trade_signal_reason || "Market monitoring in progress...";
+        if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
+        
+        // Robust Invalidation Price Fallback
+        const slPrice = data.decision?.stop_loss 
+            || data.summary?.stop_loss 
+            || (strategy === 'FIBONACCI' ? metrics.stopLoss : null)
+            || (strategy === 'DEMAND_SUPPLY' ? metrics.zoneLow : null)
+            || 0;
+            
+        if (hSL) hSL.textContent = formatWithCurrency(slPrice, data.meta.currency);
+        
+        const entryPrice = data.decision?.entry_price || data.meta.cmp;
+        if (hEntry) hEntry.textContent = formatWithCurrency(entryPrice, data.meta.currency);
+        
+        const targetPrice = data.decision?.target_price || data.summary?.target || (entryPrice * 1.02);
+        if (hTarget) hTarget.textContent = formatWithCurrency(targetPrice, data.meta.currency);
+
+        if (hStep) {
+            let guidance = "Wait for price to hit a high-probability zone.";
+            if (strategy === 'FIBONACCI') {
+                guidance = metrics.goldenPocket ? "Price in Golden Pocket. Look for rejection candle." : "Awaiting retracement to 50-61.8% zone.";
+            } else if (strategy === 'DEMAND_SUPPLY') {
+                guidance = "Monitor for price rejection inside the Demand/Supply zone.";
+            } else if (strategy === 'SWING') {
+                guidance = "Wait for EMA alignment and structural breakout confirmation.";
+            }
+            hStep.textContent = guidance;
+        }
+
         if (hRR) hRR.textContent = data.rr || "0.00";
     }
     
@@ -1489,9 +1520,24 @@ function updateExecutionEdge(data) {
             const levelFmt = (nr !== null && nr !== undefined)
                 ? `<span class="text-blue-400 font-bold font-mono">₹${parseFloat(nr).toFixed(2)}</span>`
                 : `<span class="text-gray-500 font-mono">resistance zone</span>`;
-            nextStep.innerHTML = `Wait for breakout above ${levelFmt} with volume surge.`;
+            
+            const strategy = data.meta?.strategy;
+            if (strategy === 'FIBONACCI') {
+                nextStep.innerHTML = `Wait for price to hit <span class="text-purple-400 font-bold font-mono">Golden Pocket</span> or break ${levelFmt}.`;
+            } else if (strategy === 'DEMAND_SUPPLY') {
+                nextStep.innerHTML = `Monitor for price rejection at ${levelFmt} (Supply Zone).`;
+            } else {
+                nextStep.innerHTML = `Wait for breakout above ${levelFmt} with volume surge.`;
+            }
         } else {
-            nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
+            const strategy = data.meta?.strategy;
+            if (strategy === 'FIBONACCI') {
+                nextStep.textContent = "Monitor Fibonacci retracement levels for potential reversals.";
+            } else if (strategy === 'DEMAND_SUPPLY') {
+                nextStep.textContent = "Searching for fresh Demand or Supply zones for institutional advantage.";
+            } else {
+                nextStep.textContent = "Monitor S/R zones for price rejection or breakout.";
+            }
         }
     }
 
@@ -1508,6 +1554,7 @@ function updateExecutionEdge(data) {
             (isValidPrice(data.decision?.stop_loss) ? data.decision.stop_loss : null) ||
             (isValidPrice(data.summary?.stop_loss) ? data.summary.stop_loss : null) ||
             (isValidPrice(data.summary?.nearest_support) ? data.summary.nearest_support : null) ||
+            (isValidPrice(data.summary?.nearest_resistance) && data.summary.side === 'SHORT' ? data.summary.nearest_resistance : null) ||
             null
         );
         
@@ -2523,15 +2570,31 @@ function drawLevelsOnChart(levels, fullData = null) {
         const primarySupports = levels.primary?.supports || [];
         const primaryResists = levels.primary?.resistances || [];
 
-        primarySupports.forEach(lv => addLine(lv, '#8B5CF6', 'SWING SUP')); // Purple color for Swing
-        primaryResists.forEach(lv => addLine(lv, '#8B5CF6', 'SWING RES'));
+        primarySupports.forEach(lv => addLine(lv, '#A855F7', 'SWING SUPPORT', false)); // Solid vibrant purple
+        primaryResists.forEach(lv => addLine(lv, '#A855F7', 'SWING RESIST', false));
+        
+        // Increase width for swing manually
+        levelsLayer.forEach(line => {
+            if (line.title && line.title().includes('SWING')) line.applyOptions({ lineWidth: 2 });
+        });
     }
     else if (strategy === 'FIBONACCI') {
         const supports = levels.primary?.supports || [];
         const resistances = levels.primary?.resistances || [];
         
         // Show all ratios instead of just 3 to give a proper "Fibo" experience
-        [...supports, ...resistances].forEach(l => addLine(l, '#A855F7', l.label || 'FIB', true));
+        // Increased thickness to 2 for better visibility
+        [...supports, ...resistances].forEach(l => {
+            const isGolden = l.label && (l.label.includes('50%') || l.label.includes('61.8%'));
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: l.price,
+                color: isGolden ? '#F59E0B' : '#8B5CF6', // Amber for Golden Pocket, Purple for others
+                lineWidth: isGolden ? 3 : 2,
+                lineStyle: isGolden ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: l.label || 'FIB',
+            }));
+        });
     }
 }
 

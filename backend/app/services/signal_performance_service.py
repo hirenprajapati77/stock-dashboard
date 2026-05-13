@@ -54,6 +54,17 @@ class SignalPerformanceService:
         hits = ScreenerService.get_screener_data(timeframe=timeframe) or []
         early = ScreenerService.get_early_breakout_setups(timeframe=timeframe, limit=limit) or []
 
+        # If market is closed and we have no hits, try to return the last logged state
+        # to prevent "0" states on the dashboard.
+        if not hits and not early:
+            last_perf = cls._load_last_log()
+            if last_perf:
+                return last_perf
+
+        # Convert to hits format if get_screener_data returned the full dict
+        if isinstance(hits, dict):
+            hits = hits.get("hits", [])
+
         entry_ready_syms = {h.get("symbol") for h in hits if (h.get("entryTag") == "ENTRY_READY")}
         strong_entry_syms = {h.get("symbol") for h in hits if (h.get("entryTag") == "STRONG_ENTRY")}
 
@@ -83,6 +94,20 @@ class SignalPerformanceService:
         )
         cls._log_daily(perf)
         return perf
+
+    @classmethod
+    def _load_last_log(cls) -> Optional[SignalPerformance]:
+        try:
+            if cls._log_path.exists():
+                data = json.loads(cls._log_path.read_text(encoding="utf-8"))
+                if data:
+                    # Get the most recent entry by date
+                    sorted_dates = sorted(data.keys(), reverse=True)
+                    last_data = data[sorted_dates[0]]
+                    return SignalPerformance(**last_data)
+        except Exception:
+            pass
+        return None
 
     @classmethod
     def _log_daily(cls, perf: SignalPerformance) -> None:

@@ -292,25 +292,17 @@ def _to_price_list(levels):
     return prices
 
 
-def _resolve_summary_levels(cmp, supports, resistances, mtf_levels):
-    # Merge primary + MTF so one pool doesn't mask the other
+def _resolve_summary_levels(cmp, supports, resistances, mtf_levels=None):
     all_supports = _to_price_list(supports) + _to_price_list((mtf_levels or {}).get("supports", []))
-    all_resistances = _to_price_list(resistances) + _to_price_list((mtf_levels or {}).get("resistances", []))
+    all_resists = _to_price_list(resistances) + _to_price_list((mtf_levels or {}).get("resistances", []))
+    
+    # Filter and sort to get nearest
+    s_nearest = max([s for s in all_supports if s < cmp]) if any(s < cmp for s in all_supports) else 0.0
+    r_nearest = min([r for r in all_resists if r > cmp]) if any(r > cmp for r in all_resists) else 0.0
+    
+    return s_nearest, r_nearest
 
-    below_cmp = sorted([p for p in all_supports if p < cmp], reverse=True)
-    above_cmp = sorted([p for p in all_resistances if p > cmp])
 
-    # Deduplicate within 0.1% tolerance
-    def _dedup(prices):
-        result = []
-        for p in prices:
-            if not result or abs(p - result[-1]) / result[-1] > 0.001:
-                result.append(p)
-        return result
-
-    nearest_support = _dedup(below_cmp)[0] if below_cmp else None
-    nearest_resistance = _dedup(above_cmp)[0] if above_cmp else None
-    return nearest_support, nearest_resistance
 
 
 def _build_trade_signal(ema_bias, risk_reward):
@@ -562,6 +554,11 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
         strategy_result = {}
         rendered_levels = {"supports": [], "resistances": []}
 
+        # Normalize strategy codes (Backward Compatibility)
+        if strategy == "FIB": strategy = "FIBONACCI"
+        if strategy == "DS": strategy = "DEMAND_SUPPLY"
+        if strategy == "TREND": strategy = "SWING"
+
         if strategy == "SR":
             supports, resistances = await asyncio.to_thread(SREngine.calculate_sr_levels, df)
             strategy_result = await asyncio.to_thread(SREngine.runSRStrategy, df, sector_state, supports, resistances)
@@ -598,15 +595,23 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             resistances = fib_results.get("resistances", [])
             rendered_levels = {"supports": supports, "resistances": resistances}
 
-        # 5. AI Insights (Increased timeout for Render performance)
+        # 5. Technical & AI Insights
         try:
+            from app.engine.insights import InsightEngine
+            tech_insights = await asyncio.to_thread(InsightEngine.get_technical_summary, df)
+            
             ai_analysis = await asyncio.wait_for(asyncio.to_thread(ai_engine.get_insights, df), timeout=5.0)
+            # Merge technicals into insights
+            ai_analysis.update(tech_insights)
         except asyncio.TimeoutError:
-            print("WARNING: AI analysis timed out. Using fallback.")
-            ai_analysis = {"priority": {"level": "MEDIUM", "score": 50}, "breakout": {"breakout_quality": "NORMAL", "reason": "AI timeout"}}
+            print("WARNING: AI analysis timed out. Using technical fallbacks.")
+            from app.engine.insights import InsightEngine
+            ai_analysis = await asyncio.to_thread(InsightEngine.get_technical_summary, df)
+            ai_analysis.update({"priority": {"level": "MEDIUM", "score": 50}, "breakout": {"breakout_quality": "NORMAL", "reason": "AI timeout"}})
         except Exception as e:
-            print(f"ERROR: AI analysis failed: {e}")
-            ai_analysis = {}
+            print(f"ERROR: Insights failed: {e}")
+            from app.engine.insights import InsightEngine
+            ai_analysis = await asyncio.to_thread(InsightEngine.get_technical_summary, df)
         if not ai_analysis: ai_analysis = {}
 
         # 5. Final Formatting - Filter out NaN candles that crash lightweight-charts
@@ -663,12 +668,12 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
                 "trade_signal_reason": strategy_result.get("bias", "Neutral bias"),
                 "side": strategy_result.get("side", "LONG"),
                 "confidence": int(strategy_result.get("confidence", 50)),
-                "nearest_support": ns,
-                "nearest_resistance": nr,
-                "stop_loss": strategy_result.get("stopLoss"),
-                "target": strategy_result.get("target"),
-                "risk_reward": strategy_result.get("riskReward"),
-                "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", "STABLE")
+                "nearest_support": ns or 0.0,
+                "nearest_resistance": nr or 0.0,
+                "stop_loss": strategy_result.get("stopLoss") or 0.0,
+                "target": strategy_result.get("target") or 0.0,
+                "risk_reward": strategy_result.get("riskReward") or 0.0,
+                "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", ai_analysis.get("regime", "STABLE"))
             }
         }
 
