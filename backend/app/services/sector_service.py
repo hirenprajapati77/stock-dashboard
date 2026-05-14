@@ -37,6 +37,7 @@ class SectorService:
         "NIFTY_AUTO": "^CNXAUTO",
         "NIFTY_REALTY": "^CNXREALTY",
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
+        "NIFTY_50": "^NSEI",
     }
 
     # Configurable quant logic constants
@@ -252,6 +253,7 @@ class SectorService:
                 for hist_idx, hist_row in history.iterrows():
                     history_list.append({
                         "date": hist_idx.strftime("%Y-%m-%d"),
+                        "price": float(round(hist_row['sector'], 2)),
                         "rs": float(round(hist_row['rs'], 4)),
                         "rm": float(round(hist_row['rm'], 6)),
                         "sr": float(round(hist_row['sector_return'], 4))

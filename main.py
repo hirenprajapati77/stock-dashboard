@@ -416,6 +416,9 @@ async def get_quotes(symbols: str = Query(...)):
             for fs, q in fyers_quotes.items():
                 orig_s = fyers_to_orig.get(fs, fs)
                 quotes[orig_s] = q
+                # Also add clean version for redundancy (e.g. NSE:RELIANCE-EQ -> RELIANCE)
+                clean_orig = orig_s.upper().replace(".NS", "").replace(".BO", "").split(":")[-1].split("-")[0].strip()
+                quotes[clean_orig] = q
         
         # Fallback for missing symbols or if Fyers is not active
         from app.services.screener_service import ScreenerService
@@ -424,7 +427,8 @@ async def get_quotes(symbols: str = Query(...)):
         
         formatted_quotes = {}
         for s in sym_list:
-            clean_s = s.replace(".NS", "").replace(".BO", "")
+            # Robust cleaning: "NSE:RELIANCE-EQ" -> "RELIANCE", "NIFTY50.NS" -> "NIFTY50"
+            clean_s = s.upper().replace(".NS", "").replace(".BO", "").split(":")[-1].split("-")[0].strip()
             q = quotes.get(s)
             
             if q:
@@ -441,7 +445,29 @@ async def get_quotes(symbols: str = Query(...)):
                     "ch": 0, # Change not directly in intel cache
                     "chp": idat.get("change_pct", 0)
                 }
+                # Also provide clean key for frontend robustness
+                formatted_quotes[clean_s] = formatted_quotes[s]
             else:
+                # Final fallback: Check SectorService for indices (NIFTY50, etc)
+                try:
+                    sector_data, _ = SectorService.get_rotation_data(timeframe="1D", include_constituents=False)
+                    for sname, sdata in sector_data.items():
+                        # Match NIFTY_BANK, BANK, NIFTY50, or ^NSEBANK
+                        if clean_s.replace("_", "") == sname.replace("_", "") or \
+                           clean_s == sname.replace("NIFTY_", "") or \
+                           clean_s == sdata.get("symbol", "").replace("^", ""):
+                            m = sdata.get("metrics", {})
+                            formatted_quotes[s] = {
+                                "lp": sdata.get("current", {}).get("price", 0),
+                                "ch": 0,
+                                "chp": m.get("sr", 0) * 100
+                            }
+                            formatted_quotes[clean_s] = formatted_quotes[s]
+                            break
+                except Exception:
+                    pass
+            
+            if s not in formatted_quotes:
                 formatted_quotes[s] = {"lp": 0, "ch": 0, "chp": 0}
             
         return {"status": "success", "data": formatted_quotes}
