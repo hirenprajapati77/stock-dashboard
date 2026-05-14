@@ -400,7 +400,7 @@ const TradingAssistant = {
         
         try {
             const symbolsStr = symbolsToFetch.join(',');
-            const response = await fetch(`/api/v1/quotes?symbols=${encodeURIComponent(symbolsStr)}&_=${Date.now()}`);
+            const response = await fetch(`${API_BASE}/api/v1/quotes?symbols=${encodeURIComponent(symbolsStr)}&_=${Date.now()}`);
             const result = await response.json();
             
             if (result.status === 'success') {
@@ -569,7 +569,12 @@ const TradingAssistant = {
             }
             
             list.innerHTML = this.state.watchlist.map(sym => {
-                const quote = this.state.quotes[sym] || this.state.quotes[sym.toUpperCase()] || { lp: 0, chp: 0 };
+                // Try exact match, then uppercase, then clean symbol (no NSE: or -EQ)
+                const cleanSym = sym.split(':').pop().split('-')[0].toUpperCase();
+                const quote = this.state.quotes[sym] || 
+                              this.state.quotes[sym.toUpperCase()] || 
+                              this.state.quotes[cleanSym] || 
+                              { lp: 0, chp: 0 };
                 const price = quote.lp ? quote.lp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '---';
                 const change = quote.chp ? quote.chp.toFixed(2) : '0.00';
                 const changeClass = (quote.chp || 0) >= 0 ? 'text-green-400' : 'text-red-400';
