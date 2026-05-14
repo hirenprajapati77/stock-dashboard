@@ -54,6 +54,8 @@ class ScreenerService:
         "15m": {"interval": "15m", "period": "5d"},
         "1D": {"interval": "1d", "period": "6mo"},
         "Daily": {"interval": "1d", "period": "6mo"},
+        "1W": {"interval": "1wk", "period": "2y"},
+        "1M": {"interval": "1mo", "period": "5y"},
     }
 
     RULES_BY_TF: Dict[str, ScreenerRule] = {
@@ -61,6 +63,8 @@ class ScreenerService:
         "15m": ScreenerRule(change_threshold=0.9, volume_threshold=1.5),
         "1D": ScreenerRule(change_threshold=1.4, volume_threshold=1.25, lookback_bars=15),
         "Daily": ScreenerRule(change_threshold=1.4, volume_threshold=1.25, lookback_bars=15),
+        "1W": ScreenerRule(change_threshold=2.5, volume_threshold=1.2, lookback_bars=10),
+        "1M": ScreenerRule(change_threshold=5.0, volume_threshold=1.1, lookback_bars=10),
     }
 
     SECTOR_INDEX_BY_KEY: Dict[str, str] = {

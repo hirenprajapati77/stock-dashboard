@@ -369,6 +369,87 @@ async def get_ai_insights(symbol: str = "NIFTY50", tf: str = "1D", base_conf: Op
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/api/v1/quotes", dependencies=[Depends(login_required)])
+async def get_quotes(symbols: str = Query(...)):
+    """
+    Returns real-time quotes for a comma-separated list of symbols.
+    """
+    try:
+        sym_list = [s.strip().upper() for s in symbols.split(",")]
+        
+        # Mapping to Fyers format
+        fyers_to_orig = {}
+        fyers_symbols = []
+        
+        INDEX_MAP = {
+            "NIFTY50": "NSE:NIFTY50-INDEX",
+            "NIFTYBANK": "NSE:NIFTYBANK-INDEX",
+            "FINNIFTY": "NSE:FINNIFTY-INDEX",
+            "MIDCAP": "NSE:MIDCAPSELECT-INDEX",
+            "SENSEX": "BSE:SENSEX-INDEX",
+            "NIFTY_BANK": "NSE:NIFTYBANK-INDEX",
+            "NIFTY_IT": "NSE:NIFTYIT-INDEX",
+            "NIFTY_PHARMA": "NSE:NIFTYPHARMA-INDEX",
+            "NIFTY_FMCG": "NSE:NIFTYFMCG-INDEX",
+            "NIFTY_AUTO": "NSE:NIFTYAUTO-INDEX",
+            "NIFTY_ENERGY": "NSE:NIFTYENERGY-INDEX",
+            "NIFTY_METAL": "NSE:NIFTYMETAL-INDEX"
+        }
+
+        for s in sym_list:
+            if s in INDEX_MAP:
+                fs = INDEX_MAP[s]
+            elif ":" in s:
+                fs = s
+            else:
+                # Default to NSE Equity
+                clean_s = s.replace(".NS", "").replace(".BO", "")
+                fs = f"NSE:{clean_s}-EQ"
+            
+            fyers_symbols.append(fs)
+            fyers_to_orig[fs] = s
+
+        quotes = {}
+        if FyersService.is_active():
+            fyers_quotes = await asyncio.to_thread(FyersService.get_quotes, fyers_symbols)
+            # Map back to original symbols
+            for fs, q in fyers_quotes.items():
+                orig_s = fyers_to_orig.get(fs, fs)
+                quotes[orig_s] = q
+        
+        # Fallback for missing symbols or if Fyers is not active
+        from app.services.screener_service import ScreenerService
+        intel_data = ScreenerService._intelligence_cache.get("data", [])
+        intel_map = {d["symbol"].upper().replace(".NS", ""): d for d in intel_data}
+        
+        formatted_quotes = {}
+        for s in sym_list:
+            clean_s = s.replace(".NS", "").replace(".BO", "")
+            q = quotes.get(s)
+            
+            if q:
+                formatted_quotes[s] = {
+                    "lp": q.get("lp", 0),
+                    "ch": q.get("ch", 0),
+                    "chp": q.get("chp", 0)
+                }
+            elif clean_s in intel_map:
+                # Use intel cache if Fyers quote missing
+                idat = intel_map[clean_s]
+                formatted_quotes[s] = {
+                    "lp": idat.get("price", 0),
+                    "ch": 0, # Change not directly in intel cache
+                    "chp": idat.get("change_pct", 0)
+                }
+            else:
+                formatted_quotes[s] = {"lp": 0, "ch": 0, "chp": 0}
+            
+        return {"status": "success", "data": formatted_quotes}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/v1/search", dependencies=[Depends(login_required)])
 async def search_symbols(q: str = Query(..., min_length=1)):
     """
@@ -442,6 +523,8 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             elif tf == "1H": higher_tfs = ["2H", "4H", "1D"]
             elif tf == "2H": higher_tfs = ["4H", "1D", "1W"]
             elif tf == "1D": higher_tfs = ["1W", "1M"]
+            elif tf == "1W": higher_tfs = ["1M"]
+            elif tf == "1M": higher_tfs = []
 
         async def fetch_mtf_wrapper(htf_name):
             try:
