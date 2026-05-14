@@ -215,8 +215,6 @@ window.switchView = switchView;
 window.setTradingMode = setTradingMode;
 
 // --- WATCHLIST & OUTCOMES ---
-let pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '["NIFTY50", "RELIANCE"]');
-
 window.zoomReset = function() {
     console.log('[Zoom] Resetting all views...');
     // 1. Reset Technical Chart
@@ -229,49 +227,6 @@ window.zoomReset = function() {
     }
     showToast('Zoom Reset', 'info');
 };
-
-function togglePin(symbol) {
-    if (!symbol) return;
-    symbol = symbol.toUpperCase().replace('.NS', '');
-    
-    if (pinnedSymbols.includes(symbol)) {
-        pinnedSymbols = pinnedSymbols.filter(s => s !== symbol);
-        showToast(`📌 ${symbol} removed from watchlist`, 'info');
-    } else {
-        pinnedSymbols.push(symbol);
-        showToast(`📌 ${symbol} pinned to watchlist`, 'success');
-    }
-    localStorage.setItem('pinnedSymbols', JSON.stringify(pinnedSymbols));
-    renderPinnedWatchlist();
-}
-
-function renderPinnedWatchlist() {
-    const lists = document.querySelectorAll('[id^="ta-watchlist-list"], #pinned-list-sidebar');
-    const counts = document.querySelectorAll('#ta-watchlist-count');
-    
-    counts.forEach(c => c.textContent = pinnedSymbols.length);
-
-    lists.forEach(list => {
-        if (!list) return;
-        
-        if (pinnedSymbols.length === 0) {
-            list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-4 uppercase tracking-widest w-full col-span-full">Awaiting symbol pin...</div>';
-            return;
-        }
-        
-        list.innerHTML = pinnedSymbols.map(sym => `
-            <div class="flex items-center justify-between p-2 hover:bg-white/5 bg-gray-900/20 border border-white/5 rounded-lg transition-all group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
-                <div class="flex flex-col">
-                    <span class="text-[10px] font-black text-gray-300 group-hover:text-blue-400 uppercase tracking-tight">${sym}</span>
-                    <span class="text-[7px] text-gray-600 font-bold uppercase">Manual Pin</span>
-                </div>
-                <button onclick="event.stopPropagation(); togglePin('${sym}')" class="text-[10px] text-gray-700 hover:text-red-500 p-1 transition-colors">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `).join('');
-    });
-}
 
 function loadRecentOutcomes(data = null) {
     const list = document.getElementById('recent-outcomes-list');
@@ -321,10 +276,9 @@ function loadRecentOutcomes(data = null) {
 window.loadRecentOutcomes = loadRecentOutcomes;
 
 // Initial call
-renderPinnedWatchlist();
 loadRecentOutcomes();
 
-window.togglePin = togglePin;
+// Redundant window mapping removed
 
 // --- MARKET STATE HELPERS ---
 
@@ -372,30 +326,60 @@ function getATMStrike(symbol, price) {
 }
 
 const TradingAssistant = {
-    version: 1,
+    version: 1.1, // Incremented version for new structure
     state: {
         alerts: [],
         outcomes: [],
-        watchlist: []
+        watchlist: [],
+        quotes: {}
     },
     
     init() {
         try {
+            // 1. Try to load new consolidated state
             const stored = localStorage.getItem('tradingAssistant');
             if (stored) {
                 const parsed = JSON.parse(stored);
                 if (parsed.version === this.version) {
                     this.state = parsed;
                 } else {
-                    this.state = { version: this.version, alerts: [], outcomes: [], watchlist: [] };
+                    // Version mismatch - try to preserve watchlist/alerts if they exist
+                    console.log("[TA] Version mismatch, migrating data...");
+                    this.state.watchlist = parsed.watchlist || [];
+                    this.state.alerts = parsed.alerts || [];
+                    this.state.outcomes = parsed.outcomes || [];
                     this.save();
                 }
             }
+            
+            // 2. Migration from legacy pinnedSymbols
+            const legacyPinned = localStorage.getItem('pinnedSymbols');
+            if (legacyPinned) {
+                try {
+                    const pinned = JSON.parse(legacyPinned);
+                    if (Array.isArray(pinned) && pinned.length > 0) {
+                        console.log("[TA] Migrating legacy pinnedSymbols:", pinned);
+                        pinned.forEach(s => {
+                            const clean = s.toUpperCase().replace('.NS', '').replace('.BO', '').trim();
+                            if (!this.state.watchlist.includes(clean)) {
+                                this.state.watchlist.push(clean);
+                            }
+                        });
+                        localStorage.removeItem('pinnedSymbols');
+                        this.save();
+                    }
+                } catch(e) {
+                    console.warn("[TA] Failed to parse legacy pinnedSymbols", e);
+                }
+            }
         } catch (e) {
-            console.warn("Could not load Trading Assistant state", e);
+            console.warn("[TA] Could not load Trading Assistant state", e);
         }
         
         this.renderAll();
+        // Start background quote polling
+        this.fetchQuotes(); // Immediate fetch
+        setInterval(() => this.fetchQuotes(), 10000);
     },
     
     save() {
@@ -405,6 +389,50 @@ const TradingAssistant = {
             this.renderAll();
         } catch (e) {
             console.warn("Could not save Trading Assistant state", e);
+        }
+    },
+
+    async fetchQuotes() {
+        const currentSymbol = document.getElementById('symbol-input')?.value;
+        const symbolsToFetch = [...new Set([...this.state.watchlist, currentSymbol])].filter(Boolean);
+        
+        if (symbolsToFetch.length === 0) return;
+        
+        try {
+            const symbolsStr = symbolsToFetch.join(',');
+            const response = await fetch(`/api/v1/quotes?symbols=${encodeURIComponent(symbolsStr)}&_=${Date.now()}`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                this.state.quotes = result.data;
+                this.renderWatchlist();
+                
+                // If current symbol is in the result, update main UI price if needed
+                if (currentSymbol) {
+                    const quote = result.data[currentSymbol] || result.data[currentSymbol.toUpperCase()];
+                    if (quote && quote.lp > 0) {
+                        this.updateMainPrice(currentSymbol, quote);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("[TA] Watchlist quote fetch error:", error);
+        }
+    },
+
+    updateMainPrice(symbol, quote) {
+        const cmpEl = document.getElementById('cmp');
+        const eePriceEl = document.getElementById('ee-underlying-price');
+        const heroPriceEl = document.getElementById('hero-price');
+        
+        if (cmpEl) cmpEl.textContent = formatWithCurrency(quote.lp, 'INR');
+        if (eePriceEl) eePriceEl.textContent = `₹${quote.lp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        if (heroPriceEl) heroPriceEl.textContent = formatWithCurrency(quote.lp, 'INR');
+        
+        const changeEl = document.getElementById('price-change');
+        if (changeEl && quote.chp !== undefined) {
+            changeEl.textContent = `${quote.chp >= 0 ? '+' : ''}${quote.chp.toFixed(2)}%`;
+            changeEl.className = `text-xs font-medium ${quote.chp >= 0 ? 'text-up' : 'text-down'}`;
         }
     },
     
@@ -454,17 +482,26 @@ const TradingAssistant = {
     
     toggleWatchlist(symbol, e) {
         if (e) e.stopPropagation();
+        if (!symbol) return;
+        symbol = symbol.toUpperCase().replace('.NS', '');
+        
         if (this.state.watchlist.includes(symbol)) {
             this.state.watchlist = this.state.watchlist.filter(s => s !== symbol);
+            showToast(`📌 ${symbol} removed from watchlist`, 'info');
         } else {
             this.state.watchlist.push(symbol);
+            showToast(`📌 ${symbol} pinned to watchlist`, 'success');
+            // Fetch quote for the new symbol immediately
+            this.fetchQuotes();
         }
         this.save();
         if (typeof loadTopTrades === 'function') loadTopTrades();
     },
     
     isPinned(symbol) {
-        return this.state.watchlist.includes(symbol);
+        if (!symbol) return false;
+        const clean = symbol.toUpperCase().replace('.NS', '').replace('.BO', '').trim();
+        return this.state.watchlist.includes(clean);
     },
     
     renderAll() {
@@ -520,20 +557,41 @@ const TradingAssistant = {
     
     renderWatchlist() {
         const lists = document.querySelectorAll('[id^="ta-watchlist-list"], #pinned-list-sidebar');
+        const counts = document.querySelectorAll('#ta-watchlist-count');
         
+        counts.forEach(c => c.textContent = this.state.watchlist.length);
+
         lists.forEach(list => {
             if (!list) return;
             if (this.state.watchlist.length === 0) {
-                list.innerHTML = '<div class="text-[10px] text-gray-500 italic w-full text-center py-2 uppercase tracking-widest">Pin symbols from scanner</div>';
+                list.innerHTML = '<div class="text-[9px] text-gray-500 italic text-center py-4 uppercase tracking-widest w-full col-span-full">Awaiting symbol pin...</div>';
                 return;
             }
             
-            list.innerHTML = this.state.watchlist.map(sym => `
-                <div class="bg-gray-800/80 hover:bg-gray-700 px-2 py-1 rounded text-[10px] font-bold text-white cursor-pointer flex items-center gap-1 group transition-colors">
-                    <span onclick="document.getElementById('symbol-input').value='${sym}'; fetchData(false);">${sym}</span>
-                    <i class="fas fa-times text-gray-500 group-hover:text-red-400 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="TradingAssistant.toggleWatchlist('${sym}')"></i>
+            list.innerHTML = this.state.watchlist.map(sym => {
+                const quote = this.state.quotes[sym] || this.state.quotes[sym.toUpperCase()] || { lp: 0, chp: 0 };
+                const price = quote.lp ? quote.lp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '---';
+                const change = quote.chp ? quote.chp.toFixed(2) : '0.00';
+                const changeClass = (quote.chp || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+
+                return `
+                <div class="flex items-center justify-between p-2 hover:bg-white/5 bg-gray-900/20 border border-white/5 rounded-lg transition-all group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-black text-gray-300 group-hover:text-blue-400 uppercase tracking-tight">${sym}</span>
+                        <span class="text-[7px] text-gray-600 font-bold uppercase">Manual Pin</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right flex flex-col">
+                            <span class="text-[10px] font-mono font-bold text-white">${price}</span>
+                            <span class="text-[8px] font-mono font-bold ${changeClass}">${change}%</span>
+                        </div>
+                        <button onclick="event.stopPropagation(); TradingAssistant.toggleWatchlist('${sym}')" class="text-[10px] text-gray-700 hover:text-red-500 p-1 transition-colors">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         });
     }
 };
@@ -808,9 +866,59 @@ function initChart() {
 
     console.log('Chart initialized successfully');
 
+    // OHLC Legend Subscription
+    chart.subscribeCrosshairMove(param => {
+        const container = document.getElementById('ohlc-legend');
+        if (!container) return;
+        
+        if (!param.point || !param.time || param.point.x < 0 || param.point.x > chartContainer.clientWidth || param.point.y < 0 || param.point.y > chartContainer.clientHeight) {
+            // Show latest data if cursor is outside or no point
+            if (window.lastReceivedData && window.lastReceivedData.ohlcv && window.lastReceivedData.ohlcv.length > 0) {
+                const last = window.lastReceivedData.ohlcv[window.lastReceivedData.ohlcv.length - 1];
+                updateLegendDisplay(last);
+            }
+            return;
+        }
+
+        const data = param.seriesData.get(candlestickSeries);
+        if (data) {
+            updateLegendDisplay(data);
+        } else {
+            // Fallback to latest if series data is missing for that point
+            if (window.lastReceivedData?.ohlcv?.length > 0) {
+                updateLegendDisplay(window.lastReceivedData.ohlcv[window.lastReceivedData.ohlcv.length - 1]);
+            }
+        }
+    });
+
     window.addEventListener('resize', () => {
         chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
     });
+}
+
+function updateLegendDisplay(data) {
+    const lOpen = document.getElementById('legend-open');
+    const lHigh = document.getElementById('legend-high');
+    const lLow = document.getElementById('legend-low');
+    const lClose = document.getElementById('legend-close');
+    const lChange = document.getElementById('legend-change');
+
+    if (!lOpen || !data) return;
+
+    // Ensure legend is visible
+    const container = document.getElementById('ohlc-legend');
+    if (container) container.classList.remove('opacity-0');
+
+    lOpen.textContent = (data.open || 0).toFixed(2);
+    lHigh.textContent = (data.high || 0).toFixed(2);
+    lLow.textContent = (data.low || 0).toFixed(2);
+    lClose.textContent = (data.close || 0).toFixed(2);
+
+    const open = data.open || 0;
+    const close = data.close || 0;
+    const change = open !== 0 ? ((close - open) / open) * 100 : 0;
+    lChange.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+    lChange.className = `text-[11px] font-black mono ${change >= 0 ? 'text-green-400' : 'text-red-400'}`;
 }
 
 
@@ -1386,75 +1494,36 @@ function toViewModel(data) {
 }
 
 function updateHeroDecisionStrip(data, vm) {
-    const hPrice = document.getElementById('hero-price');
-    const hEntry = document.getElementById('hero-entry');
-    const hSL = document.getElementById('hero-sl');
-    const hTarget = document.getElementById('hero-target');
-    const hRR = document.getElementById('hero-rr');
+    const heroPrice = document.getElementById('hero-price');
+    const heroEntry = document.getElementById('hero-entry');
+    const heroSL = document.getElementById('hero-sl');
+    const heroTarget = document.getElementById('hero-target');
+    const heroRR = document.getElementById('hero-rr');
+    const heroSignal = document.getElementById('hero-signal-badge');
     
-    const hPriceLabel = document.getElementById('hero-price-label');
-    const hEntryLabel = document.getElementById('hero-entry-label');
-    const hSLLabel = document.getElementById('hero-sl-label');
-    const hTargetLabel = document.getElementById('hero-target-label');
-
-    if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
+    if (heroPrice) heroPrice.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
     
     if (vm.mode === 'OPTIONS') {
-        if (hPriceLabel) hPriceLabel.textContent = "PREMIUM CMP";
-        if (hEntryLabel) hEntryLabel.textContent = "PREM ENTRY";
-        if (hSLLabel) hSLLabel.textContent = "PREM SL";
-        if (hTargetLabel) hTargetLabel.textContent = "PREM TARGET";
-        
-        const fmtPrem = (val) => val > 0 ? `₹${formatVal(val)}` : "AWAITING...";
-        if (hEntry) hEntry.textContent = fmtPrem(vm.premium);
-        if (hSL) hSL.textContent = fmtPrem(vm.premiumSL);
-        if (hTarget) hTarget.textContent = fmtPrem(vm.premiumT1);
-        if (hRR) hRR.textContent = data.rr || "N/A";
+        const fmtPrem = (val) => val > 0 ? `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "AWAITING...";
+        if (heroEntry) heroEntry.textContent = fmtPrem(vm.premium);
+        if (heroSL) heroSL.textContent = fmtPrem(vm.premiumSL);
+        if (heroTarget) heroTarget.textContent = fmtPrem(vm.premiumT1);
     } else {
-        if (hPriceLabel) hPriceLabel.textContent = "CURRENT PRICE";
-        if (hEntryLabel) hEntryLabel.textContent = "ENTRY";
-        if (hSLLabel) hSLLabel.textContent = "STOP LOSS";
-        if (hTargetLabel) hTargetLabel.textContent = "TARGET";
-        
-        if (hStatus) hStatus.textContent = data.decision?.recommendation || data.summary?.trade_signal_reason || "Market monitoring in progress...";
-        if (hPrice) hPrice.textContent = formatWithCurrency(data.meta.cmp, data.meta.currency);
-        
-        // Robust Invalidation Price Fallback
-        const slPrice = data.decision?.stop_loss 
-            || data.summary?.stop_loss 
-            || (strategy === 'FIBONACCI' ? metrics.stopLoss : null)
-            || (strategy === 'DEMAND_SUPPLY' ? metrics.zoneLow : null)
-            || 0;
-            
-        if (hSL) hSL.textContent = formatWithCurrency(slPrice, data.meta.currency);
-        
+        const slPrice = data.decision?.stop_loss || data.summary?.stop_loss || 0;
         const entryPrice = data.decision?.entry_price || data.meta.cmp;
-        if (hEntry) hEntry.textContent = formatWithCurrency(entryPrice, data.meta.currency);
-        
         const targetPrice = data.decision?.target_price || data.summary?.target || (entryPrice * 1.02);
-        if (hTarget) hTarget.textContent = formatWithCurrency(targetPrice, data.meta.currency);
-
-        if (hStep) {
-            let guidance = "Wait for price to hit a high-probability zone.";
-            if (strategy === 'FIBONACCI') {
-                guidance = metrics.goldenPocket ? "Price in Golden Pocket. Look for rejection candle." : "Awaiting retracement to 50-61.8% zone.";
-            } else if (strategy === 'DEMAND_SUPPLY') {
-                guidance = "Monitor for price rejection inside the Demand/Supply zone.";
-            } else if (strategy === 'SWING') {
-                guidance = "Wait for EMA alignment and structural breakout confirmation.";
-            }
-            hStep.textContent = guidance;
-        }
-
-        if (hRR) hRR.textContent = data.rr || "0.00";
+        
+        if (heroSL) heroSL.textContent = formatWithCurrency(slPrice, data.meta.currency);
+        if (heroEntry) heroEntry.textContent = formatWithCurrency(entryPrice, data.meta.currency);
+        if (heroTarget) heroTarget.textContent = formatWithCurrency(targetPrice, data.meta.currency);
     }
+
+    if (heroRR) heroRR.textContent = data.rr || "0.00";
     
-    // Action Badge Sync
-    const heroSignal = document.getElementById('hero-signal-badge');
     if (heroSignal) {
         heroSignal.textContent = vm.executionSignal;
         const color = getExecutionState(vm);
-        heroSignal.className = `mt-0.5 px-4 py-0.5 rounded text-[10px] font-black tracking-widest border border-current uppercase ${
+        heroSignal.className = `px-4 py-0.5 rounded text-[10px] font-black tracking-widest border border-current uppercase ${
             color === 'green' ? 'bg-green-900/30 text-green-400' : 
             color === 'yellow' ? 'bg-yellow-900/30 text-yellow-400' :
             color === 'indigo' ? 'bg-indigo-900/30 text-indigo-400' : 'bg-red-900/30 text-red-400'
@@ -1801,6 +1870,7 @@ function updateExecutionEdge(data) {
     }
 
     updatePrimaryAction(vm);
+    updateHeroDecisionStrip(data, vm);
 }
 
 function updatePrimaryAction(vm) {
@@ -1960,7 +2030,7 @@ async function loadTopTrades() {
                 <div class="flex justify-between items-start mb-1">
                     <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
                     <div class="flex items-center gap-2 z-10">
-                        <button onclick="event.stopPropagation(); togglePin('${hit.symbol.replace('.NS', '')}')" class="text-[10px] text-gray-600 hover:text-purple-400 p-1" title="Pin to watchlist">
+                        <button onclick="event.stopPropagation(); TradingAssistant.toggleWatchlist('${hit.symbol.replace('.NS', '')}')" class="text-[10px] text-gray-600 hover:text-purple-400 p-1" title="Pin to watchlist">
                             <i class="fas fa-thumbtack"></i>
                         </button>
                         <span class="text-[9px] font-bold text-gray-500">${score}%</span>
@@ -2181,6 +2251,12 @@ function updateUI(data, isBackground = false) {
         // 5. Chart
         if (data.ohlcv && data.ohlcv.length > 0 && candlestickSeries) {
             candlestickSeries.setData(data.ohlcv);
+            
+            // Initial legend update with latest candle
+            const lastCandle = data.ohlcv[data.ohlcv.length - 1];
+            if (typeof updateLegendDisplay === 'function') {
+                updateLegendDisplay(lastCandle);
+            }
 
             // Volume & EMA logic
             if (volumeSeries && volumeEmaSeries) {
@@ -2364,6 +2440,8 @@ function switchEETab(tab) {
         activeBtn.classList.add('border-blue-500', 'text-white');
         activeBtn.setAttribute('aria-selected', 'true');
     }
+    // Consolidated into primary updateHeroDecisionStrip above
+    return;
 }
 
 function updateHeroDecisionStrip(data, vm) {
@@ -2855,25 +2933,25 @@ window.onload = function () {
             if (isRotationActive) {
                 fetchRotation();
             } else if (isIntelligenceModeActive()) {
-                fetchIntelligence();
+                fetchIntelligence(true); // Force refresh on TF change
             } else {
                 fetchData();
             }
         });
-        // Intraday chip group (5m / 15m) – drives tf-selector for Intelligence flows
-        const intradayGroup = document.getElementById('intraday-tf-toggle');
-        if (intradayGroup) {
+        // Timeframe chip group (5m / 15m / 1D / 1W / 1M)
+        const tfChipsGroup = document.getElementById('tf-chips-group');
+        if (tfChipsGroup) {
             const tfSelector = document.getElementById('tf-selector');
-            const buttons = intradayGroup.querySelectorAll('button[data-tf]');
+            const buttons = tfChipsGroup.querySelectorAll('button[data-tf]');
             window.updateTfChips = (activeTf) => {
                 buttons.forEach(btn => {
                     if (btn.dataset.tf === activeTf) {
-                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
-                        btn.classList.remove('text-gray-300', 'hover:bg-gray-800');
+                        btn.classList.add('bg-blue-600', 'text-white', 'shadow-lg');
+                        btn.classList.remove('text-gray-500', 'hover:text-white');
                         btn.setAttribute('aria-pressed', 'true');
                     } else {
-                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-[0_0_8px_rgba(37,99,235,0.7)]');
-                        btn.classList.add('text-gray-300', 'hover:bg-gray-800');
+                        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-lg');
+                        btn.classList.add('text-gray-500', 'hover:text-white');
                         btn.setAttribute('aria-pressed', 'false');
                     }
                 });
@@ -2887,10 +2965,6 @@ window.onload = function () {
                         tfSelector.dispatchEvent(new Event('change'));
                     }
                     setActive(tf);
-                    // When user explicitly chooses intraday chip, ensure Intelligence panel refreshes
-                    if (isIntelligenceModeActive()) {
-                        fetchIntelligence();
-                    }
                 });
             });
             // Initialise chip state from selector's default
@@ -3181,12 +3255,15 @@ window.addEventListener('message', (event) => {
 
 // Check on load
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialize State Manager
     TradingAssistant.init();
+    
+    // 2. Refresh Auth Status
     checkFyersStatus();
-    // Populate Top Trades Scanner
-    loadTopTrades();
-    // Poll every 30 seconds for background refresh
     setInterval(checkFyersStatus, 30000);
+
+    // 3. Populate Scanners
+    loadTopTrades();
 });
 
 // --- CLOCK AND FALLBACK ENGINE ---
@@ -3232,12 +3309,39 @@ setInterval(() => {
 
 // Initialize UI listeners
 document.addEventListener('DOMContentLoaded', () => {
+    // Timeframe selector change listener
     document.getElementById('tf-selector')?.addEventListener('change', function(e) {
         const tf = e.target.value;
         const names = { '5m': '5 MIN', '15m': '15 MIN', '30m': '30 MIN', '45m': '45 MIN', '1H': 'HOURLY', '4H': '4 HOUR', '1D': 'DAILY', '1W': 'WEEKLY', '1M': 'MONTHLY' };
         const labelText = names[tf] || tf.toUpperCase();
         const tfLabel = document.getElementById('chart-tf-label');
         if (tfLabel) tfLabel.textContent = `${labelText} SESSION`;
+        
+        // Update active state of buttons
+        document.querySelectorAll('#intraday-tf-toggle button').forEach(btn => {
+            if (btn.dataset.tf === tf) {
+                btn.classList.add('bg-blue-600', 'text-white');
+                btn.classList.remove('text-gray-500', 'hover:text-white');
+                btn.setAttribute('aria-pressed', 'true');
+            } else {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('text-gray-500', 'hover:text-white');
+                btn.setAttribute('aria-pressed', 'false');
+            }
+        });
+
         if (typeof fetchData === 'function') fetchData();
+    });
+
+    // Timeframe button click listeners
+    document.querySelectorAll('#intraday-tf-toggle button[data-tf]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tf = btn.dataset.tf;
+            const selector = document.getElementById('tf-selector');
+            if (selector) {
+                selector.value = tf;
+                selector.dispatchEvent(new Event('change'));
+            }
+        });
     });
 });

@@ -31,7 +31,7 @@
                     <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center font-black text-white shadow-lg shadow-blue-500/20">S</div>
                         <div class="flex items-center gap-2">
                             <h1 class="text-base font-black tracking-tight text-white">S&R <span class="text-blue-500">PRO</span></h1>
-                            <button id="header-pin-btn" onclick="togglePin(document.getElementById('symbol-input').value)" class="text-[10px] text-gray-400 hover:text-purple-400 transition-colors" data-tooltip="Pin to watchlist">
+                            <button id="header-pin-btn" onclick="TradingAssistant.toggleWatchlist(document.getElementById('symbol-input').value)" class="text-[10px] text-gray-400 hover:text-purple-400 transition-colors" data-tooltip="Pin to watchlist">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                         </div>
@@ -106,16 +106,22 @@
                 <!-- RIGHT: SETTINGS CLUSTER -->
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <div class="control-cluster">
-                        <div id="intraday-tf-toggle" class="flex items-center gap-1" role="group" aria-label="Intraday timeframe">
-                            <button data-tf="5m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white" aria-pressed="false">5M</button>
-                            <button data-tf="15m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white" aria-pressed="true">15M</button>
+                        <div id="tf-chips-group" class="flex items-center gap-1" role="group" aria-label="Timeframe selection">
+                            <button data-tf="5m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white transition-all" aria-pressed="false">5M</button>
+                            <button data-tf="15m" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-blue-600 text-white shadow-lg" aria-pressed="true">15M</button>
+                            <button data-tf="1H" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white transition-all" aria-pressed="false">1H</button>
+                            <button data-tf="1D" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white transition-all" aria-pressed="false">1D</button>
+                            <button data-tf="1W" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white transition-all" aria-pressed="false">1W</button>
+                            <button data-tf="1M" class="px-2 py-0.5 text-[9px] font-bold uppercase rounded text-gray-500 hover:text-white transition-all" aria-pressed="false">1M</button>
                             <div class="w-[1px] h-3 bg-gray-700 mx-1"></div>
-                            <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none" aria-label="Select timeframe">
+                            <select id="tf-selector" class="bg-transparent border-none text-[10px] font-bold text-gray-400 uppercase focus:outline-none cursor-pointer" aria-label="Select timeframe">
                                 <option value="5m">5M</option>
                                 <option value="15m" selected>15M</option>
                                 <option value="1H">1H</option>
                                 <option value="4H">4H</option>
                                 <option value="1D">1D</option>
+                                <option value="1W">1W</option>
+                                <option value="1M">1M</option>
                             </select>
                         </div>
                     </div>
@@ -1164,7 +1170,30 @@
                             </div>
                         </div>
 
-                        <div id="tv-chart" class="flex-grow"></div>
+                        <div id="tv-chart" class="flex-grow relative">
+                            <!-- Floating OHLC Legend -->
+                            <div id="ohlc-legend" class="absolute top-2 left-4 z-40 flex items-center gap-4 px-3 py-1.5 rounded-lg bg-black/40 backdrop-blur-md border border-white/5 pointer-events-none transition-opacity duration-200">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">O</span>
+                                    <span id="legend-open" class="text-[11px] font-black mono text-white">0.00</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">H</span>
+                                    <span id="legend-high" class="text-[11px] font-black mono text-white">0.00</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">L</span>
+                                    <span id="legend-low" class="text-[11px] font-black mono text-white">0.00</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">C</span>
+                                    <span id="legend-close" class="text-[11px] font-black mono text-white">0.00</span>
+                                </div>
+                                <div id="legend-change-container" class="flex items-center gap-1.5 border-l border-white/10 pl-3">
+                                    <span id="legend-change" class="text-[11px] font-black mono text-gray-400">0.00%</span>
+                                </div>
+                            </div>
+                        </div>
                         
                         <div id="chart-loader" class="absolute inset-0 bg-black/60 backdrop-blur-md z-30 flex items-center justify-center hidden">
                             <div class="flex flex-col items-center gap-4">
