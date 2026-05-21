@@ -379,7 +379,9 @@ const TradingAssistant = {
         this.renderAll();
         // Start background quote polling
         this.fetchQuotes(); // Immediate fetch
-        setInterval(() => this.fetchQuotes(), 10000);
+        setInterval(() => {
+            if (!document.hidden) this.fetchQuotes();
+        }, 10000);
     },
     
     save() {
@@ -1385,7 +1387,9 @@ let scanInterval;
 
 function toggleAutoScan(enabled) {
     if (enabled) {
-        scanInterval = setInterval(loadTopTrades, 30000);
+        scanInterval = setInterval(() => {
+            if (!document.hidden) loadTopTrades();
+        }, 30000);
     } else {
         clearInterval(scanInterval);
     }
@@ -3028,11 +3032,20 @@ async function fetchRotation() {
 
     function connect(ch) {
         if (channels[ch] && channels[ch].readyState <= 1) return; // already open/connecting
+        // Visibility Check: If page is hidden, DO NOT establish connections
+        if (document.hidden) {
+            console.log(`[WS:${ch}] Tab is hidden. Postponing connection.`);
+            return;
+        }
         try {
             const ws = new WebSocket(`${WS_BASE}/ws/${ch}`);
             channels[ch] = ws;
 
-            ws.onopen = () => console.log(`[WS:${ch}] Connected`);
+            ws.onopen = () => {
+                console.log(`[WS:${ch}] Connected`);
+                // Reset backoff on successful connect
+                retryMs[ch] = ch === 'ticks' ? 2000 : ch === 'signals' ? 3000 : ch === 'alerts' ? 3000 : 5000;
+            };
 
             ws.onmessage = (evt) => {
                 let msg;
@@ -3115,14 +3128,19 @@ async function fetchRotation() {
 
             ws.onerror = (e) => console.warn(`[WS:${ch}] Error`, e);
             ws.onclose = () => {
-                console.log(`[WS:${ch}] Closed. Reconnecting in ${retryMs[ch]}ms...`);
                 channels[ch] = null;
+                if (document.hidden) {
+                    console.log(`[WS:${ch}] Closed due to background tab. Will not reconnect.`);
+                    return;
+                }
+                console.log(`[WS:${ch}] Closed. Reconnecting in ${retryMs[ch]}ms...`);
                 setTimeout(() => connect(ch), retryMs[ch]);
                 // Exponential back-off capped at 30 s
                 retryMs[ch] = Math.min(retryMs[ch] * 1.5, 30000);
             };
         } catch(err) {
             console.warn(`[WS:${ch}] Could not connect:`, err.message);
+            if (document.hidden) return;
             setTimeout(() => connect(ch), retryMs[ch]);
         }
     }
@@ -3131,6 +3149,47 @@ async function fetchRotation() {
     setTimeout(() => {
         Object.keys(channels).forEach(ch => connect(ch));
     }, 2500);
+
+    // Reconnect routine for visible tab
+    function reconnectAll() {
+        if (document.hidden) return;
+        Object.keys(channels).forEach(ch => {
+            if (!channels[ch] || channels[ch].readyState > 1) {
+                console.log(`[WS:${ch}] Reconnecting on tab active focus...`);
+                connect(ch);
+            }
+        });
+    }
+
+    // Event listener for tab visibility switches
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            console.log("[Visibility] Tab hidden. Closing WebSockets to conserve server connections.");
+            Object.keys(channels).forEach(ch => {
+                if (channels[ch]) {
+                    channels[ch].onclose = null;
+                    channels[ch].onerror = null;
+                    channels[ch].close();
+                    channels[ch] = null;
+                }
+            });
+        } else {
+            console.log("[Visibility] Tab is active again. Reconnecting WebSockets...");
+            reconnectAll();
+            
+            // Auto-refresh: trigger a fresh fetch if background state was inactive for > 15 seconds
+            const now = Date.now();
+            if (!window._lastIntelFetch || (now - window._lastIntelFetch > 15000)) {
+                console.log("[Visibility] Active refresh triggered.");
+                const isIntel = typeof isIntelligenceModeActive === 'function' && isIntelligenceModeActive();
+                if (isIntel) {
+                    fetchIntelligence(true);
+                } else {
+                    fetchData(true);
+                }
+            }
+        }
+    });
 
     // Expose so fetchData can reset on symbol change
     window._wsPool = { channels, connect };
@@ -3426,6 +3485,7 @@ window.onload = function () {
         }
 
         setInterval(() => {
+            if (document.hidden) return; // Skip background fetches
             const rotToggle = document.getElementById('rotation-toggle');
             const isRotationActive = rotToggle && rotToggle.checked;
             const isIntelligenceActive = isIntelligenceModeActive();
@@ -3685,7 +3745,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 2. Refresh Auth Status
     checkFyersStatus();
-    setInterval(checkFyersStatus, 30000);
+    setInterval(() => {
+        if (!document.hidden) checkFyersStatus();
+    }, 30000);
 
     // 3. Populate Scanners
     loadTopTrades();

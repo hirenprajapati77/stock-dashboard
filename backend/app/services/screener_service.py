@@ -1439,7 +1439,11 @@ class ScreenerService:
                 oi_data=None
             )
             v5_decision = V5Engine.generate_trade(v5_context, normalized_tf)
-            v5_dict = v5_decision.dict()
+            import json
+            if hasattr(v5_decision, "model_dump_json"):
+                v5_dict = json.loads(v5_decision.model_dump_json())
+            else:
+                v5_dict = json.loads(v5_decision.json())
         except Exception as e:
             print(f"DEBUG: Screener V5 Integration failed for {symbol}: {e}")
 

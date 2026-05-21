@@ -887,7 +887,11 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             
             # Generate V5 Decision
             decision = await asyncio.to_thread(V5Engine.generate_trade, context, tf)
-            decision_dict = decision.dict()
+            import json
+            if hasattr(decision, "model_dump_json"):
+                decision_dict = json.loads(decision.model_dump_json())
+            else:
+                decision_dict = json.loads(decision.json())
             
             # Inject into response
             response_data["decision"] = decision_dict
@@ -1580,12 +1584,18 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
         # 5. Format Output
         formatted_text = TradeBuilder.format_output(decision)
         
+        import json
+        if hasattr(decision, "model_dump_json"):
+            decision_json = json.loads(decision.model_dump_json())
+        else:
+            decision_json = json.loads(decision.json())
+
         return {
             "status": "success",
             "symbol": symbol,
             "volume_ratio": daily_vol_ratio,
             "intraday_volume_ratio": vol_ratio,
-            "decision": decision.dict(),
+            "decision": decision_json,
             "recommendation": formatted_text
         }
         
