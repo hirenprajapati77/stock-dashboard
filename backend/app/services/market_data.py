@@ -13,6 +13,7 @@ import json as json_lib # Avoid conflict with possible local json var
 import gc
 import collections
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 class MarketDataService:
 
@@ -24,6 +25,8 @@ class MarketDataService:
     CACHE_TTL = 600 # 10 minutes — increased to reduce re-fetch frequency
     _cool_off_symbols = {} # symbol -> timestamp when cool-off ends
     COOL_OFF_DURATION = 1200 # 20 minutes — extended to let YF rate limit window expire
+    _fetch_locks = {}
+    _locks_lock = threading.Lock()
 
     @staticmethod
     def _pick_fast_info_value(fast_info, *keys):
@@ -392,6 +395,37 @@ class MarketDataService:
     @staticmethod
     def get_ohlcv(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
         """
+        Coalesced entry point with double-checked locking.
+        """
+        symbol = MarketDataService.normalize_symbol(symbol)
+        cache_key = f"{symbol}_{tf}_{count}_{use_fast_info}"
+        
+        # 1. Fast Memory Cache Check
+        now = time.time()
+        if cache_key in MarketDataService._ohlcv_cache:
+            entry = MarketDataService._ohlcv_cache[cache_key]
+            if (now - entry['timestamp']) < MarketDataService.CACHE_TTL:
+                return entry['df'].copy(), entry['currency'], None, entry.get('source', 'cache')
+            
+        # Get or create lock for this specific cache_key
+        with MarketDataService._locks_lock:
+            if cache_key not in MarketDataService._fetch_locks:
+                MarketDataService._fetch_locks[cache_key] = threading.Lock()
+            lock = MarketDataService._fetch_locks[cache_key]
+
+        with lock:
+            # Double-check inside lock
+            now = time.time()
+            if cache_key in MarketDataService._ohlcv_cache:
+                entry = MarketDataService._ohlcv_cache[cache_key]
+                if (now - entry['timestamp']) < MarketDataService.CACHE_TTL:
+                    return entry['df'].copy(), entry['currency'], None, entry.get('source', 'cache')
+            
+            return MarketDataService._get_ohlcv_uncoalesced(symbol, tf, count, use_fast_info)
+
+    @staticmethod
+    def _get_ohlcv_uncoalesced(symbol="NIFTY50", tf="1D", count=200, use_fast_info=True):
+        """
         Fetches real OHLCV data using yfinance with in-memory and on-disk caching.
         Returns (df, currency, error_message, source)
         """
@@ -565,7 +599,7 @@ class MarketDataService:
 
             print(f"DEBUG: Yahoo Finance Fetching Symbol: {yahoo_symbol}")
             ticker = yf.Ticker(yahoo_symbol)
-            df = ticker.history(period=period, interval=interval)
+            df = ticker.history(period=period, interval=interval, timeout=3.0)
             
             # 401 / Invalid Crumb Bypass via Proxy
             if df.empty:
@@ -577,7 +611,7 @@ class MarketDataService:
                 res = None
                 for q_host in ["query2.finance.yahoo.com", "query1.finance.yahoo.com"]:
                     y_url = f"https://{q_host}/v8/finance/chart/{yahoo_symbol}?range={y_range}&interval={y_interval}"
-                    res = MarketDataService._fetch_via_proxy(y_url, max_retries=1, timeout=10)
+                    res = MarketDataService._fetch_via_proxy(y_url, max_retries=0, timeout=3.0)
                     if res:
                         break
                 if res:
@@ -638,7 +672,7 @@ class MarketDataService:
                 if symbol.endswith(".NS"):
                     fallback_symbol = symbol.replace(".NS", ".BO")
                     ticker = yf.Ticker(fallback_symbol)
-                    df = ticker.history(period=period, interval=interval)
+                    df = ticker.history(period=period, interval=interval, timeout=3.0)
             
             # Handle rate limit fallback before checking empty
             if df.empty:

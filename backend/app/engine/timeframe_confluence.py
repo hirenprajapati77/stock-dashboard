@@ -22,11 +22,25 @@ class TimeframeConfluenceEngine:
         total_weight_used = 0.0
         weighted_score_sum = 0.0  # Range: -100 to +100
         
+        # Parallelize data fetches to bypass Yahoo slow rates / timeouts
+        from concurrent.futures import ThreadPoolExecutor
+        def fetch_single_tf(tf):
+            try:
+                df, _, err, _ = MarketDataService.get_ohlcv(symbol, tf, count=100)
+                return tf, df, err
+            except Exception as e:
+                return tf, None, str(e)
+                
+        with ThreadPoolExecutor(max_workers=len(timeframes)) as executor:
+            results = list(executor.map(fetch_single_tf, timeframes))
+            
+        tf_data = {tf: (df, err) for tf, df, err in results}
+        
         for tf in timeframes:
             try:
-                # Fetch OHLCV data for this symbol and timeframe
-                # We limit the count to 100 bars to speed up the fetch
-                df, _, err, _ = MarketDataService.get_ohlcv(symbol, tf, count=100)
+                df, err = tf_data[tf]
+                if err:
+                    raise Exception(err)
                 
                 if df is None or df.empty or len(df) < 20:
                     tf_results[tf] = {

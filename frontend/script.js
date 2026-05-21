@@ -2976,7 +2976,7 @@ function drawLevelsOnChart(levels, fullData = null) {
     // ── GANN LINES OVERLAY ──────────────────────────────────────────────────────
     // Draw dashed Gann Support/Resistance lines when advanced data is available
     const adv = fullData && fullData.advanced ? fullData.advanced : window.lastAdvancedData;
-    if (adv && adv.details && adv.details.gann) {
+    if (strategy === 'SR' && adv && adv.details && adv.details.gann) {
         const g = adv.details.gann;
         const gannDefs = [
             { price: g.g3_res,  color: '#FF4D6D', title: 'G3 Res',  width: 1.5 },
@@ -3461,7 +3461,7 @@ window.onload = function () {
             mtfToggle.addEventListener('change', () => {
                 // Re-render chart levels without re-fetching
                 if (window.lastReceivedData) {
-                    drawLevelsOnChart(window.lastReceivedData.levels);
+                    drawLevelsOnChart(window.lastReceivedData.levels, window.lastReceivedData);
                 }
             });
         }
