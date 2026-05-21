@@ -581,9 +581,9 @@ const TradingAssistant = {
 
                 return `
                 <div class="flex items-center justify-between p-2 hover:bg-white/5 bg-gray-900/20 border border-white/5 rounded-lg transition-all group cursor-pointer" onclick="document.getElementById('symbol-input').value='${sym}'; fetchData();">
-                    <div class="flex flex-col">
+                    <div class="flex flex-col gap-0.5">
                         <span class="text-[10px] font-black text-gray-300 group-hover:text-blue-400 uppercase tracking-tight">${sym}</span>
-                        <span class="text-[7px] text-gray-600 font-bold uppercase">Manual Pin</span>
+                        <span id="ws-signal-badge-${cleanSym}" class="text-[8px] font-black px-1 py-0.5 rounded uppercase bg-gray-800 text-gray-500 w-fit">HOLD</span>
                     </div>
                     <div class="flex items-center gap-3">
                         <div class="text-right flex flex-col">
@@ -678,6 +678,7 @@ if (IS_LOCAL_FILE) {
 }
 
 let chart, candlestickSeries, volumeSeries, volumeEmaSeries;
+let vwapSeries = null;          // Purple VWAP overlay line
 let levelsLayer = [];
 let rotationApp; // Added for sector rotation
 let intelligenceApp; // Added for market intelligence
@@ -869,6 +870,18 @@ function initChart() {
         priceScaleId: 'volume',
     });
 
+    // VWAP Overlay Line (Session / Rolling)
+    vwapSeries = chart.addLineSeries({
+        color: '#A855F7',          // Purple
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        title: 'VWAP',
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+    });
+
     console.log('Chart initialized successfully');
 
     // OHLC Legend Subscription
@@ -1045,10 +1058,31 @@ async function fetchData(isBackground = false) {
 
         const isIntel = typeof isIntelligenceModeActive === 'function' && isIntelligenceModeActive();
         const liteParam = isIntel ? '&lite=true' : '';
-        const response = await fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}${liteParam}&_=${Date.now()}`);
+
+        // Parallel fetch: primary dashboard + advanced quant data
+        const [response, advancedResponse] = await Promise.all([
+            fetch(`${API_URL}?symbol=${encodeURIComponent(symbol)}&tf=${tf}&strategy=${strategy}${liteParam}&_=${Date.now()}`),
+            fetch(`${API_BASE}/api/stocks/dashboard/${encodeURIComponent(symbol)}?tf=${tf}&_=${Date.now()}`).catch(err => {
+                console.warn('[AdvancedFetch] Quant data unavailable:', err.message);
+                return null;
+            })
+        ]);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         let data = await response.json();
+
+        // Merge advanced quant payload into data.advanced
+        if (advancedResponse && advancedResponse.ok) {
+            try {
+                const advJson = await advancedResponse.json();
+                if (advJson && advJson.status === 'success') {
+                    data.advanced = advJson.data;  // { signal, confidence, details: { cpr, gann, vwap, volume, rsi, trend } }
+                    console.log('[AdvancedFetch] Quant data loaded:', data.advanced?.signal, '@', data.advanced?.confidence);
+                }
+            } catch(ae) {
+                console.warn('[AdvancedFetch] JSON parse error:', ae.message);
+            }
+        }
         
         // Reset Search Feedback
         if (searchSpinner) searchSpinner.classList.add('hidden');
@@ -1255,7 +1289,7 @@ function updateStrategyUI(data) {
         const zonesPanel = document.getElementById('strategy-zones-metrics');
         
         if (swingPanel) swingPanel.style.display = strategy === 'SWING' ? 'grid' : 'none';
-        if (zonesPanel) zonesPanel.style.display = strategy === 'DEMAND_SUPPLY' ? 'grid' : 'none';
+        if (zonesPanel) zonesPanel.style.display = 'none'; // Replaced by dynamic panels
 
         // Update Swing Metrics
         if (strategy === 'SWING') {
@@ -1268,7 +1302,7 @@ function updateStrategyUI(data) {
         // Update Dynamic Metrics Panels
         const dynPanels = document.getElementById('strategy-dynamic-panels');
         if (dynPanels) {
-            const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY';
+            const hasDynamicData = strategy === 'FIBONACCI' || strategy === 'DEMAND_SUPPLY' || strategy === 'CPR';
             dynPanels.style.display = hasDynamicData ? 'grid' : 'none';
             if (hasDynamicData) dynPanels.classList.remove('hidden'); 
 
@@ -1298,6 +1332,29 @@ function updateStrategyUI(data) {
                     if(c3T) c3T.textContent = 'Vol Spike';
                     if(c3V) c3V.textContent = metrics.volExpansion || 'NONE';
                     if(c3V) c3V.className = 'text-lg font-bold uppercase tracking-widest text-white';
+                } else if (strategy === 'CPR') {
+                    const cpr = data.cpr || {};
+                    const stratMetrics = strat.additionalMetrics || {};
+                    if(c1T) c1T.textContent = 'CPR Width';
+                    if(c1V) {
+                        c1V.textContent = cpr.width_classification || '--';
+                        if (cpr.width_classification === 'NARROW') c1V.className = 'text-lg font-black text-purple-400 animate-pulse';
+                        else if (cpr.width_classification === 'WIDE') c1V.className = 'text-lg font-black text-blue-400';
+                        else c1V.className = 'text-lg font-bold text-white';
+                    }
+                    if(c2T) c2T.textContent = 'Relative Width';
+                    if(c2V) {
+                        c2V.textContent = cpr.relative_width !== undefined ? `${cpr.relative_width.toFixed(2)}x` : '--';
+                        c2V.className = 'text-lg font-bold text-gray-300';
+                    }
+                    if(c3T) c3T.textContent = 'CPR Position';
+                    if(c3V) {
+                        const pos = stratMetrics.cpr_position || '--';
+                        c3V.textContent = pos.replace(/_/g, ' ');
+                        if (pos === 'ABOVE_CPR') c3V.className = 'text-lg font-bold uppercase tracking-widest text-green-400';
+                        else if (pos === 'BELOW_CPR') c3V.className = 'text-lg font-bold uppercase tracking-widest text-red-400';
+                        else c3V.className = 'text-lg font-bold uppercase tracking-widest text-yellow-400';
+                    }
                 }
             }
         }
@@ -1544,7 +1601,7 @@ function getExecutionState(vm) {
 }
 
 function renderScore(vm) {
-    const scoreBadge = document.getElementById('ee-score-badge');
+    const scoreBadge = document.getElementById('ai-confidence-badge');
     const score = extractScore(vm?.score, 0);
     if (!scoreBadge || !score) {
         if (scoreBadge) scoreBadge.classList.add('hidden');
@@ -2265,28 +2322,49 @@ function updateUI(data, isBackground = false) {
 
             // Volume & EMA logic
             if (volumeSeries && volumeEmaSeries) {
-                const volumeData = data.ohlcv.map(d => ({
-                    time: d.time,
-                    value: (d.volume === null || d.volume === undefined || isNaN(d.volume)) ? 0 : Number(d.volume),
-                    color: d.close >= d.open ? 'rgba(0, 192, 118, 0.5)' : 'rgba(246, 70, 93, 0.5)'
-                }));
-                console.log(`[Chart] Setting volume data: ${volumeData.length} points. Max vol: ${Math.max(...volumeData.map(d => d.value))}`);
+                // Compute per-bar volume EMA for spike detection
+                const rawVols = data.ohlcv.map(d => (d.volume === null || d.volume === undefined || isNaN(d.volume)) ? 0 : Number(d.volume));
+                const period = 20;
+                const k = 2 / (period + 1);
+                const volEmaArr = [];
+                let prevEma = rawVols[0] || 0;
+                for (let i = 0; i < rawVols.length; i++) {
+                    const ema = i === 0 ? rawVols[i] : (rawVols[i] - prevEma) * k + prevEma;
+                    volEmaArr.push(isNaN(ema) ? 0 : ema);
+                    prevEma = volEmaArr[i];
+                }
+
+                const volumeData = data.ohlcv.map((d, i) => {
+                    const vol = rawVols[i];
+                    const ema = volEmaArr[i];
+                    const isSpike = vol > 2 * ema;
+                    const isBull  = d.close >= d.open;
+                    let color;
+                    if (isSpike) {
+                        color = isBull ? 'rgba(0, 255, 150, 0.85)' : 'rgba(255, 50, 80, 0.85)'; // high-opacity neon for spikes
+                    } else {
+                        color = isBull ? 'rgba(0, 192, 118, 0.40)' : 'rgba(246, 70, 93, 0.40)'; // muted 40% for normal
+                    }
+                    return { time: d.time, value: vol, color };
+                });
+                console.log(`[Chart] Setting volume data: ${volumeData.length} points.`);
                 volumeSeries.setData(volumeData);
 
-                // Calculate 20 EMA of volume
-                if (volumeData.length > 0) {
-                    const emaData = [];
-                    const period = 20;
-                    const k = 2 / (period + 1);
-                    let prevEma = volumeData[0].value;
-                    
-                    for (let i = 0; i < volumeData.length; i++) {
-                        const val = volumeData[i].value;
-                        const ema = i === 0 ? val : (val - prevEma) * k + prevEma;
-                        emaData.push({ time: volumeData[i].time, value: isNaN(ema) ? 0 : ema });
-                        prevEma = ema;
-                    }
-                    volumeEmaSeries.setData(emaData);
+                // Volume EMA overlay line
+                const emaData = data.ohlcv.map((d, i) => ({ time: d.time, value: volEmaArr[i] }));
+                volumeEmaSeries.setData(emaData);
+            }
+
+            // VWAP Line Feed (from backend pre-computed vwap field per candle)
+            if (vwapSeries) {
+                const vwapData = data.ohlcv
+                    .filter(d => d.vwap !== null && d.vwap !== undefined && !isNaN(d.vwap))
+                    .map(d => ({ time: d.time, value: d.vwap }));
+                if (vwapData.length > 0) {
+                    vwapSeries.setData(vwapData);
+                    console.log(`[Chart] VWAP line: ${vwapData.length} points`);
+                } else {
+                    vwapSeries.setData([]);
                 }
             }
             
@@ -2372,6 +2450,118 @@ function updateUI(data, isBackground = false) {
         // 7. Finally draw levels on chart
         window.lastReceivedData = data;
         drawLevelsOnChart(data.levels, data);
+
+        // 8. ── ADVANCED QUANT INTELLIGENCE OVERLAY ──────────────────────────────
+        //    Bind CPR + Gann Matrix sidebar, VWAP telemetry, and Composite Signal
+        //    from data.advanced (comes from /api/stocks/dashboard/{symbol})
+        if (data.advanced) {
+            const adv       = data.advanced;
+            const advDet    = adv.details || {};
+
+            // --- CPR Pivots ---
+            const cprData = advDet.cpr || {};
+            const cprTC   = cprData.tc;
+            const cprPP   = cprData.pp;
+            const cprBC   = cprData.bc;
+            const cprW    = cprData.width_status || cprData.width_classification || '—';
+
+            const setTextEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+            setTextEl('cpr-tc-val', cprTC  ? cprTC.toFixed(2)  : '—');
+            setTextEl('cpr-pp-val', cprPP  ? cprPP.toFixed(2)  : '—');
+            setTextEl('cpr-bc-val', cprBC  ? cprBC.toFixed(2)  : '—');
+
+            const widthBadge = document.getElementById('cpr-width-badge');
+            if (widthBadge) {
+                widthBadge.textContent = cprW || '—';
+                widthBadge.className = 'px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest '
+                    + (cprW === 'NARROW' ? 'bg-cyan-900/50 text-cyan-400'
+                    :  cprW === 'WIDE'   ? 'bg-amber-900/50 text-amber-400'
+                    :                     'bg-gray-800 text-gray-400');
+            }
+
+            // --- Gann Square of 9 Levels ---
+            const gannData = advDet.gann || {};
+            setTextEl('gann-g1-res',  gannData.g1_res  ? gannData.g1_res.toFixed(2)  : '—');
+            setTextEl('gann-g2-res',  gannData.g2_res  ? gannData.g2_res.toFixed(2)  : '—');
+            setTextEl('gann-g3-res',  gannData.g3_res  ? gannData.g3_res.toFixed(2)  : '—');
+            setTextEl('gann-g1-supp', gannData.g1_supp ? gannData.g1_supp.toFixed(2) : '—');
+            setTextEl('gann-g2-supp', gannData.g2_supp ? gannData.g2_supp.toFixed(2) : '—');
+            setTextEl('gann-g3-supp', gannData.g3_supp ? gannData.g3_supp.toFixed(2) : '—');
+
+            // --- VWAP Telemetry ---
+            const vwapEv = advDet.vwap || {};
+            const vwapPrice = vwapEv.vwap_price;
+            const vwapDist  = vwapEv.distance_pct;
+            setTextEl('vwap-val',  vwapPrice ? vwapPrice.toFixed(2) : '—');
+            if (document.getElementById('vwap-dist')) {
+                const distEl = document.getElementById('vwap-dist');
+                if (vwapDist !== undefined && vwapDist !== null) {
+                    const sign = vwapDist >= 0 ? '+' : '';
+                    distEl.textContent = `${sign}${vwapDist.toFixed(2)}%`;
+                    distEl.className = 'px-1 py-0.5 rounded text-[8px] font-black '
+                        + (vwapDist >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400');
+                } else {
+                    distEl.textContent = '—';
+                    distEl.className = 'px-1 py-0.5 rounded text-[8px] font-black bg-gray-800 text-gray-400';
+                }
+            }
+
+            // --- Trend Confluence Bias ---
+            const trendData = advDet.trend || {};
+            const trendBias = trendData.institutional_trend_bias || '—';
+            const trendEl = document.getElementById('trend-bias-val');
+            if (trendEl) {
+                trendEl.textContent = trendBias.replace('_', ' ');
+                trendEl.className = 'font-black tracking-wider uppercase text-[9px] '
+                    + (trendBias.includes('BULLISH')  ? 'text-green-400'
+                    :  trendBias.includes('BEARISH')  ? 'text-red-400'
+                    :                                   'text-indigo-400');
+            }
+
+            // --- Composite Signal Badge ---
+            const sig     = adv.signal     || 'HOLD';
+            const conf    = adv.confidence || 0;
+            const sigEl   = document.getElementById('matrix-composite-signal');
+            const confEl  = document.getElementById('matrix-composite-confidence');
+            if (sigEl) {
+                sigEl.textContent = sig;
+                sigEl.className = 'text-xs font-black uppercase '
+                    + (sig === 'BUY'  ? 'text-green-400'
+                    :  sig === 'SELL' ? 'text-red-400'
+                    :                  'text-indigo-400');
+            }
+            if (confEl) confEl.textContent = `${conf.toFixed(1)}%`;
+
+            // --- Store advanced data for chart overlays (Gann lines, markers) ---
+            window.lastAdvancedData = adv;
+
+            // --- BUY/SELL Markers on candlestick chart ---
+            if (candlestickSeries && data.ohlcv && data.ohlcv.length > 0) {
+                const lastBar = data.ohlcv[data.ohlcv.length - 1];
+                const markers = [];
+                if (sig === 'BUY' && conf >= 35) {
+                    markers.push({
+                        time: lastBar.time,
+                        position: 'belowBar',
+                        color: '#22C55E',
+                        shape: 'arrowUp',
+                        text: `BUY ${conf.toFixed(0)}%`,
+                        size: 2,
+                    });
+                } else if (sig === 'SELL' && conf >= 35) {
+                    markers.push({
+                        time: lastBar.time,
+                        position: 'aboveBar',
+                        color: '#EF4444',
+                        shape: 'arrowDown',
+                        text: `SELL ${conf.toFixed(0)}%`,
+                        size: 2,
+                    });
+                }
+                try { candlestickSeries.setMarkers(markers); } catch(me) {}
+            }
+        }
 
 
         // 9. Strategy Specific UI Toggles
@@ -2704,6 +2894,107 @@ function drawLevelsOnChart(levels, fullData = null) {
             }));
         });
     }
+    else if (strategy === 'CPR') {
+        const cpr = fullData.cpr || {};
+        const virgin_cprs = fullData.virgin_cprs || [];
+
+        // Main CPR pivots (TC, PP, BC)
+        if (cpr.pp) {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: cpr.pp,
+                color: '#06B6D4', // Vibrant Cyan for Pivot Point
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'CPR PP',
+            }));
+        }
+        if (cpr.tc) {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: cpr.tc,
+                color: '#3B82F6', // Blue for TC
+                lineWidth: 1.5,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'CPR TC',
+            }));
+        }
+        if (cpr.bc) {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: cpr.bc,
+                color: '#3B82F6', // Blue for BC
+                lineWidth: 1.5,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'CPR BC',
+            }));
+        }
+
+        // Standard associated daily S/R levels
+        const supports = levels.primary?.supports || [];
+        const resistances = levels.primary?.resistances || [];
+
+        supports.forEach(l => {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: l.price,
+                color: '#EF4444', // Red for support
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: l.label || 'S',
+            }));
+        });
+
+        resistances.forEach(l => {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: l.price,
+                color: '#10B981', // Green for resistance
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: l.label || 'R',
+            }));
+        });
+
+        // Virgin CPR lines (Vibrant Orange magnet lines)
+        virgin_cprs.forEach(vc => {
+            levelsLayer.push(candlestickSeries.createPriceLine({
+                price: vc.pp,
+                color: '#F59E0B', // Bright Amber/Gold
+                lineWidth: 2.5,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: `VIRGIN CPR (${vc.date})`,
+            }));
+        });
+    }
+
+    // ── GANN LINES OVERLAY ──────────────────────────────────────────────────────
+    // Draw dashed Gann Support/Resistance lines when advanced data is available
+    const adv = fullData && fullData.advanced ? fullData.advanced : window.lastAdvancedData;
+    if (adv && adv.details && adv.details.gann) {
+        const g = adv.details.gann;
+        const gannDefs = [
+            { price: g.g3_res,  color: '#FF4D6D', title: 'G3 Res',  width: 1.5 },
+            { price: g.g2_res,  color: '#FF7096', title: 'G2 Res',  width: 1 },
+            { price: g.g1_res,  color: '#FF9BB5', title: 'G1 Res',  width: 1 },
+            { price: g.g1_supp, color: '#4ADE80', title: 'G1 Sup',  width: 1 },
+            { price: g.g2_supp, color: '#22C55E', title: 'G2 Sup',  width: 1 },
+            { price: g.g3_supp, color: '#16A34A', title: 'G3 Sup',  width: 1.5 },
+        ];
+        gannDefs.forEach(gd => {
+            if (gd.price && !isNaN(gd.price) && gd.price > 0) {
+                levelsLayer.push(candlestickSeries.createPriceLine({
+                    price: gd.price,
+                    color: gd.color,
+                    lineWidth: gd.width,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: gd.title,
+                }));
+            }
+        });
+    }
 }
 
 // Rotation Data Fetching
@@ -2721,6 +3012,130 @@ async function fetchRotation() {
 }
 
 // Initialize
+// ── WEBSOCKET CONNECTION POOL ─────────────────────────────────────────────────
+// Maintains 4 persistent channels: ticks, signals, alerts, scanner
+// Auto-reconnects with exponential back-off. Gracefully handles offline backend.
+(function initWebSocketPool() {
+    const WS_BASE = (window.location.protocol === 'https:' ? 'wss://' : 'ws://')
+                  + (IS_LOCAL_FILE ? 'localhost:8000' : window.location.host);
+    const channels = {
+        ticks:   null,
+        signals: null,
+        alerts:  null,
+        scanner: null,
+    };
+    const retryMs = { ticks: 2000, signals: 3000, alerts: 3000, scanner: 5000 };
+
+    function connect(ch) {
+        if (channels[ch] && channels[ch].readyState <= 1) return; // already open/connecting
+        try {
+            const ws = new WebSocket(`${WS_BASE}/ws/${ch}`);
+            channels[ch] = ws;
+
+            ws.onopen = () => console.log(`[WS:${ch}] Connected`);
+
+            ws.onmessage = (evt) => {
+                let msg;
+                try { msg = JSON.parse(evt.data); } catch(e) { return; }
+
+                if (ch === 'ticks') {
+                    // Real-time tick → update chart last bar + pulse CMP
+                    const activeSym = (document.getElementById('symbol-input')?.value || '').toUpperCase();
+                    if (msg.symbol && msg.symbol.toUpperCase() !== activeSym) return;
+                    if (candlestickSeries && msg.price) {
+                        const t = Math.floor(Date.now() / 1000);
+                        try {
+                            candlestickSeries.update({ time: t, open: msg.price, high: msg.price, low: msg.price, close: msg.price });
+                            if (volumeSeries && msg.volume) volumeSeries.update({ time: t, value: msg.volume, color: 'rgba(0,255,150,0.6)' });
+                        } catch(ce) {}
+                        // Pulse CMP display
+                        const cmpEl = document.getElementById('cmp');
+                        if (cmpEl) {
+                            cmpEl.textContent = msg.price.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+                            cmpEl.classList.add('text-blue-300');
+                            setTimeout(() => cmpEl.classList.remove('text-blue-300'), 600);
+                        }
+                    }
+
+                } else if (ch === 'signals') {
+                    // Signal update → refresh matrix composite badge
+                    const activeSym = (document.getElementById('symbol-input')?.value || '').toUpperCase();
+                    if (msg.symbol && msg.symbol.toUpperCase() !== activeSym) return;
+                    const sig  = msg.signal || 'HOLD';
+                    const conf = msg.confidence || 0;
+                    const sigEl  = document.getElementById('matrix-composite-signal');
+                    const confEl = document.getElementById('matrix-composite-confidence');
+                    if (sigEl) {
+                        sigEl.textContent = sig;
+                        sigEl.className = 'text-xs font-black uppercase '
+                            + (sig === 'BUY' ? 'text-green-400' : sig === 'SELL' ? 'text-red-400' : 'text-indigo-400');
+                    }
+                    if (confEl) confEl.textContent = `${(+conf).toFixed(1)}%`;
+                    // Also update narrative if present
+                    if (msg.narrative) {
+                        const narEl = document.getElementById('expl-ai');
+                        if (narEl) narEl.innerHTML = `<div class="flex gap-2"><i class="fas fa-bolt text-indigo-400 mt-0.5"></i><span class="text-[10px] text-gray-300">${msg.narrative}</span></div>`;
+                    }
+
+                } else if (ch === 'alerts') {
+                    // Alert toast + prepend to alert log
+                    const alertMsg = msg.message || `${msg.alert_type} alert for ${msg.symbol}`;
+                    if (typeof showToast === 'function') showToast(`🔔 ${alertMsg}`, 'warning');
+                    const alertList = document.getElementById('alert-list');
+                    if (alertList) {
+                        const card = document.createElement('div');
+                        card.className = 'flex items-start gap-2 p-2 bg-amber-900/20 border border-amber-500/20 rounded-lg animate-pulse';
+                        card.innerHTML = `
+                            <i class="fas fa-exclamation-triangle text-amber-400 text-[10px] mt-0.5"></i>
+                            <div>
+                                <div class="text-[10px] font-black text-white uppercase">${msg.symbol} · ${(msg.alert_type||'').replace('_',' ')}</div>
+                                <div class="text-[9px] text-gray-400">${alertMsg}</div>
+                                <div class="text-[8px] text-gray-600">${new Date().toLocaleTimeString()}</div>
+                            </div>`;
+                        alertList.insertBefore(card, alertList.firstChild);
+                        setTimeout(() => card.classList.remove('animate-pulse'), 2000);
+                    }
+
+                } else if (ch === 'scanner') {
+                    // Scanner update → refresh watchlist signal badges from WS data
+                    const updates = msg.scanner_updates || [];
+                    updates.forEach(item => {
+                        const sym = (item.symbol || '').toUpperCase();
+                        const badgeEl = document.getElementById(`ws-signal-badge-${sym}`);
+                        if (badgeEl) {
+                            badgeEl.textContent = item.signal || 'HOLD';
+                            badgeEl.className = 'text-[8px] font-black px-1 py-0.5 rounded uppercase '
+                                + (item.signal === 'BUY'  ? 'bg-green-900/50 text-green-400'
+                                :  item.signal === 'SELL' ? 'bg-red-900/50 text-red-400'
+                                :                          'bg-gray-800 text-gray-500');
+                        }
+                    });
+                }
+            };
+
+            ws.onerror = (e) => console.warn(`[WS:${ch}] Error`, e);
+            ws.onclose = () => {
+                console.log(`[WS:${ch}] Closed. Reconnecting in ${retryMs[ch]}ms...`);
+                channels[ch] = null;
+                setTimeout(() => connect(ch), retryMs[ch]);
+                // Exponential back-off capped at 30 s
+                retryMs[ch] = Math.min(retryMs[ch] * 1.5, 30000);
+            };
+        } catch(err) {
+            console.warn(`[WS:${ch}] Could not connect:`, err.message);
+            setTimeout(() => connect(ch), retryMs[ch]);
+        }
+    }
+
+    // Delay WS connections slightly so main page loads first
+    setTimeout(() => {
+        Object.keys(channels).forEach(ch => connect(ch));
+    }, 2500);
+
+    // Expose so fetchData can reset on symbol change
+    window._wsPool = { channels, connect };
+})();
+
 window.onload = function () {
     try {
         if (typeof LightweightCharts === 'undefined') {
@@ -2729,6 +3144,11 @@ window.onload = function () {
         checkMarketStatus();
         initChart();
         fetchData();
+        
+        // Fetch intelligence in background to populate dashboard side panels
+        if (typeof fetchIntelligence === 'function') {
+            setTimeout(fetchIntelligence, 1000);
+        }
 
         // Check for Fyers login success in URL
         const urlParams = new URLSearchParams(window.location.search);

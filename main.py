@@ -81,6 +81,7 @@ from app.engine.swing import SwingEngine
 from app.engine.zones import ZoneEngine
 from app.engine.sr import SREngine
 from app.engine.fibonacci import FibonacciEngine
+from app.engine.cpr import CPREngine
 from app.engine.insights import InsightEngine
 from app.engine.confidence import ConfidenceEngine
 from app.ai.engine import AIEngine
@@ -468,6 +469,23 @@ async def get_quotes(symbols: str = Query(...)):
                     pass
             
             if s not in formatted_quotes:
+                # Try yfinance fast_info as last resort for stocks
+                try:
+                    import yfinance as yf
+                    # Avoid appending .NS to indices
+                    yf_sym = clean_s if clean_s.startswith("^") else f"{clean_s}.NS"
+                    ticker = yf.Ticker(yf_sym)
+                    fi = ticker.fast_info
+                    lp = float(fi.get('lastPrice') or fi.get('last_price') or 0)
+                    prev = float(fi.get('previousClose') or fi.get('previous_close') or 0)
+                    chp = ((lp - prev) / prev) * 100 if prev > 0 else 0
+                    if lp > 0:
+                        formatted_quotes[s] = {"lp": lp, "ch": lp - prev, "chp": chp}
+                        formatted_quotes[clean_s] = formatted_quotes[s]
+                except Exception:
+                    pass
+            
+            if s not in formatted_quotes:
                 formatted_quotes[s] = {"lp": 0, "ch": 0, "chp": 0}
             
         return {"status": "success", "data": formatted_quotes}
@@ -703,6 +721,13 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
             supports = fib_results.get("supports", [])
             resistances = fib_results.get("resistances", [])
             rendered_levels = {"supports": supports, "resistances": resistances}
+        elif strategy == "CPR":
+            cpr_results = await asyncio.to_thread(CPREngine.calculate_cpr_levels, df)
+            strategy_result = await asyncio.to_thread(CPREngine.runCPRStrategy, df, sector_state, cpr_results)
+            
+            supports = cpr_results.get("supports", [])
+            resistances = cpr_results.get("resistances", [])
+            rendered_levels = {"supports": supports, "resistances": resistances}
 
         # 5. Technical & AI Insights
         try:
@@ -726,6 +751,13 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
         # 5. Final Formatting - Filter out NaN candles that crash lightweight-charts
         ohlcv = []
         import math
+        from app.engine.vwap import VWAPEngine
+        try:
+            vwap_series = VWAPEngine.calculate_vwap(df, tf)
+        except Exception as ve:
+            print(f"[Backend VWAP] Calculation error: {ve}")
+            vwap_series = pd.Series(dtype=float)
+
         for i in range(len(df)):
             try:
                 o, h, l, c = float(df['open'].iloc[i]), float(df['high'].iloc[i]), float(df['low'].iloc[i]), float(df['close'].iloc[i])
@@ -733,19 +765,30 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
                     continue
                     
                 v = float(df['volume'].iloc[i]) if 'volume' in df.columns else 0.0
+                vw = float(vwap_series.iloc[i]) if not vwap_series.empty and i < len(vwap_series) else None
+                if vw is not None and math.isnan(vw):
+                    vw = None
                 ohlcv.append({
                     "time": int(df.index[i].timestamp()),
                     "open": o,
                     "high": h,
                     "low": l,
                     "close": c,
-                    "volume": 0.0 if math.isnan(v) else v
+                    "volume": 0.0 if math.isnan(v) else v,
+                    "vwap": vw
                 })
             except: continue
             
         # Initialize response_data with meta and structured levels
         ns, nr = _resolve_summary_levels(cmp, supports, resistances, mtf_levels)
         
+        # Extract CPR specific data if selected
+        cpr_info = {}
+        virgin_cprs_info = []
+        if strategy == "CPR" and 'cpr_results' in locals():
+            cpr_info = cpr_results.get("cpr", {})
+            virgin_cprs_info = cpr_results.get("virgin_cprs", [])
+
         response_data: Dict[str, Any] = {
             "status": "success",
             "meta": {
@@ -785,6 +828,10 @@ async def get_dashboard(response: Response, symbol: str = "NIFTY50", tf: str = "
                 "market_regime": strategy_result.get("additionalMetrics", {}).get("regime", ai_analysis.get("regime", "STABLE"))
             }
         }
+
+        if strategy == "CPR":
+            response_data["cpr"] = cpr_info
+            response_data["virgin_cprs"] = virgin_cprs_info
 
         # 6. Trade Decision Add-on (Unified V5 Execution Edge)
         try:
@@ -1548,6 +1595,370 @@ async def generate_trade_api(symbol: str = "TCS", tf: str = "15m", strategy: str
             status_code=500,
             content={"status": "error", "message": str(e)}
         )
+
+# ==============================================================================
+# 9. REALTIME WEBSOCKET & QUANT API INFRASTRUCTURE
+# ==============================================================================
+from fastapi import WebSocket, WebSocketDisconnect
+from app.engine.signal_engine import SignalEngine
+from app.services.database_service import DatabaseService
+from app.services.screener_service import ScreenerService
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {
+            "ticks": [],
+            "signals": [],
+            "alerts": [],
+            "scanner": []
+        }
+
+    async def connect(self, websocket: WebSocket, channel: str):
+        await websocket.accept()
+        if channel in self.active_connections:
+            self.active_connections[channel].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, channel: str):
+        if channel in self.active_connections:
+            if websocket in self.active_connections[channel]:
+                self.active_connections[channel].remove(websocket)
+
+    async def broadcast(self, channel: str, message: Any):
+        if channel not in self.active_connections:
+            return
+        
+        if not isinstance(message, str):
+            try:
+                import json
+                message = json.dumps(_json_serializable(message))
+            except Exception as e:
+                print(f"[WS Broadcaster] JSON serialization failed: {e}", flush=True)
+                return
+                
+        disconnected = []
+        for connection in self.active_connections[channel]:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                disconnected.append(connection)
+                
+        for conn in disconnected:
+            self.disconnect(conn, channel)
+
+ws_manager = ConnectionManager()
+
+# WebSocket Endpoints
+@app.websocket("/ws/ticks")
+async def websocket_ticks(websocket: WebSocket):
+    await ws_manager.connect(websocket, "ticks")
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "ticks")
+
+@app.websocket("/ws/signals")
+async def websocket_signals(websocket: WebSocket):
+    await ws_manager.connect(websocket, "signals")
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "signals")
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    await ws_manager.connect(websocket, "alerts")
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "alerts")
+
+@app.websocket("/ws/scanner")
+async def websocket_scanner(websocket: WebSocket):
+    await ws_manager.connect(websocket, "scanner")
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "scanner")
+
+
+# Real-time Telemetry & Alerts Hook
+_last_signal_calc: Dict[str, float] = {}
+
+async def evaluate_realtime_signal_and_alerts(symbol: str, price: float, volume: float):
+    try:
+        clean_sym = symbol.replace(".NS", "").replace(".BO", "").split(":")[-1].split("-")[0]
+        sig_data = await asyncio.to_thread(SignalEngine.generate_signal, clean_sym)
+        
+        # Broadcast signal update
+        await ws_manager.broadcast("signals", {
+            "symbol": clean_sym,
+            "signal": sig_data.get("signal"),
+            "confidence": sig_data.get("confidence"),
+            "strength": sig_data.get("strength"),
+            "narrative": sig_data.get("narrative"),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        details = sig_data.get("details", {})
+        
+        # 1. Gann Breakout Alert
+        gann_bo = details.get("gann_breakout", {})
+        if gann_bo and gann_bo.get("status") in ["BREAKOUT_G1", "BREAKOUT_G2", "BREAKOUT_G3", "BREAKDOWN_G1", "BREAKDOWN_G2", "BREAKDOWN_G3"]:
+            alert_type = "GANN_BREAKOUT"
+            message = f"Gann level breakout detected on {clean_sym}: price is at {price}, breaking {gann_bo.get('status').lower()} through level {gann_bo.get('level')}"
+            DatabaseService.log_alert(clean_sym, alert_type, price, message)
+            await ws_manager.broadcast("alerts", {
+                "symbol": clean_sym,
+                "alert_type": alert_type,
+                "price": price,
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        # 2. VWAP Crossover Alert
+        vwap_ev = details.get("vwap", {})
+        if vwap_ev and vwap_ev.get("crossover") in ["BULLISH_CROSSOVER", "BEARISH_CROSSOVER"]:
+            alert_type = "VWAP_CROSSOVER"
+            message = f"VWAP crossover detected on {clean_sym}: price is at {price}, crossover is {vwap_ev.get('crossover').lower()}"
+            DatabaseService.log_alert(clean_sym, alert_type, price, message)
+            await ws_manager.broadcast("alerts", {
+                "symbol": clean_sym,
+                "alert_type": alert_type,
+                "price": price,
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        # 3. Volume Spike Alert
+        vol_m = details.get("volume", {})
+        if vol_m and vol_m.get("is_spike"):
+            alert_type = "VOLUME_SPIKE"
+            message = f"Volume spike detected on {clean_sym}: price is at {price}, relative volume is {vol_m.get('rvol')}x"
+            DatabaseService.log_alert(clean_sym, alert_type, price, message)
+            await ws_manager.broadcast("alerts", {
+                "symbol": clean_sym,
+                "alert_type": alert_type,
+                "price": price,
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        # 4. Smart Money Alert
+        sm = details.get("smart_money", {})
+        if sm and sm.get("state") in ["BULLISH_MANIPULATION", "BEARISH_MANIPULATION", "ACCUMULATION", "DISTRIBUTION", "ABSORPTION", "BREAKOUT_LOADING"]:
+            alert_type = "SMART_MONEY"
+            message = f"Smart Money pattern '{sm.get('state')}' detected on {clean_sym}: {sm.get('narrative')}"
+            DatabaseService.log_alert(clean_sym, alert_type, price, message)
+            await ws_manager.broadcast("alerts", {
+                "symbol": clean_sym,
+                "alert_type": alert_type,
+                "price": price,
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        print(f"[WS Broadcaster] Error in realtime evaluation: {e}", flush=True)
+
+# Wrap ScreenerService to broadcast live ticks and trigger evaluations
+_orig_update_realtime = ScreenerService.update_symbol_realtime
+
+@classmethod
+async def wrapped_update_realtime(cls, symbol, price, volume):
+    res = await _orig_update_realtime(symbol, price, volume)
+    
+    clean_symbol = symbol.replace(".NS", "").replace(".BO", "").split(":")[-1].split("-")[0]
+    
+    # Broadcast live tick
+    await ws_manager.broadcast("ticks", {
+        "symbol": clean_symbol,
+        "price": price,
+        "volume": volume,
+        "timestamp": datetime.now().isoformat()
+    })
+    
+    # Throttled real-time evaluations (max once every 5 seconds per symbol)
+    now_t = time.time()
+    if now_t - _last_signal_calc.get(clean_symbol, 0) > 5.0:
+        _last_signal_calc[clean_symbol] = now_t
+        asyncio.create_task(evaluate_realtime_signal_and_alerts(symbol, price, volume))
+        
+    return res
+
+ScreenerService.update_symbol_realtime = wrapped_update_realtime
+
+
+# Background Screener & Scanner Worker
+async def scanner_background_worker():
+    print("[Background Screener] Background scanner worker started.", flush=True)
+    # Give server a few seconds to warm up
+    await asyncio.sleep(10)
+    while True:
+        try:
+            watchlist = DatabaseService.get_watchlist()
+            if not watchlist:
+                watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN"]
+                
+            print(f"[Background Screener] Running background scan for {len(watchlist)} watchlist symbols...", flush=True)
+            
+            scanner_results = []
+            for symbol in watchlist:
+                try:
+                    sig_data = await asyncio.to_thread(SignalEngine.generate_signal, symbol, timeframe="15m")
+                    scanner_results.append({
+                        "symbol": symbol,
+                        "signal": sig_data.get("signal"),
+                        "confidence": sig_data.get("confidence"),
+                        "strength": sig_data.get("strength"),
+                        "rvol": sig_data.get("details", {}).get("volume", {}).get("rvol", 1.0),
+                        "cpr_width": sig_data.get("details", {}).get("cpr", {}).get("width_status", "WIDE"),
+                        "cpr_position": sig_data.get("details", {}).get("cpr_position", "INSIDE_CPR"),
+                        "smart_money": sig_data.get("details", {}).get("smart_money", {}).get("state", "NEUTRAL"),
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except Exception as sym_err:
+                    print(f"[Background Screener] Error scanning {symbol}: {sym_err}", flush=True)
+                    
+            await ws_manager.broadcast("scanner", {
+                "scanner_updates": scanner_results,
+                "timestamp": datetime.now().isoformat()
+            })
+            print(f"[Background Screener] Scan finished. Broadcasted updates for {len(scanner_results)} symbols.", flush=True)
+        except Exception as worker_err:
+            print(f"[Background Screener] Error in background worker: {worker_err}", flush=True)
+        await asyncio.sleep(30)
+
+
+# REST API ROUTING
+@app.get("/api/stocks/search", dependencies=[Depends(login_required)])
+async def stocks_search(q: str = Query(..., min_length=1)):
+    res = await search_symbols(q)
+    return {"status": "success", "data": res}
+
+@app.get("/api/stocks/dashboard/{symbol}", dependencies=[Depends(login_required)])
+async def stocks_dashboard(symbol: str, tf: str = "15m"):
+    sig_data = await asyncio.to_thread(SignalEngine.generate_signal, symbol, tf)
+    return _json_serializable({
+        "status": "success",
+        "data": sig_data
+    })
+
+@app.get("/api/stocks/signals", dependencies=[Depends(login_required)])
+async def stocks_signals(symbol: Optional[str] = None):
+    if symbol:
+        sig_data = await asyncio.to_thread(SignalEngine.generate_signal, symbol)
+        return {"status": "success", "data": [sig_data]}
+    else:
+        signals = DatabaseService.get_scanner_signals()
+        return {"status": "success", "data": signals}
+
+@app.get("/api/stocks/scanner", dependencies=[Depends(login_required)])
+async def stocks_scanner(preset: str = Query("momentum_breakouts")):
+    signals = DatabaseService.get_scanner_signals()
+    filtered = []
+    for s in signals:
+        is_match = False
+        if preset == "momentum_breakouts":
+            is_match = s["signal"] in ["BUY", "SELL"] and s["confidence"] >= 55.0 and s["rvol"] >= 1.2
+        elif preset == "cpr_breakouts":
+            is_match = s["cpr_width"] == "NARROW" and s["cpr_position"] in ["ABOVE_CPR", "BELOW_CPR"]
+        elif preset == "high_rvol":
+            is_match = s["rvol"] >= 1.8
+        elif preset == "smart_money":
+            is_match = s["smart_money"] not in ["NEUTRAL", "NORMAL", ""]
+        elif preset == "trend_continuation":
+            is_match = s["signal"] in ["BUY", "SELL"] and s["confidence"] >= 65.0
+        elif preset == "reversal_setups":
+            is_match = s["smart_money"] in ["BULLISH_MANIPULATION", "BEARISH_MANIPULATION", "SPRING", "UPTHRUST"]
+            
+        if is_match:
+            filtered.append(s)
+    return {"status": "success", "preset": preset, "count": len(filtered), "data": filtered}
+
+@app.get("/api/stocks/watchlist", dependencies=[Depends(login_required)])
+async def get_watchlist_api():
+    symbols = DatabaseService.get_watchlist()
+    enriched = []
+    for sym in symbols:
+        try:
+            conn = DatabaseService.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM scanner_signals WHERE symbol = ?", (sym.upper(),))
+            row = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if row:
+                if DatabaseService._connection_type == "POSTGRES":
+                    sig_data = {
+                        "symbol": row[0], "signal": row[2], "confidence": row[3], "rvol": row[4], "smart_money": row[7]
+                    }
+                else:
+                    sig_data = {
+                        "symbol": row["symbol"], "signal": row["signal"], "confidence": row["confidence"],
+                        "rvol": row["relative_volume"], "smart_money": row["smart_money_state"]
+                    }
+                
+                enriched.append({
+                    "symbol": sym,
+                    "price": 0.0,
+                    "signal": sig_data["signal"],
+                    "confidence": sig_data["confidence"],
+                    "rvol": sig_data["rvol"],
+                    "smart_money": sig_data["smart_money"],
+                    "status": "cached"
+                })
+            else:
+                enriched.append({
+                    "symbol": sym,
+                    "price": 0.0,
+                    "signal": "HOLD",
+                    "confidence": 50.0,
+                    "rvol": 1.0,
+                    "smart_money": "NEUTRAL",
+                    "status": "new"
+                })
+        except Exception as we:
+            print(f"Error enriching watchlist symbol {sym}: {we}", flush=True)
+            enriched.append({"symbol": sym, "signal": "HOLD", "confidence": 0, "rvol": 1.0, "status": "error"})
+    return {"status": "success", "data": enriched}
+
+@app.post("/api/stocks/watchlist", dependencies=[Depends(login_required)])
+async def add_watchlist_api(request: Request):
+    data = await request.json()
+    symbol = data.get("symbol", "").upper().strip()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+    res = DatabaseService.add_to_watchlist(symbol)
+    return {"status": "success" if res else "error"}
+
+@app.delete("/api/stocks/watchlist", dependencies=[Depends(login_required)])
+async def remove_watchlist_api(symbol: str = Query(...)):
+    res = DatabaseService.remove_from_watchlist(symbol)
+    return {"status": "success" if res else "error"}
+
+@app.get("/api/stocks/alerts", dependencies=[Depends(login_required)])
+async def get_alerts_api(limit: int = 20):
+    alerts = DatabaseService.get_recent_alerts(limit)
+    return {"status": "success", "data": alerts}
+
+
+@app.on_event("startup")
+async def startup_event():
+    # Auto-initialize database on startup
+    try:
+        from app.services.database_service import DatabaseService
+        DatabaseService.initialize()
+    except Exception as e:
+        print(f"[Startup] Database initialization failed: {e}", flush=True)
+        
+    # Start background worker
+    asyncio.create_task(scanner_background_worker())
+
 
 # Mount Frontend - Robust Path Finding
 try:
