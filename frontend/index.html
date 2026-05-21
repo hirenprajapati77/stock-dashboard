@@ -132,6 +132,7 @@
                             <option value="FIBONACCI">FIBO EDGE</option>
                             <option value="DEMAND_SUPPLY">SUPPLY/DEMAND</option>
                             <option value="SWING">TREND RIDER</option>
+                            <option value="CPR">CPR PIVOTS</option>
                         </select>
                     </div>
 
@@ -950,7 +951,7 @@
                                     <div class="space-y-2">
                                         <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
                                             <span id="micro-label-1" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Volume Surge</span>
-                                            <span id="outcome-entry" class="text-[10px] font-black text-white">Awaiting...</span>
+                                            <span id="ee-micro-val-1" class="text-[10px] font-black text-white">Awaiting...</span>
                                         </div>
                                         <div class="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
                                             <span id="micro-label-2" class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Trend Intensity</span>
@@ -1216,31 +1217,124 @@
                         </div>
                     </div>
 
-                    <!-- Tactical Levels -->
+                    <!-- CPR + Gann Matrix -->
                     <div id="levels-sidebar" class="glass-card overflow-hidden transition-all duration-500">
                         <div class="px-4 py-3 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                            <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-blue-400" data-tooltip="Key price levels where demand/supply shifts">Tactical Levels</h3>
+                            <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-blue-400" data-tooltip="Realtime Central Pivot Range & Gann Square of 9 Matrix">CPR + Gann Matrix</h3>
                             <button onclick="toggleIntelligenceSidebar()" class="text-gray-500 hover:text-white transition-colors flex items-center gap-2" aria-label="Toggle Intelligence Sidebar">
                                 <span class="text-[8px] font-bold">SIDEBAR</span>
                                 <i class="fas fa-columns text-[10px]" aria-hidden="true"></i>
                             </button>
                         </div>
-                        <div class="p-4 space-y-6 max-h-[300px] overflow-y-auto custom-scrollbar">
-                                <div class="flex items-center gap-2 mb-3">
-                                    <div class="w-1.5 h-1.5 bg-indigo-500 rounded-full"></div>
-                                    <span class="text-[9px] font-black uppercase tracking-widest text-indigo-400">Critical Resistances</span>
+                        <div class="p-4 space-y-4 max-h-[450px] overflow-y-auto custom-scrollbar">
+                            <!-- CPR Matrix Section -->
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-1.5 h-1.5 bg-cyan-500 rounded-full"></div>
+                                        <span class="text-[9px] font-black uppercase tracking-widest text-cyan-400">CPR Pivots</span>
+                                    </div>
+                                    <span id="cpr-width-badge" class="px-1.5 py-0.5 rounded text-[8px] font-black bg-gray-800 text-gray-400 uppercase tracking-widest">—</span>
                                 </div>
-                                <div id="resistance-list" class="space-y-1.5">
-                                    <div class="text-[10px] text-gray-600 italic">Calculating levels...</div>
+                                <div class="grid grid-cols-3 gap-2 bg-black/30 p-2 rounded-lg border border-white/5">
+                                    <div class="text-center">
+                                        <div class="text-[7px] text-gray-500 font-bold uppercase mb-0.5">TC (Top)</div>
+                                        <div id="cpr-tc-val" class="text-[10px] font-black text-white">—</div>
+                                    </div>
+                                    <div class="text-center border-x border-white/5">
+                                        <div class="text-[7px] text-gray-500 font-bold uppercase mb-0.5">PP (Pivot)</div>
+                                        <div id="cpr-pp-val" class="text-[10px] font-black text-white">—</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="text-[7px] text-gray-500 font-bold uppercase mb-0.5">BC (Bottom)</div>
+                                        <div id="cpr-bc-val" class="text-[10px] font-black text-white">—</div>
+                                    </div>
                                 </div>
-                                
-                                <div class="flex items-center gap-2 mt-6 mb-3">
-                                    <div class="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-                                    <span class="text-[9px] font-black uppercase tracking-widest text-blue-400">Major Supports</span>
+                            </div>
+
+                            <!-- Gann Levels Matrix Section -->
+                            <div>
+                                <div class="flex items-center gap-2 mb-2">
+                                    <div class="w-1.5 h-1.5 bg-amber-500 rounded-full"></div>
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Gann Square of 9</span>
                                 </div>
-                                <div id="support-list" class="space-y-1.5">
-                                    <div class="text-[10px] text-gray-600 italic">Calculating levels...</div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <!-- Resistances -->
+                                    <div class="bg-red-500/5 p-2 rounded-lg border border-red-500/10 space-y-1">
+                                        <div class="text-[7px] text-red-400 font-bold uppercase tracking-wider mb-1 flex items-center justify-between">
+                                            <span>Resistances</span>
+                                            <i class="fas fa-arrow-up text-[6px]"></i>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G3 (Major)</span>
+                                            <span id="gann-g3-res" class="text-white font-black">—</span>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G2 (Medium)</span>
+                                            <span id="gann-g2-res" class="text-white font-black">—</span>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G1 (Minor)</span>
+                                            <span id="gann-g1-res" class="text-white font-black">—</span>
+                                        </div>
+                                    </div>
+                                    <!-- Supports -->
+                                    <div class="bg-green-500/5 p-2 rounded-lg border border-green-500/10 space-y-1">
+                                        <div class="text-[7px] text-green-400 font-bold uppercase tracking-wider mb-1 flex items-center justify-between">
+                                            <span>Supports</span>
+                                            <i class="fas fa-arrow-down text-[6px]"></i>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G1 (Minor)</span>
+                                            <span id="gann-g1-supp" class="text-white font-black">—</span>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G2 (Medium)</span>
+                                            <span id="gann-g2-supp" class="text-white font-black">—</span>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                            <span>G3 (Major)</span>
+                                            <span id="gann-g3-supp" class="text-white font-black">—</span>
+                                        </div>
+                                    </div>
                                 </div>
+                            </div>
+
+                            <!-- Advanced Telemetry Section -->
+                            <div class="pt-2 border-t border-white/5 space-y-2">
+                                <!-- VWAP Details -->
+                                <div class="flex items-center justify-between text-[10px]">
+                                    <div class="flex items-center gap-1.5 text-gray-400 font-bold">
+                                        <i class="fas fa-wave-square text-purple-400 text-[8px]"></i>
+                                        <span>Session VWAP</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="vwap-val" class="font-black text-white">—</span>
+                                        <span id="vwap-dist" class="px-1 py-0.5 rounded text-[8px] font-black bg-gray-800 text-gray-400">—</span>
+                                    </div>
+                                </div>
+
+                                <!-- Trend Bias & Score -->
+                                <div class="flex items-center justify-between text-[10px]">
+                                    <div class="flex items-center gap-1.5 text-gray-400 font-bold">
+                                        <i class="fas fa-chart-line text-indigo-400 text-[8px]"></i>
+                                        <span>Trend Confluence</span>
+                                    </div>
+                                    <span id="trend-bias-val" class="font-black text-indigo-400 tracking-wider uppercase text-[9px]">—</span>
+                                </div>
+
+                                <!-- Composite Signal & Confidence -->
+                                <div class="bg-indigo-950/20 p-2.5 rounded-lg border border-indigo-500/10 flex items-center justify-between">
+                                    <div class="flex flex-col">
+                                        <span class="text-[7px] text-gray-500 font-black uppercase tracking-wider mb-0.5">Composite Signal</span>
+                                        <span id="matrix-composite-signal" class="text-xs font-black text-indigo-400 uppercase">HOLD</span>
+                                    </div>
+                                    <div class="flex flex-col items-end">
+                                        <span class="text-[7px] text-gray-500 font-black uppercase tracking-wider mb-0.5">Confidence</span>
+                                        <span id="matrix-composite-confidence" class="text-[10px] font-black text-white">50%</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
