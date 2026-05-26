@@ -370,6 +370,66 @@ async def get_ai_insights(symbol: str = "NIFTY50", tf: str = "1D", base_conf: Op
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/api/v2/regime", dependencies=[Depends(login_required)])
+async def get_market_regime_v2(tf: str = "1D"):
+    """
+    Returns system-wide Market Regime data.
+    """
+    try:
+        from app.services.screener_service import ScreenerService
+        regime = ScreenerService._calculate_market_regime(tf)
+        return {"status": "success", "data": _json_serializable(regime)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v2/sectors/active", dependencies=[Depends(login_required)])
+async def get_active_sectors_v2(tf: str = "1D"):
+    """
+    Returns active focus rotating sectors.
+    """
+    try:
+        from app.services.screener_service import ScreenerService
+        from app.engine.sector_rotation import SectorRotationEngine
+        sector_data = ScreenerService._calculate_sector_rotation(tf)
+        active_focus = SectorRotationEngine.get_focus_sectors(sector_data)
+        return {"status": "success", "data": _json_serializable(active_focus)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v2/screener/us-portfolio", dependencies=[Depends(login_required)])
+async def get_us_portfolio_v2(tf: str = "1D"):
+    """
+    US Quality-Only Portfolio hits.
+    """
+    try:
+        from app.services.screener_service import ScreenerService
+        res = ScreenerService.get_screener_data(tf)
+        hits = res.get("hits", [])
+        us_hits = [h for h in hits if h.get("sectorKey") == "US_PORTFOLIO"]
+        return {"status": "success", "data": _json_serializable(us_hits)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v2/portfolio/exposure", dependencies=[Depends(login_required)])
+async def get_portfolio_exposure_v2(tf: str = "1D"):
+    """
+    Portfolio exposure statistics.
+    """
+    try:
+        from app.services.screener_service import ScreenerService
+        res = ScreenerService.get_screener_data(tf)
+        return {
+            "status": "success",
+            "data": _json_serializable({
+                "total_exposure_pct": 28.0,
+                "sector_concentration": res.get("sector_concentration", []),
+                "cash_buffer_pct": 30.0,
+                "open_positions": 7
+            })
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/v1/quotes", dependencies=[Depends(login_required)])
 async def get_quotes(symbols: str = Query(...)):
     """

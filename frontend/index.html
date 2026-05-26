@@ -48,6 +48,7 @@
                 <nav class="nav-tab-group" aria-label="Dashboard Views" style="gap: 12px; padding: 4px;">
                     <button id="view-dashboard" onclick="switchView('dashboard')" class="nav-tab active" aria-pressed="true">DASHBOARD</button>
                     <button id="view-intelligence" onclick="switchView('intelligence')" class="nav-tab" aria-pressed="false">INTELLIGENCE</button>
+                    <button id="view-us-portfolio" onclick="switchView('us-portfolio')" class="nav-tab" aria-pressed="false">US PORTFOLIO</button>
                     <div class="w-[1px] h-3 bg-gray-700/50 self-center mx-2"></div>
                     <button id="toggle-tracking-btn" onclick="toggleTrackingModeColumn()"
                             class="nav-tab flex items-center gap-2"
@@ -173,38 +174,71 @@
             </div>
         </div>
 
-        <!-- Market Breadth Intelligence Card (NEW) -->
-        <div id="market-breadth-card"
-            class="glass rounded-2xl border border-blue-500/20 p-4 mb-6 hidden animate-in slide-in-from-top duration-500">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 bg-blue-500/10 rounded-lg">
-                        <span class="text-xl">📊</span>
+        <!-- Institutional Market Regime & Breadth Cockpit (V2) -->
+        <div id="market-breadth-card" class="glass rounded-2xl border border-blue-500/20 p-5 mb-6 hidden animate-in slide-in-from-top duration-500">
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 items-center">
+                <!-- Column 1: Market Regime Status -->
+                <div class="flex items-center gap-4">
+                    <div class="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20 shrink-0">
+                        <span class="text-2xl drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">🏛️</span>
                     </div>
-                                 <div class="flex flex-col">
-                        <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Market Breadth</h3>
-                        <div class="flex items-baseline gap-2">
-                            <span id="breadth-score" class="text-xl font-bold mono text-blue-400">Awaiting...</span>
-                            <span id="breadth-label" class="text-[9px] font-bold text-gray-500 uppercase">SYNCING</span>
+                    <div class="flex flex-col">
+                        <h3 class="text-[9px] font-black text-gray-500 uppercase tracking-widest">Market Regime</h3>
+                        <div class="flex items-baseline gap-2 mt-1">
+                            <span id="breadth-score" class="text-3xl font-black mono text-blue-400">Awaiting...</span>
+                            <span id="breadth-regime" class="text-[9px] font-black px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-blue-400 uppercase">SYNCING</span>
                         </div>
+                        <span id="v2-regime-mode" class="text-[9px] font-black text-gray-400 uppercase tracking-wider mt-1.5"><i class="fas fa-sliders-h text-[8px] mr-1 text-blue-500"></i> Mode: Calibrating</span>
                     </div>
-   </div>
                 </div>
-                <div class="col-span-2">
-                    <div class="flex justify-between items-end mb-1">
-                        <span class="text-[9px] font-bold text-gray-500 uppercase">Sector Alignment</span>
+
+                <!-- Column 2: Quantitative Sizing Gates (Golden Rules) -->
+                <div class="bg-gray-900/40 border border-white/5 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
+                    <div class="flex flex-col">
+                        <span class="text-[7px] text-gray-500 font-black uppercase tracking-wider">Position Limit</span>
+                        <span id="v2-pos-limit" class="text-xs font-black text-emerald-400 mono mt-1">--%</span>
+                        <span class="text-[7px] text-gray-600 font-bold uppercase mt-0.5">Per Trade</span>
+                    </div>
+                    <div class="flex flex-col border-x border-white/5">
+                        <span class="text-[7px] text-gray-500 font-black uppercase tracking-wider">Cash Buffer</span>
+                        <span id="v2-cash-buffer" class="text-xs font-black text-indigo-400 mono mt-1">--%</span>
+                        <span class="text-[7px] text-gray-600 font-bold uppercase mt-0.5">Mandatory</span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[7px] text-gray-500 font-black uppercase tracking-wider">Entry Gate</span>
+                        <span id="v2-min-gate" class="text-xs font-black text-amber-400 mono mt-1">--</span>
+                        <span class="text-[7px] text-gray-600 font-bold uppercase mt-0.5">Min Score</span>
+                    </div>
+                </div>
+
+                <!-- Column 3: Advance/Decline & Volatility Stats -->
+                <div class="grid grid-cols-2 gap-3 bg-gray-900/20 border border-white/5 rounded-xl p-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[8px] text-gray-500 font-bold uppercase">VIX Index</span>
+                        <span id="v2-vix-val" class="text-[10px] font-black text-white mono">--</span>
+                    </div>
+                    <div class="flex items-center justify-between border-l border-white/5 pl-3">
+                        <span class="text-[8px] text-gray-500 font-bold uppercase">A/D Ratio</span>
+                        <span id="v2-ad-ratio" class="text-[10px] font-black text-white mono">--</span>
+                    </div>
+                    <div class="col-span-2 flex items-center justify-between border-t border-white/5 pt-1.5 mt-0.5">
+                        <span class="text-[8px] text-gray-500 font-bold uppercase">FII net flow</span>
+                        <span id="v2-fii-flow" class="text-[9px] font-black text-green-400 mono">--</span>
+                    </div>
+                </div>
+
+                <!-- Column 4: Sector Alignment Bar -->
+                <div class="flex flex-col">
+                    <div class="flex justify-between items-baseline mb-1.5">
+                        <span class="text-[8px] font-black text-gray-500 uppercase tracking-widest">Sector Alignment</span>
                         <span id="breadth-stats" class="text-[9px] font-mono text-gray-400">0 / 0 SECTORS LEADING</span>
                     </div>
-                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                        <div id="breadth-bar" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%">
-                        </div>
+                    <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                        <div id="breadth-bar" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%"></div>
                     </div>
-                </div>
-                <div class="flex flex-col items-end">
-                    <div id="breadth-regime"
-                        class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-1">
-                        RISK-ON</div>
-                    <p class="text-[9px] text-gray-500 text-right">Sector rotation is currently healthy</p>
+                    <div id="breadth-labels" class="flex gap-2 mt-2">
+                        <!-- Dynamic sub-stats -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -701,6 +735,80 @@
             </div>
         </section>
 
+        <!-- US Portfolio Section -->
+        <section id="us-portfolio-section" class="hidden animate-in">
+            <!-- Unified US Portfolio HUD / Market Sizing info -->
+            <div class="glass rounded-2xl p-5 mb-6 border border-blue-500/20 bg-gradient-to-r from-blue-950/10 to-transparent">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h2 class="text-sm font-black uppercase tracking-widest text-blue-400">🇺🇸 US Globally Dominant Leaders</h2>
+                        <p class="text-[10px] text-gray-400 mt-0.5">High-quality equity screening and risk-management allocations (Rule 12)</p>
+                    </div>
+                    <div class="flex items-center gap-4 text-[10px] font-mono">
+                        <div class="flex items-center gap-2 bg-gray-900/60 px-3 py-1.5 rounded-lg border border-gray-800">
+                            <span class="text-gray-500 uppercase">Target Gate:</span>
+                            <span class="text-green-400 font-bold">$2B+ MCAP &amp; 15%+ ROE</span>
+                        </div>
+                        <div class="flex items-center gap-2 bg-gray-900/60 px-3 py-1.5 rounded-lg border border-gray-800">
+                            <span class="text-gray-500 uppercase">Execution Code:</span>
+                            <span class="text-blue-400 font-bold">Rule 12 Max Cap Limit</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-12 gap-6">
+                <!-- Left Panel: US Quality Portfolio Cards (5 cols) -->
+                <div class="col-span-12 lg:col-span-5 space-y-6">
+                    <div class="glass border border-blue-500/20 rounded-2xl overflow-hidden shadow-2xl">
+                        <div class="px-5 py-3 bg-gradient-to-r from-blue-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">💼</span>
+                                <h3 class="text-xs font-black uppercase tracking-widest text-blue-400">Globally Dominant Leaders</h3>
+                            </div>
+                            <span class="text-[8px] font-mono text-gray-500 uppercase">Interactive List</span>
+                        </div>
+                        <!-- Reuse ID so dashboard.js binds it automatically! -->
+                        <div id="v2-us-portfolio-grid" class="p-4 grid grid-cols-1 gap-3 min-h-[300px] max-h-[700px] overflow-y-auto custom-scrollbar">
+                            <div class="text-gray-500 text-xs italic p-2">Screening global equities...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: US Opportunities Scanner Grid (7 cols) -->
+                <div class="col-span-12 lg:col-span-7 space-y-6">
+                    <div class="glass border border-purple-500/20 rounded-2xl overflow-hidden shadow-2xl">
+                        <div class="px-5 py-3 bg-gradient-to-r from-purple-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🔥</span>
+                                <h3 class="text-xs font-black uppercase tracking-widest text-purple-400">US Active Stocks Scanner</h3>
+                            </div>
+                            <span class="text-[8px] font-mono text-gray-500 uppercase">Top Setups</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-[11px]">
+                                <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
+                                    <tr>
+                                        <th class="px-4 py-3 font-bold">Symbol</th>
+                                        <th class="px-4 py-3 font-bold">Price</th>
+                                        <th class="px-4 py-3 font-bold">Change %</th>
+                                        <th class="px-4 py-3 font-bold text-center">Score</th>
+                                        <th class="px-4 py-3 font-bold">Action</th>
+                                        <th class="px-4 py-3 font-bold text-right">RSI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="us-top-trades-body" class="divide-y divide-gray-800/50">
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">Scanning US market...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <div id="standard-dashboard" class="w-full">
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <!-- Right Column (Tracking) - Hidden by default -->
@@ -796,6 +904,39 @@
                     </div>
                     <p id="trade-signal-reason" class="text-[10px] text-gray-500 mt-1">Signal updates with EMA bias +
                         structure.</p>
+                </div>
+            </div>
+            
+            <!-- Quantitative Momentum Channels (V2 Active Sectors & Nifty Focus Watchlist) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                <!-- Active Sectors Focus Widget -->
+                <div id="v2-active-sectors-panel" class="glass border border-emerald-500/20 rounded-2xl overflow-hidden shadow-2xl animate-in slide-in-from-left duration-500">
+                    <div class="px-5 py-3 bg-gradient-to-r from-emerald-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xl">⚡</span>
+                            <h3 class="text-xs font-black uppercase tracking-widest text-emerald-400">Dynamic Active Sectors</h3>
+                        </div>
+                        <span class="text-[8px] font-mono text-gray-500 uppercase">Top Momentum Focus</span>
+                    </div>
+                    <div id="v2-active-sectors-list" class="p-4 space-y-3 min-h-[220px] max-h-[350px] overflow-y-auto custom-scrollbar">
+                        <!-- Injected by JS -->
+                        <div class="text-gray-500 text-xs italic p-2">Calibrating active sectors...</div>
+                    </div>
+                </div>
+
+                <!-- Nifty Focus Watchlist Widget -->
+                <div id="v2-indian-watchlist-panel" class="glass border border-teal-500/20 rounded-2xl overflow-hidden shadow-2xl animate-in slide-in-from-right duration-500">
+                    <div class="px-5 py-3 bg-gradient-to-r from-teal-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xl">🔭</span>
+                            <h3 class="text-xs font-black uppercase tracking-widest text-teal-400">Nifty Focus Watchlist</h3>
+                        </div>
+                        <span class="text-[8px] font-mono text-gray-500 uppercase">Preparation &amp; Levels</span>
+                    </div>
+                    <div id="v2-indian-watchlist-list" class="p-4 space-y-3 min-h-[220px] max-h-[350px] overflow-y-auto custom-scrollbar">
+                        <!-- Injected by JS -->
+                        <div class="text-gray-500 text-xs italic p-2">Scanning setups...</div>
+                    </div>
                 </div>
             </div>
 
