@@ -78,8 +78,11 @@ class MarketDataService:
         # 2. Not an index (doesn't start with ^)
         # 3. Purely alphanumeric (or hyphen if it doesn't have a colon)
         # 4. No colon (Fyers style)
+        # 5. Not a globally known US ticker
         if "." not in symbol and ":" not in symbol and not symbol.startswith("^") and all(c.isalnum() or c in "-&" for c in symbol):
-            symbol = f"{symbol}.NS"
+            US_UNIVERSE = {"AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "LLY", "JPM", "SPY", "QQQ"}
+            if symbol not in US_UNIVERSE:
+                symbol = f"{symbol}.NS"
 
             
         print(f"DEBUG: Symbol Mapping: {original_symbol} -> {symbol}")

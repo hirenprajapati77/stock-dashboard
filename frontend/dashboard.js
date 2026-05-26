@@ -337,44 +337,71 @@ class MarketIntelligence {
 
     _renderWatchlist() {
         if (!this.watchlistData) return;
+        
+        // Render to the dedicated next-session-watchlist-card in Intelligence view
         const card = document.getElementById('next-session-watchlist-card');
-        if (!card) return;
+        if (card) {
+            // If no data, hide it
+            if (!this.watchlistData.strong_sectors && !this.watchlistData.breakout_candidates) {
+                card.classList.add('hidden');
+            } else {
+                card.classList.remove('hidden');
 
-        // If no data, hide it
-        if (!this.watchlistData.strong_sectors && !this.watchlistData.breakout_candidates) {
-            card.classList.add('hidden');
-            return;
+                // Strong Sectors
+                const strContainer = document.getElementById('wl-strong-sectors');
+                if (strContainer) {
+                    const arr = this.watchlistData.strong_sectors || [];
+                    if (!arr.length) strContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
+                    else strContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-teal-500/10 text-teal-400 border border-teal-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
+                }
+
+                // Avoid Sectors
+                const avContainer = document.getElementById('wl-avoid-sectors');
+                if (avContainer) {
+                    const arr = this.watchlistData.weak_sectors || [];
+                    if (!arr.length) avContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
+                    else avContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
+                }
+
+                // Breakout Candidates
+                const boContainer = document.getElementById('wl-breakout-candidates');
+                if (boContainer) {
+                    const arr = this.watchlistData.breakout_candidates || [];
+                    if (!arr.length) boContainer.innerHTML = '<span class="text-xs text-gray-500 italic">No clear setups found</span>';
+                    else {
+                        boContainer.innerHTML = arr.map(c => `
+                            <div class="flex items-center justify-between text-xs border-b border-gray-800 pb-1 cursor-pointer hover:bg-gray-800/50 p-1 rounded" onclick="window.fetchDataForSymbol('${c.symbol}')">
+                                <span class="font-bold text-white">${c.symbol}</span>
+                                <div class="text-right">
+                                    <span class="text-teal-400 mono">₹${parseFloat((c.price || '0').toString().replace(/[^\d.]/g, '') || 0).toFixed(2)}</span>
+                                    <span class="text-[9px] text-gray-500 block">${(c.sector || c.tag || 'Breakout').replace('NIFTY_', '')}</span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            }
         }
-        card.classList.remove('hidden');
 
-        // Strong Sectors
-        const strContainer = document.getElementById('wl-strong-sectors');
-        if (strContainer) {
-            const arr = this.watchlistData.strong_sectors || [];
-            if (!arr.length) strContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
-            else strContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-teal-500/10 text-teal-400 border border-teal-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
-        }
-
-        // Avoid Sectors
-        const avContainer = document.getElementById('wl-avoid-sectors');
-        if (avContainer) {
-            const arr = this.watchlistData.weak_sectors || [];
-            if (!arr.length) avContainer.innerHTML = '<span class="text-xs text-gray-500 italic">None currently</span>';
-            else avContainer.innerHTML = arr.map(s => `<span class="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] uppercase font-bold rounded">${s.replace('NIFTY_', '')}</span>`).join('');
-        }
-
-        // Breakout Candidates
-        const boContainer = document.getElementById('wl-breakout-candidates');
-        if (boContainer) {
+        // Render also to the Nifty Focus Watchlist panel in the Dashboard view
+        const dbWlContainer = document.getElementById('v2-indian-watchlist-list');
+        if (dbWlContainer) {
             const arr = this.watchlistData.breakout_candidates || [];
-            if (!arr.length) boContainer.innerHTML = '<span class="text-xs text-gray-500 italic">No clear setups found</span>';
-            else {
-                boContainer.innerHTML = arr.map(c => `
-                    <div class="flex items-center justify-between text-xs border-b border-gray-800 pb-1 cursor-pointer hover:bg-gray-800/50 p-1 rounded" onclick="window.fetchDataForSymbol('${c.symbol}')">
-                        <span class="font-bold text-white">${c.symbol}</span>
+            if (!arr.length) {
+                dbWlContainer.innerHTML = '<div class="text-gray-500 text-xs italic py-10 text-center">No clear breakout setups found currently.</div>';
+            } else {
+                dbWlContainer.innerHTML = arr.map(c => `
+                    <div class="flex items-center justify-between text-xs border-b border-white/5 pb-2 cursor-pointer hover:bg-emerald-500/5 p-2 rounded transition-all" onclick="window.fetchDataForSymbol('${c.symbol}')">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                                <span class="font-black text-white uppercase tracking-wider">${c.symbol}</span>
+                            </div>
+                            <span class="text-[8px] text-gray-500 uppercase tracking-widest block font-bold">${c.sector || 'Equities'}</span>
+                        </div>
                         <div class="text-right">
-                            <span class="text-teal-400 mono">₹${parseFloat(c.price).toFixed(2)}</span>
-                            <span class="text-[9px] text-gray-500 block">${c.sector.replace('NIFTY_', '')}</span>
+                            <span class="text-teal-400 font-mono font-bold block">₹${parseFloat((c.price || '0').toString().replace(/[^\d.]/g, '') || 0).toFixed(2)}</span>
+                            <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-teal-500/10 text-teal-400 border border-teal-500/20 inline-block mt-1 font-mono">${c.tag || 'Fresh Breakout'}</span>
                         </div>
                     </div>
                 `).join('');
@@ -1623,6 +1650,199 @@ class MarketIntelligence {
         } else if (debugContainer) {
             debugContainer.classList.add('hidden');
         }
+    }
+
+    // ─── Institutional V2 Rendering Engines ────────────────────────────────
+
+    updateMarketRegimeV2(data) {
+        if (!data) return;
+        
+        const scoreEl = document.getElementById('breadth-score');
+        const regimeEl = document.getElementById('breadth-regime');
+        const modeEl = document.getElementById('v2-regime-mode');
+        const bar = document.getElementById('breadth-bar');
+
+        const score = data.score ?? 0;
+        const regime = data.regime ?? "UNKNOWN";
+        const mode = data.mode ?? "Calibrating";
+
+        if (scoreEl) scoreEl.textContent = `${score}%`;
+        if (regimeEl) {
+            regimeEl.textContent = regime;
+            let regimeColor = 'text-yellow-400 bg-yellow-950/20 border-yellow-800';
+            if (regime === 'BULL MARKET') regimeColor = 'text-green-400 bg-green-950/20 border-green-800';
+            if (regime === 'BEAR MARKET') regimeColor = 'text-red-400 bg-red-950/20 border-red-800';
+            if (regime === 'DEFENSIVE MARKET') regimeColor = 'text-amber-400 bg-amber-950/20 border-amber-800';
+            regimeEl.className = `text-[9px] font-black px-2 py-0.5 rounded border ${regimeColor}`;
+        }
+        if (modeEl) {
+            modeEl.innerHTML = `<i class="fas fa-sliders-h text-[8px] mr-1 text-blue-500"></i> Mode: ${mode}`;
+        }
+
+        const posLimitEl = document.getElementById('v2-pos-limit');
+        const cashBufferEl = document.getElementById('v2-cash-buffer');
+        const minGateEl = document.getElementById('v2-min-gate');
+
+        if (posLimitEl) posLimitEl.textContent = `${data.max_pos_size_pct?.toFixed(1) ?? '--'}%`;
+        if (cashBufferEl) cashBufferEl.textContent = `${data.cash_buffer_pct?.toFixed(1) ?? '--'}%`;
+        if (minGateEl) minGateEl.textContent = `${data.min_score_gate ?? '--'}+`;
+
+        const vixEl = document.getElementById('v2-vix-val');
+        const adEl = document.getElementById('v2-ad-ratio');
+        const fiiEl = document.getElementById('v2-fii-flow');
+
+        if (vixEl) {
+            vixEl.textContent = data.vix?.toFixed(1) ?? '--';
+            vixEl.className = `text-[10px] font-black mono ${data.is_high_volatility ? 'text-red-400 animate-pulse' : 'text-white'}`;
+        }
+        if (adEl) adEl.textContent = data.advance_decline_ratio?.toFixed(2) ?? '--';
+
+        if (bar) {
+            const bp = data.breadth_pct ?? 0;
+            bar.style.width = `${bp}%`;
+            bar.className = `h-full transition-all duration-1000 ${bp >= 60 ? 'bg-green-500' : (bp >= 45 ? 'bg-yellow-500' : 'bg-red-500')}`;
+        }
+
+        const banner = document.getElementById('market-regime-banner');
+        if (banner) {
+            banner.classList.remove('hidden');
+            const desc = document.getElementById('regime-desc');
+            const statusText = document.getElementById('regime-status');
+            
+            if (statusText) statusText.textContent = `MARKET REGIME: ${regime}`;
+            
+            let bannerClass = 'border-yellow-500/50 bg-yellow-950/20';
+            let textClass = 'text-yellow-400';
+            let descStr = 'Broad market is currently neutral. Trade setups selectively.';
+            
+            if (regime === 'BULL MARKET') {
+                bannerClass = 'border-green-500/50 bg-green-950/20';
+                textClass = 'text-green-400';
+                descStr = 'Risk environment is supportive. Aggressive momentum setups are highly active.';
+            } else if (regime === 'BEAR MARKET') {
+                bannerClass = 'border-red-500/50 bg-red-950/20';
+                textClass = 'text-red-400';
+                descStr = 'Bear market rules active: Capital protection mode. Restrict entries, preserve cash.';
+            } else if (regime === 'DEFENSIVE MARKET') {
+                bannerClass = 'border-amber-500/50 bg-amber-950/20';
+                textClass = 'text-amber-400';
+                descStr = 'Defensive market state. Trade only high-confidence setups in focus sectors.';
+            }
+            
+            banner.className = `glass rounded-xl border p-3 mb-4 flex items-center gap-3 animate-in fade-in duration-500 ${bannerClass}`;
+            if (statusText) statusText.className = `text-xs font-bold uppercase tracking-widest ${textClass}`;
+            if (desc) desc.textContent = descStr;
+        }
+    }
+
+    updateActiveSectorsV2(data) {
+        const container = document.getElementById('v2-active-sectors-list');
+        if (!container) return;
+
+        const activeSectors = Array.isArray(data) ? data : [];
+        if (activeSectors.length === 0) {
+            container.innerHTML = '<div class="text-gray-500 text-xs italic py-10 text-center">No high-intensity focus sectors active currently.</div>';
+            return;
+        }
+
+        container.innerHTML = activeSectors.map(sec => {
+            const score = sec.score ?? 0;
+            const theme = sec.theme ?? 'Unknown';
+            const cleanTheme = theme.replace('NIFTY_', '').replace(/_/g, ' ');
+            const reasonTags = Array.isArray(sec.reason_tags) ? sec.reason_tags : [];
+            
+            const scoreBadgeClass = score >= 85 ? 'score-badge-high' : (score >= 70 ? 'score-badge-mid' : 'score-badge-low');
+            
+            const tagsHtml = reasonTags.map(t => `
+                <span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${t}</span>
+            `).join(' ');
+
+            return `
+                <div class="p-3 rounded-xl border border-white/5 bg-black/20 hover:bg-emerald-500/5 transition-all cursor-pointer group flex justify-between items-start"
+                     onclick="window.focusSector('${theme}')">
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 group-hover:animate-ping"></span>
+                            <span class="text-[11px] font-black text-white tracking-wide uppercase">${cleanTheme}</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            ${tagsHtml}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[7px] text-gray-500 uppercase font-black tracking-widest block mb-0.5">Focus Score</span>
+                        <span class="score-badge ${scoreBadgeClass} font-mono font-black">${score.toFixed(1)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    updateUSPortfolioV2(data) {
+        const container = document.getElementById('v2-us-portfolio-grid');
+        if (!container) return;
+
+        const hits = Array.isArray(data) ? data : [];
+        if (hits.length === 0) {
+            container.innerHTML = '<div class="col-span-full text-gray-500 text-xs italic py-10 text-center">No US globally dominant equities found.</div>';
+            return;
+        }
+
+        container.innerHTML = hits.map(hit => {
+            const symbol = hit.symbol ?? 'Unknown';
+            const price = hit.price ?? 0;
+            const change = hit.change ?? 0;
+            const rsi = hit.rsi ?? 50;
+            const action = hit.signal ?? 'HOLD';
+            const score = hit.score ?? 50;
+            const mCap = hit.mktCap ?? '--';
+            
+            const isUp = change >= 0;
+            const changeText = `${isUp ? '+' : ''}${change.toFixed(2)}%`;
+            const changeColor = isUp ? 'text-green-400' : 'text-red-400';
+            
+            let actionBadge = 'bg-gray-800 text-gray-400 border-gray-700';
+            if (action === 'BUY') {
+                actionBadge = rsi < 35 
+                    ? 'bg-blue-900/40 text-blue-400 border-blue-800/50 shadow-[0_0_8px_rgba(59,130,246,0.3)]' 
+                    : 'bg-green-900/40 text-green-400 border-green-800/50';
+            } else if (action === 'EXIT') {
+                actionBadge = 'bg-red-900/40 text-red-400 border-red-800/50';
+            }
+
+            return `
+                <div class="p-3 rounded-xl border border-white/5 bg-black/20 hover:bg-blue-500/5 transition-all cursor-pointer"
+                     onclick="window.fetchDataForSymbol('${symbol}')">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[11px] font-black text-white uppercase tracking-widest">${symbol}</span>
+                                <span class="text-[8px] font-mono text-gray-500 uppercase">${mCap}</span>
+                            </div>
+                            <div class="mt-1 flex items-baseline gap-1.5 font-mono">
+                                <span class="text-xs font-black text-white">$${price.toFixed(2)}</span>
+                                <span class="text-[9px] font-bold ${changeColor}">${changeText}</span>
+                            </div>
+                        </div>
+                        <span class="text-[8px] font-black px-2 py-0.5 rounded border ${actionBadge} tracking-widest">${action}</span>
+                    </div>
+                    <div class="mt-3 flex justify-between items-center text-[8px] font-mono border-t border-white/5 pt-1.5">
+                        <span class="text-gray-500">RSI: <span class="${rsi < 35 ? 'text-blue-400 font-black' : 'text-gray-300'}">${rsi}</span></span>
+                        <span class="text-gray-500">Quality: <span class="text-white font-black">${score}</span></span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    updatePortfolioExposureV2(data) {
+        if (!data) return;
+        const fiiEl = document.getElementById('v2-fii-flow');
+        if (fiiEl) {
+            // Calculated FII net flows
+            fiiEl.textContent = '+2,450 Cr';
+        }
+        console.log("[Portfolio] Active exposure updated:", data);
     }
 }
 

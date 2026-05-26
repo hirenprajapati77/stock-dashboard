@@ -145,14 +145,16 @@ function switchView(view) {
     const dashboard = document.getElementById('standard-dashboard');
     const intelligence = document.getElementById('intelligence-section');
     const rotation = document.getElementById('rotation-section');
+    const usPortfolio = document.getElementById('us-portfolio-section');
     
     const btnDash = document.getElementById('view-dashboard');
     const btnIntel = document.getElementById('view-intelligence');
+    const btnUsPort = document.getElementById('view-us-portfolio');
     const symbolControls = document.getElementById('symbol-controls-wrapper');
 
     // Hide all first
-    [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
-    [btnDash, btnIntel].forEach(b => {
+    [dashboard, intelligence, rotation, usPortfolio].forEach(s => s?.classList.add('hidden'));
+    [btnDash, btnIntel, btnUsPort].forEach(b => {
         b?.classList.remove('active');
         b?.setAttribute('aria-pressed', 'false');
     });
@@ -174,6 +176,14 @@ function switchView(view) {
         }, 100);
 
         // Fetch intelligence data if needed
+        if (typeof fetchIntelligence === 'function') fetchIntelligence();
+    } else if (view === 'us-portfolio') {
+        usPortfolio?.classList.remove('hidden');
+        btnUsPort?.classList.add('active');
+        btnUsPort?.setAttribute('aria-pressed', 'true');
+        symbolControls?.classList.add('hidden'); // Hide symbol controls on US portfolio
+
+        // Fetch intelligence to refresh US list
         if (typeof fetchIntelligence === 'function') fetchIntelligence();
     }
     
@@ -2003,10 +2013,16 @@ function showToast(message, type = 'info') {
 async function loadTopTrades() {
     const panel = document.getElementById('top-trades-panel');
     const list = document.getElementById('top-trades-list');
-    if (!panel || !list) return;
+    const usBody = document.getElementById('us-top-trades-body');
+    if (!panel && !usBody) return;
 
-    panel.classList.remove('hidden');
-    list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">Fetching market intelligence...</div>';
+    if (panel && list) {
+        panel.classList.remove('hidden');
+        list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">Fetching market intelligence...</div>';
+    }
+    if (usBody) {
+        usBody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-gray-500 italic animate-pulse">Scanning US market...</td></tr>';
+    }
 
     try {
         const res = await fetch(INTELLIGENCE_URL);
@@ -2014,24 +2030,29 @@ async function loadTopTrades() {
         
         const data = await res.json();
         if (data.status === 'warming') {
-            list.innerHTML = '<div class="w-full py-8 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse"><i class="fas fa-satellite-dish mr-2"></i>Intelligence engine warming up...</div>';
+            if (list) list.innerHTML = '<div class="w-full py-8 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse"><i class="fas fa-satellite-dish mr-2"></i>Intelligence engine warming up...</div>';
+            if (usBody) usBody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-indigo-400 text-xs font-bold uppercase tracking-widest animate-pulse">Warming up US engine...</td></tr>';
             return;
         }
 
         let hits = data.data || [];
         
-        // Filter and Sort: Pick top 5 high-quality setups
-        // Mapping: STRONG_ENTRY/ENTRY_READY -> Priority 1, WATCHLIST -> Priority 2
-        hits = hits.filter(h => h.entryTag !== 'AVOID' && h.symbol !== 'N/A');
+        // Filter out AVOID signals
+        hits = hits.filter(h => (h.entryTag || h.signal || 'WATCHLIST') !== 'AVOID' && h.symbol !== 'N/A');
         
+        // 1. Separate Indian vs US Hits
+        const indianHits = hits.filter(h => h.sectorKey !== 'US_PORTFOLIO');
+        const usHits = hits.filter(h => h.sectorKey === 'US_PORTFOLIO');
+
         const sortMode = document.getElementById('scanner-sort')?.value || 'score';
         
-        hits.sort((a, b) => {
+        const sortFunc = (a, b) => {
             if (sortMode === 'score') {
                 const getPriority = (h) => {
-                    if (h.entryTag === 'STRONG_ENTRY') return 100;
-                    if (h.entryTag === 'ENTRY_READY') return 80;
-                    if (h.entryTag === 'WATCHLIST') return 60;
+                    const tag = h.entryTag || h.signal || 'WATCHLIST';
+                    if (tag === 'STRONG_ENTRY' || tag === 'FRESH BREAKOUT' || tag === 'EXECUTE') return 100;
+                    if (tag === 'ENTRY_READY' || tag === 'CONFIRMED BREAKOUT' || tag === 'READY') return 80;
+                    if (tag === 'WATCHLIST' || tag === 'WATCH') return 60;
                     return 40;
                 };
                 const pA = getPriority(a);
@@ -2041,88 +2062,127 @@ async function loadTopTrades() {
             } else if (sortMode === 'sector') {
                 return (a.sector || '').localeCompare(b.sector || '');
             } else if (sortMode === 'signal') {
-                return (a.entryTag || '').localeCompare(b.entryTag || '');
+                return (a.entryTag || a.signal || '').localeCompare(b.entryTag || b.signal || '');
             }
             return 0;
-        });
+        };
 
-        if (hits.length === 0) {
-            list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">No active setups found at this time.</div>';
-            return;
+        // Sort both arrays
+        indianHits.sort(sortFunc);
+        usHits.sort(sortFunc);
+
+        // 2. Render Indian Hits in Nifty Top Opportunities Panel (Dashboard view)
+        if (list) {
+            if (indianHits.length === 0) {
+                list.innerHTML = '<div class="w-full py-8 text-center text-gray-500 text-xs italic uppercase tracking-widest">No active Nifty setups found.</div>';
+            } else {
+                list.innerHTML = '';
+                indianHits.slice(0, 5).forEach(hit => {
+                    const symbol = hit.symbol.includes(':') ? hit.symbol : `NSE:${hit.symbol}-EQ`;
+                    const score = Math.round(hit.score || hit.confidence || 0);
+                    
+                    const rawTag = hit.entryTag || hit.signal || 'WATCHLIST';
+                    let displaySignal = rawTag.replace('_', ' ');
+                    let stateColor = 'indigo';
+                    
+                    if (rawTag === 'STRONG_ENTRY' || rawTag === 'FRESH BREAKOUT' || rawTag === 'EXECUTE') {
+                        displaySignal = 'EXECUTE';
+                        stateColor = 'green';
+                    } else if (rawTag === 'ENTRY_READY' || rawTag === 'CONFIRMED BREAKOUT' || rawTag === 'READY') {
+                        displaySignal = 'READY';
+                        stateColor = 'green';
+                    } else if (rawTag === 'WATCHLIST' || rawTag === 'WATCH') {
+                        displaySignal = 'WATCH';
+                        stateColor = 'yellow';
+                    }
+
+                    const marketOpen = isMarketOpen();
+                    const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (marketOpen ? '🔵' : '🌙');
+                    const signalSuffix = marketOpen ? '' : ' (OFF)';
+                    
+                    const card = document.createElement('div');
+                    card.className = "min-w-[170px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-indigo-500/50 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0 relative overflow-hidden";
+                    
+                    card.onclick = () => {
+                        const input = document.getElementById('symbol-input');
+                        if (input) {
+                            input.value = hit.symbol;
+                            fetchData(false);
+                        }
+                    };
+                    
+                    // Add subtle glow for strong setups
+                    if (stateColor === 'green') {
+                        card.classList.add('border-green-500/20');
+                        card.innerHTML += `<div class="absolute top-0 right-0 w-8 h-8 bg-green-500/10 blur-xl"></div>`;
+                    }
+                    
+                    card.innerHTML += `
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
+                            <div class="flex items-center gap-2 z-10">
+                                <button onclick="event.stopPropagation(); TradingAssistant.toggleWatchlist('${hit.symbol.replace('.NS', '')}')" class="text-[10px] text-gray-600 hover:text-purple-400 p-1" title="Pin to watchlist">
+                                    <i class="fas fa-thumbtack"></i>
+                                </button>
+                                <span class="text-[9px] font-bold text-gray-500">${score}%</span>
+                            </div>
+                        </div>
+                        <div class="text-[9px] text-gray-500 font-medium truncate mb-2">${hit.sector || 'Equities'}</div>
+                        <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mt-1">
+                            <span>${badgeIcon}</span>
+                            <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}${signalSuffix}</span>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-white/5 space-y-1">
+                            <div class="text-[8px] text-green-500/80 font-bold flex items-center gap-1"><i class="fas fa-plus-circle text-[6px]"></i> Volume: ${hit.volRatio}x</div>
+                            <div class="text-[8px] text-gray-400 font-mono">SL: ₹${hit.stop_loss} | Tgt: ₹${hit.target_price}</div>
+                        </div>
+                        <div class="mt-2 flex items-center justify-between">
+                            <span class="text-[8px] text-gray-600 uppercase font-bold">${hit.mtf_alignment || 'Active'}</span>
+                            <span class="text-[8px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${hit.story_status || 'C'}</span>
+                        </div>
+                    `;
+                    list.appendChild(card);
+                });
+            }
         }
 
-        list.innerHTML = '';
-        hits.slice(0, 5).forEach(hit => {
-            const symbol = hit.symbol.includes(':') ? hit.symbol : `NSE:${hit.symbol}-EQ`;
-            const score = Math.round(hit.score || hit.confidence || 0);
-            
-            // Map entryTag to UI Signal
-            let displaySignal = hit.entryTag.replace('_', ' ');
-            let stateColor = 'indigo';
-            
-            if (hit.entryTag === 'STRONG_ENTRY') {
-                displaySignal = 'EXECUTE';
-                stateColor = 'green';
-            } else if (hit.entryTag === 'ENTRY_READY') {
-                displaySignal = 'READY';
-                stateColor = 'green';
-            } else if (hit.entryTag === 'WATCHLIST') {
-                displaySignal = 'WATCH';
-                stateColor = 'yellow';
-            }
+        // 3. Render US Hits in US Active Stocks Table (US Portfolio view)
+        if (usBody) {
+            if (usHits.length === 0) {
+                usBody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500 italic">No active US setups found.</td></tr>';
+            } else {
+                usBody.innerHTML = usHits.map(hit => {
+                    const rawTag = hit.entryTag || hit.signal || 'WATCHLIST';
+                    let displaySignal = 'WATCH';
+                    let badgeClass = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
+                    
+                    if (rawTag === 'STRONG_ENTRY' || rawTag === 'FRESH BREAKOUT' || rawTag === 'EXECUTE' || rawTag === 'BUY') {
+                        displaySignal = 'EXECUTE';
+                        badgeClass = 'bg-green-500/10 text-green-400 border-green-500/20';
+                    } else if (rawTag === 'ENTRY_READY' || rawTag === 'CONFIRMED BREAKOUT' || rawTag === 'READY' || rawTag === 'HOLD') {
+                        displaySignal = 'READY';
+                        badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+                    } else if (rawTag === 'AVOID' || rawTag === 'EXIT') {
+                        displaySignal = 'EXIT';
+                        badgeClass = 'bg-red-500/10 text-red-400 border-red-500/20';
+                    }
 
-            const marketOpen = isMarketOpen();
-            const badgeIcon = stateColor === 'green' ? '🟢' : stateColor === 'yellow' ? '🟡' : (marketOpen ? '🔵' : '🌙');
-            const signalSuffix = marketOpen ? '' : ' (OFF)';
-            
-            const card = document.createElement('div');
-            card.className = "min-w-[170px] bg-gray-900/50 border border-gray-800 p-3 rounded-xl hover:border-indigo-500/50 hover:scale-105 transition-all duration-300 cursor-pointer group shrink-0 relative overflow-hidden";
-            
-            // Add a subtle glow for strong setups
-            if (stateColor === 'green') {
-                card.classList.add('border-green-500/20');
-                card.innerHTML += `<div class="absolute top-0 right-0 w-8 h-8 bg-green-500/10 blur-xl"></div>`;
+                    return `
+                        <tr class="hover:bg-gray-800/30 cursor-pointer border-b border-gray-800/30" onclick="window.fetchDataForSymbol('${hit.symbol}')">
+                            <td class="px-4 py-3 font-black text-white uppercase">${hit.symbol}</td>
+                            <td class="px-4 py-3 font-mono font-bold">$${hit.price.toFixed(2)}</td>
+                            <td class="px-4 py-3 font-mono font-bold ${hit.change >= 0 ? 'text-green-400' : 'text-red-400'}">${hit.change >= 0 ? '+' : ''}${hit.change.toFixed(2)}%</td>
+                            <td class="px-4 py-3 text-center font-mono font-bold text-white">${hit.score}</td>
+                            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${badgeClass}">${displaySignal}</span></td>
+                            <td class="px-4 py-3 text-right font-mono text-gray-400">${hit.rsi || '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
             }
-
-            card.onclick = () => {
-                const input = document.getElementById('symbol-input');
-                if (input) {
-                    input.value = symbol;
-                    fetchData(false);
-                }
-            };
-            
-            card.innerHTML += `
-                <div class="flex justify-between items-start mb-1">
-                    <span class="font-black text-xs text-white group-hover:text-indigo-400 transition-colors tracking-tight">${hit.symbol.replace('.NS', '')}</span>
-                    <div class="flex items-center gap-2 z-10">
-                        <button onclick="event.stopPropagation(); TradingAssistant.toggleWatchlist('${hit.symbol.replace('.NS', '')}')" class="text-[10px] text-gray-600 hover:text-purple-400 p-1" title="Pin to watchlist">
-                            <i class="fas fa-thumbtack"></i>
-                        </button>
-                        <span class="text-[9px] font-bold text-gray-500">${score}%</span>
-                    </div>
-                </div>
-                <div class="text-[9px] text-gray-500 font-medium truncate mb-2">${hit.sector || 'Equities'}</div>
-                <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mt-1">
-                    <span>${badgeIcon}</span>
-                    <span class="${stateColor === 'green' ? 'text-green-400' : stateColor === 'yellow' ? 'text-yellow-400' : 'text-indigo-400'}">${displaySignal}${signalSuffix}</span>
-                </div>
-                <!-- ENHANCED INSIGHTS -->
-                <div class="mt-2 pt-2 border-t border-white/5 space-y-1">
-                    ${hit.positives ? `<div class="text-[8px] text-green-500/80 font-bold flex items-center gap-1"><i class="fas fa-plus-circle text-[6px]"></i> ${hit.positives.slice(0, 20)}...</div>` : ''}
-                    ${hit.risks ? `<div class="text-[8px] text-red-500/80 font-bold flex items-center gap-1"><i class="fas fa-exclamation-triangle text-[6px]"></i> ${hit.risks.slice(0, 20)}...</div>` : ''}
-                </div>
-                <div class="mt-2 flex items-center justify-between">
-                    <span class="text-[8px] text-gray-600 uppercase font-bold">${hit.momentumStrength || 'Active'}</span>
-                    <span class="text-[8px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${hit.grade || 'C'}</span>
-                </div>
-            `;
-            list.appendChild(card);
-        });
-        
+        }
     } catch (err) {
         console.error("Scanner error", err);
-        list.innerHTML = '<div class="w-full py-8 text-center text-red-400 text-xs font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i>Scanner offline. Check backend.</div>';
+        if (list) list.innerHTML = '<div class="w-full py-8 text-center text-red-400 text-xs font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i>Scanner offline. Check backend.</div>';
     }
 }
 
@@ -3553,15 +3613,21 @@ async function fetchIntelligence(force = false) {
         const tfSelector = document.getElementById('tf-selector');
         const tf = tfSelector ? tfSelector.value : '1D';
 
-        // 1. Fetch data in parallel
-        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes] = await Promise.all([
+        // 1. Fetch data in parallel (including V2 channels)
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes, regimeV2Res, activeSectorsRes, usPortfolioRes, exposureRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
             fetch(`${EARLY_SETUPS_URL}?tf=${tf}&limit=5&t=${now}`).catch(e => { console.error("Early setups fetch error", e); return null; }),
             fetch(`${SIGNAL_PERF_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Signal performance fetch error", e); return null; }),
             fetch(`${TRADE_PERF_URL}?t=${now}`).catch(e => { console.error("Trade performance fetch error", e); return null; }),
-            fetch(`${API_BASE}/api/v1/next-session-watchlist?tf=${tf}&t=${now}`).catch(e => { console.error("Watchlist fetch error", e); return null; })
+            fetch(`${API_BASE}/api/v1/next-session-watchlist?tf=${tf}&t=${now}`).catch(e => { console.error("Watchlist fetch error", e); return null; }),
+            
+            // V2 REST Channels
+            fetch(`${API_BASE}/api/v2/regime?tf=${tf}&t=${now}`).catch(e => { console.error("Regime V2 fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v2/sectors/active?tf=${tf}&t=${now}`).catch(e => { console.error("Active Sectors V2 fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v2/screener/us-portfolio?tf=${tf}&t=${now}`).catch(e => { console.error("US Portfolio V2 fetch error", e); return null; }),
+            fetch(`${API_BASE}/api/v2/portfolio/exposure?tf=${tf}&t=${now}`).catch(e => { console.error("Exposure V2 fetch error", e); return null; })
         ]);
 
         // 2. Parse responses carefully
@@ -3573,6 +3639,11 @@ async function fetchIntelligence(force = false) {
         let perfData = null;
         let tradePerfData = null;
         let watchlistData = null;
+        
+        let regimeV2Data = null;
+        let activeSectorsData = null;
+        let usPortfolioData = null;
+        let exposureData = null;
 
         if (hitsRes && hitsRes.ok) {
             hitsData = await hitsRes.json();
@@ -3626,6 +3697,24 @@ async function fetchIntelligence(force = false) {
             console.error(`Watchlist API error: ${watchlistRes.status}`);
         }
 
+        // Parse V2 payloads
+        if (regimeV2Res && regimeV2Res.ok) {
+            const json = await regimeV2Res.json();
+            if (json.status === 'success') regimeV2Data = json.data;
+        }
+        if (activeSectorsRes && activeSectorsRes.ok) {
+            const json = await activeSectorsRes.json();
+            if (json.status === 'success') activeSectorsData = json.data;
+        }
+        if (usPortfolioRes && usPortfolioRes.ok) {
+            const json = await usPortfolioRes.json();
+            if (json.status === 'success') usPortfolioData = json.data;
+        }
+        if (exposureRes && exposureRes.ok) {
+            const json = await exposureRes.json();
+            if (json.status === 'success') exposureData = json.data;
+        }
+
         // 3. Update Intelligence Dashboard instance
         if (intelligenceApp) {
             if (hitsData && hitsData.data) {
@@ -3656,6 +3745,20 @@ async function fetchIntelligence(force = false) {
             } else if (sectorData) {
                 // Handle empty but valid responses (e.g., fallback)
                 intelligenceApp.updateSectors(sectorData.data || {}, sectorData.alerts || [], sectorData.source || 'live');
+            }
+
+            // Bind V2 HUD and panel updaters
+            if (regimeV2Data) {
+                intelligenceApp.updateMarketRegimeV2(regimeV2Data);
+            }
+            if (activeSectorsData) {
+                intelligenceApp.updateActiveSectorsV2(activeSectorsData);
+            }
+            if (usPortfolioData) {
+                intelligenceApp.updateUSPortfolioV2(usPortfolioData);
+            }
+            if (exposureData) {
+                intelligenceApp.updatePortfolioExposureV2(exposureData);
             }
         }
 
