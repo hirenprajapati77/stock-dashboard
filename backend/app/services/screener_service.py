@@ -22,13 +22,12 @@ from app.engine.sector_rotation import SectorRotationEngine
 from app.engine.breakout import BreakoutEngine
 from app.engine.risk_manager import RiskManager
 from app.engine.multi_timeframe import MultiTimeframeEngine
-from app.engine.us_portfolio import USQualityPortfolioEngine
+
 from app.engine.story_sentiment import StorySentimentEngine
 
 
 class ScreenerService:
-    # 1. US Stock Universe definition (Globally Dominant Tickers)
-    US_UNIVERSE = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "LLY", "JPM"]
+
 
     TIMEFRAME_MAP: Dict[str, Dict[str, str]] = {
         "5m": {"interval": "5m", "period": "5d"},
@@ -98,11 +97,8 @@ class ScreenerService:
             active_sector_names=active_sector_names
         )
 
-        # 4. Process US Stock Universe (Quality-Only Mode)
-        us_hits = cls._process_us_universe(cls.US_UNIVERSE, normalized_tf)
-
         # Combine hits
-        all_hits = in_hits + us_hits
+        all_hits = in_hits
 
         # Calculate sector concentration (Rule 15)
         sector_concentration = cls._calculate_sector_concentration(all_hits)
@@ -375,68 +371,7 @@ class ScreenerService:
         hits.sort(key=lambda x: x["score"], reverse=True)
         return hits
 
-    @classmethod
-    def _process_us_universe(cls, symbols: List[str], timeframe: str) -> List[Dict]:
-        """Runs the simplified US quality-only buy/hold model."""
-        from app.services.market_data import MarketDataService
-        hits = []
 
-        batch_results = MarketDataService.get_ohlcv_batch(symbols, timeframe, count=100)
-        
-        for symbol, result in batch_results.items():
-            try:
-                df, currency, err, source = result
-                if df is None or df.empty:
-                    continue
-                
-                close_prices = df["Close" if "Close" in df.columns else "close"]
-                
-                # Mock high-quality fundamental parameters for US Globally Dominant names
-                fundamentals = {
-                    "market_cap_billion": 3200.0 if symbol in ["MSFT", "AAPL", "NVDA"] else 450.0,
-                    "roe_pct": 38.0,
-                    "revenue_growth_3y": 24.0,
-                    "profit_growth_3y": 28.0,
-                    "debt_to_equity": 0.22,
-                    "free_cash_flow_positive": True
-                }
-                
-                us_res = USQualityPortfolioEngine.evaluate_us_quality(fundamentals, rsi_daily=68.0)
-                
-                if us_res["signal"] == "AVOID":
-                    continue
-
-                us_signal = us_res["signal"]
-                entry_tag = "STRONG_ENTRY" if us_signal == "BUY" else ("ENTRY_READY" if us_signal == "HOLD" else "WATCHLIST")
-
-                hits.append({
-                    "symbol": symbol,
-                    "price": float(round(close_prices.iloc[-1], 2)),
-                    "change": float(round(close_prices.pct_change().iloc[-1] * 100, 2)),
-                    "volRatio": 1.2,
-                    "sector": "US Portfolio",
-                    "sectorKey": "US_PORTFOLIO",
-                    "sectorState": "LEADING",
-                    "signal": us_signal,
-                    "entryTag": entry_tag,
-                    "score": us_res["quality_score"],
-                    "confidence": int(us_res["quality_score"]),
-                    "stop_loss": float(round(close_prices.iloc[-1] * 0.90, 2)),
-                    "target_price": float(round(close_prices.iloc[-1] * 1.30, 2)),
-                    "risk_reward": "1:4.0",
-                    "upside": "Elite Quality",
-                    "tag": "US Globally Dominant",
-                    "mtf_alignment": "ELITE SETUP",
-                    "story_status": "Strong Story",
-                    "story_score": 95,
-                    "position_size_pct": 8.0,
-                    "mktCap": f"${fundamentals['market_cap_billion']:.1f}B",
-                    "rsi": 68
-                })
-            except Exception as e:
-                print(f"[Screener] Warning: US Portfolio failed for {symbol}: {e}")
-
-        return hits
 
     @classmethod
     def _calculate_sector_concentration(cls, hits: List[Dict]) -> List[Dict]:
@@ -460,8 +395,8 @@ class ScreenerService:
         cache_data = cls._intelligence_cache.get("data")
         early_setups = []
 
-        # High-conviction watchlist leaders for fallback seeding (combines India and US)
-        fallback_symbols = ["CLEAN.NS", "SONACOMS.NS", "AAPL", "MSFT", "INFY.NS", "DRREDDY.NS"]
+        # High-conviction watchlist leaders for fallback seeding
+        fallback_symbols = ["CLEAN.NS", "SONACOMS.NS", "INFY.NS", "TCS.NS", "DRREDDY.NS"]
         
         # Batch fetch prices for fallback so we always have real-time correct prices
         try:
@@ -554,28 +489,28 @@ class ScreenerService:
                 "tooltip": "SONA BLW is trading in a tight 3.8% consolidation channel with quiet volume accumulation. Electric Vehicles theme play."
             })
             
-            # 3. AAPL (US)
-            aapl_price, aapl_vol = get_live_price_and_vol("AAPL", "184.20")
+            # 3. INFY (IN)
+            infy_price, infy_vol = get_live_price_and_vol("INFY", "1540.00")
             early_setups.append({
-                "symbol": "AAPL",
-                "price": aapl_price,
-                "sector": "US PORTFOLIO",
-                "sectorState": "LEADING",
+                "symbol": "INFY",
+                "price": infy_price,
+                "sector": "IT SERVICES",
+                "sectorState": "IMPROVING",
                 "rangePct": 2.9,
-                "volRatio": aapl_vol,
-                "tooltip": "APPLE INC is forming a tight 2.9% compression base near the 50DMA in the US high-quality compounder category."
+                "volRatio": infy_vol,
+                "tooltip": "INFOSYS LTD is forming a tight 2.9% compression base near the 50DMA. Resilient IT exporter consolidation play."
             })
             
-            # 4. MSFT (US)
-            msft_price, msft_vol = get_live_price_and_vol("MSFT", "418.50")
+            # 4. TCS (IN)
+            tcs_price, tcs_vol = get_live_price_and_vol("TCS", "3850.00")
             early_setups.append({
-                "symbol": "MSFT",
-                "price": msft_price,
-                "sector": "US PORTFOLIO",
+                "symbol": "TCS",
+                "price": tcs_price,
+                "sector": "IT SERVICES",
                 "sectorState": "LEADING",
                 "rangePct": 3.1,
-                "volRatio": msft_vol,
-                "tooltip": "MICROSOFT CORP is exhibiting quiet institutional buying in a tight 3.1% daily base ahead of next earnings breakout attempt."
+                "volRatio": tcs_vol,
+                "tooltip": "TATA CONSULTANCY SERVICES is exhibiting quiet institutional buying in a tight 3.1% daily base ahead of momentum expansion."
             })
 
             # 5. DRREDDY (IN)

@@ -48,7 +48,7 @@
                 <nav class="nav-tab-group" aria-label="Dashboard Views" style="gap: 12px; padding: 4px;">
                     <button id="view-dashboard" onclick="switchView('dashboard')" class="nav-tab active" aria-pressed="true">DASHBOARD</button>
                     <button id="view-intelligence" onclick="switchView('intelligence')" class="nav-tab" aria-pressed="false">INTELLIGENCE</button>
-                    <button id="view-us-portfolio" onclick="switchView('us-portfolio')" class="nav-tab" aria-pressed="false">US PORTFOLIO</button>
+
                     <div class="w-[1px] h-3 bg-gray-700/50 self-center mx-2"></div>
                     <button id="toggle-tracking-btn" onclick="toggleTrackingModeColumn()"
                             class="nav-tab flex items-center gap-2"
@@ -735,79 +735,7 @@
             </div>
         </section>
 
-        <!-- US Portfolio Section -->
-        <section id="us-portfolio-section" class="hidden animate-in">
-            <!-- Unified US Portfolio HUD / Market Sizing info -->
-            <div class="glass rounded-2xl p-5 mb-6 border border-blue-500/20 bg-gradient-to-r from-blue-950/10 to-transparent">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h2 class="text-sm font-black uppercase tracking-widest text-blue-400">🇺🇸 US Globally Dominant Leaders</h2>
-                        <p class="text-[10px] text-gray-400 mt-0.5">High-quality equity screening and risk-management allocations (Rule 12)</p>
-                    </div>
-                    <div class="flex items-center gap-4 text-[10px] font-mono">
-                        <div class="flex items-center gap-2 bg-gray-900/60 px-3 py-1.5 rounded-lg border border-gray-800">
-                            <span class="text-gray-500 uppercase">Target Gate:</span>
-                            <span class="text-green-400 font-bold">$2B+ MCAP &amp; 15%+ ROE</span>
-                        </div>
-                        <div class="flex items-center gap-2 bg-gray-900/60 px-3 py-1.5 rounded-lg border border-gray-800">
-                            <span class="text-gray-500 uppercase">Execution Code:</span>
-                            <span class="text-blue-400 font-bold">Rule 12 Max Cap Limit</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <div class="grid grid-cols-12 gap-6">
-                <!-- Left Panel: US Quality Portfolio Cards (5 cols) -->
-                <div class="col-span-12 lg:col-span-5 space-y-6">
-                    <div class="glass border border-blue-500/20 rounded-2xl overflow-hidden shadow-2xl">
-                        <div class="px-5 py-3 bg-gradient-to-r from-blue-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xl">💼</span>
-                                <h3 class="text-xs font-black uppercase tracking-widest text-blue-400">Globally Dominant Leaders</h3>
-                            </div>
-                            <span class="text-[8px] font-mono text-gray-500 uppercase">Interactive List</span>
-                        </div>
-                        <!-- Reuse ID so dashboard.js binds it automatically! -->
-                        <div id="v2-us-portfolio-grid" class="p-4 grid grid-cols-1 gap-3 min-h-[300px] max-h-[700px] overflow-y-auto custom-scrollbar">
-                            <div class="text-gray-500 text-xs italic p-2">Screening global equities...</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Panel: US Opportunities Scanner Grid (7 cols) -->
-                <div class="col-span-12 lg:col-span-7 space-y-6">
-                    <div class="glass border border-purple-500/20 rounded-2xl overflow-hidden shadow-2xl">
-                        <div class="px-5 py-3 bg-gradient-to-r from-purple-950/20 to-transparent border-b border-gray-800 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xl">🔥</span>
-                                <h3 class="text-xs font-black uppercase tracking-widest text-purple-400">US Active Stocks Scanner</h3>
-                            </div>
-                            <span class="text-[8px] font-mono text-gray-500 uppercase">Top Setups</span>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-[11px]">
-                                <thead class="bg-gray-900/80 text-gray-500 uppercase tracking-tighter">
-                                    <tr>
-                                        <th class="px-4 py-3 font-bold">Symbol</th>
-                                        <th class="px-4 py-3 font-bold">Price</th>
-                                        <th class="px-4 py-3 font-bold">Change %</th>
-                                        <th class="px-4 py-3 font-bold text-center">Score</th>
-                                        <th class="px-4 py-3 font-bold">Action</th>
-                                        <th class="px-4 py-3 font-bold text-right">RSI</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="us-top-trades-body" class="divide-y divide-gray-800/50">
-                                    <tr>
-                                        <td colspan="6" class="px-4 py-10 text-center text-gray-500 italic">Scanning US market...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
 
         <div id="standard-dashboard" class="w-full">
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">

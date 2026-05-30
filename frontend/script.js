@@ -145,16 +145,14 @@ function switchView(view) {
     const dashboard = document.getElementById('standard-dashboard');
     const intelligence = document.getElementById('intelligence-section');
     const rotation = document.getElementById('rotation-section');
-    const usPortfolio = document.getElementById('us-portfolio-section');
     
     const btnDash = document.getElementById('view-dashboard');
     const btnIntel = document.getElementById('view-intelligence');
-    const btnUsPort = document.getElementById('view-us-portfolio');
     const symbolControls = document.getElementById('symbol-controls-wrapper');
 
     // Hide all first
-    [dashboard, intelligence, rotation, usPortfolio].forEach(s => s?.classList.add('hidden'));
-    [btnDash, btnIntel, btnUsPort].forEach(b => {
+    [dashboard, intelligence, rotation].forEach(s => s?.classList.add('hidden'));
+    [btnDash, btnIntel].forEach(b => {
         b?.classList.remove('active');
         b?.setAttribute('aria-pressed', 'false');
     });
@@ -176,14 +174,6 @@ function switchView(view) {
         }, 100);
 
         // Fetch intelligence data if needed
-        if (typeof fetchIntelligence === 'function') fetchIntelligence();
-    } else if (view === 'us-portfolio') {
-        usPortfolio?.classList.remove('hidden');
-        btnUsPort?.classList.add('active');
-        btnUsPort?.setAttribute('aria-pressed', 'true');
-        symbolControls?.classList.add('hidden'); // Hide symbol controls on US portfolio
-
-        // Fetch intelligence to refresh US list
         if (typeof fetchIntelligence === 'function') fetchIntelligence();
     }
     
@@ -3629,7 +3619,7 @@ async function fetchIntelligence(force = false) {
         const tf = tfSelector ? tfSelector.value : '1D';
 
         // 1. Fetch data in parallel (including V2 channels)
-        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes, regimeV2Res, activeSectorsRes, usPortfolioRes, exposureRes] = await Promise.all([
+        const [hitsRes, sectorRes, summaryRes, earlyRes, perfRes, tradePerfRes, watchlistRes, regimeV2Res, activeSectorsRes, exposureRes] = await Promise.all([
             fetch(`${API_BASE}/api/v1/momentum-hits?tf=${tf}&t=${now}`).catch(e => { console.error("Hits fetch error", e); return null; }),
             fetch(`${ROTATION_URL}?tf=${tf}&t=${now}`).catch(e => { console.error("Sector fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v1/market-summary?tf=${tf}&t=${now}`).catch(e => { console.error("Summary fetch error", e); return null; }),
@@ -3641,7 +3631,6 @@ async function fetchIntelligence(force = false) {
             // V2 REST Channels
             fetch(`${API_BASE}/api/v2/regime?tf=${tf}&t=${now}`).catch(e => { console.error("Regime V2 fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v2/sectors/active?tf=${tf}&t=${now}`).catch(e => { console.error("Active Sectors V2 fetch error", e); return null; }),
-            fetch(`${API_BASE}/api/v2/screener/us-portfolio?tf=${tf}&t=${now}`).catch(e => { console.error("US Portfolio V2 fetch error", e); return null; }),
             fetch(`${API_BASE}/api/v2/portfolio/exposure?tf=${tf}&t=${now}`).catch(e => { console.error("Exposure V2 fetch error", e); return null; })
         ]);
 
@@ -3657,7 +3646,6 @@ async function fetchIntelligence(force = false) {
         
         let regimeV2Data = null;
         let activeSectorsData = null;
-        let usPortfolioData = null;
         let exposureData = null;
 
         if (hitsRes && hitsRes.ok) {
@@ -3721,10 +3709,7 @@ async function fetchIntelligence(force = false) {
             const json = await activeSectorsRes.json();
             if (json.status === 'success') activeSectorsData = json.data;
         }
-        if (usPortfolioRes && usPortfolioRes.ok) {
-            const json = await usPortfolioRes.json();
-            if (json.status === 'success') usPortfolioData = json.data;
-        }
+
         if (exposureRes && exposureRes.ok) {
             const json = await exposureRes.json();
             if (json.status === 'success') exposureData = json.data;
@@ -3769,9 +3754,7 @@ async function fetchIntelligence(force = false) {
             if (activeSectorsData) {
                 intelligenceApp.updateActiveSectorsV2(activeSectorsData);
             }
-            if (usPortfolioData) {
-                intelligenceApp.updateUSPortfolioV2(usPortfolioData);
-            }
+
             if (exposureData) {
                 intelligenceApp.updatePortfolioExposureV2(exposureData);
             }
