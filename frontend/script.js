@@ -929,21 +929,24 @@ function updateLegendDisplay(data) {
 
 
 // 5. Screener Logic
-document.getElementById('screener-toggle').addEventListener('change', function (e) {
-    const topTradesPanel = document.getElementById('top-trades-panel');
-    const legacyScreenerPanel = document.getElementById('screener-panel');
-    
-    if (e.target.checked) {
-        if (topTradesPanel) {
-            topTradesPanel.classList.remove('hidden');
-            loadTopTrades(); // Trigger the scan immediately
+const scrTogEl = document.getElementById('screener-toggle');
+if (scrTogEl) {
+    scrTogEl.addEventListener('change', function (e) {
+        const topTradesPanel = document.getElementById('top-trades-panel');
+        const legacyScreenerPanel = document.getElementById('screener-panel');
+        
+        if (e.target.checked) {
+            if (topTradesPanel) {
+                topTradesPanel.classList.remove('hidden');
+                loadTopTrades(); // Trigger the scan immediately
+            }
+            // Keep legacy hidden for now to reduce clutter as per feedback
+            if (legacyScreenerPanel) legacyScreenerPanel.classList.add('hidden');
+        } else {
+            if (topTradesPanel) topTradesPanel.classList.add('hidden');
         }
-        // Keep legacy hidden for now to reduce clutter as per feedback
-        if (legacyScreenerPanel) legacyScreenerPanel.classList.add('hidden');
-    } else {
-        if (topTradesPanel) topTradesPanel.classList.add('hidden');
-    }
-});
+    });
+}
 
 async function runScreener() {
     const list = document.getElementById('screener-list');
