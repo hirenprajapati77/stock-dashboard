@@ -72,16 +72,7 @@
         </div>
 
         <!-- Bottom Row: Navigation & Search -->
-            <!-- LEFT: ANALYSIS CLUSTER -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-                <div class="control-cluster">
-                    <i class="fas fa-microscope text-[10px] text-blue-500"></i>
-                    <div class="segmented-control" role="group" aria-label="Analysis Modes">
-                        <div id="btn-screener" class="segmented-item" onclick="toggleAnalysisMode('screener')" role="button" aria-pressed="false" data-tooltip="Scan Nifty 100 for setups">Screener</div>
-                    </div>
-                </div>
-                <input type="checkbox" id="screener-toggle" class="hidden">
-            </div>
+
 
             <!-- SYMBOL-SPECIFIC CONTROLS (Can be hidden in Market Intelligence mode) -->
             <div id="symbol-controls-wrapper" class="flex items-center flex-grow">
@@ -241,23 +232,7 @@
             </div>
         </div>
 
-        <!-- Strategy Screener Results -->
-        <div id="screener-panel"
-            class="hidden border border-indigo-900 bg-indigo-950/20 rounded-2xl p-4 animate-in slide-in-from-top duration-300">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2">
-                    <div class="w-2 h-2 bg-indigo-400 rounded-full animate-pulse"></div>
-                    <h2 class="text-xs font-bold uppercase tracking-widest text-indigo-400">Quarterly Growth Screener
-                        Results</h2>
-                </div>
-                <span id="screener-count"
-                    class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold uppercase">Scanning...</span>
-            </div>
-            <div id="screener-list" class="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-                <!-- Cards will be injected here -->
-                <p class="text-xs text-gray-500 italic">Evaluating Nifty 10 stocks based on your 9-point criteria...</p>
-            </div>
-        </div>
+
 
         <!-- Market Intelligence Section -->
         <section id="intelligence-section" class="hidden animate-in">

@@ -181,28 +181,7 @@ function switchView(view) {
 }
 
 function toggleAnalysisMode(mode) {
-    const isScreener = mode === 'screener';
-    
-    // Update Hidden Checkboxes (for backend logic)
-    const sToggle = document.getElementById('screener-toggle');
-    
-    if (sToggle) {
-        const prev = sToggle.checked;
-        if (isScreener) sToggle.checked = !sToggle.checked;
-        else sToggle.checked = false;
-        if (prev !== sToggle.checked) {
-            sToggle.dispatchEvent(new Event('change'));
-        }
-    }
-
-    // Update Segmented UI
-    const sBtn = document.getElementById('btn-screener');
-    
-    if (sBtn) sBtn.classList.toggle('active', sToggle?.checked);
-
-    if (sToggle?.checked) loadTopTrades();
-    
-    showToast(`${mode.toUpperCase()} mode ${sToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
+    console.log(`[UI] toggleAnalysisMode is deprecated: ${mode}`);
 }
 
 window.toggleAnalysisMode = toggleAnalysisMode;
