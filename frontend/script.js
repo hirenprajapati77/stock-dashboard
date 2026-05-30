@@ -620,11 +620,8 @@ function toggleIntelligenceSidebar() {
     const wrapper = document.querySelector('.chart-layout-wrapper');
     if (sidebar && wrapper) {
         sidebar.classList.toggle('hidden');
-        if (sidebar.classList.contains('hidden')) {
-            wrapper.style.gridTemplateColumns = '1fr';
-        } else {
-            wrapper.style.gridTemplateColumns = '1fr 320px';
-        }
+        wrapper.style.gridTemplateColumns = ''; // Clear inline styles so responsive CSS class can take over
+        wrapper.classList.toggle('sidebar-hidden', sidebar.classList.contains('hidden'));
         // Resize chart after transition
         setTimeout(() => {
             if (chart) {

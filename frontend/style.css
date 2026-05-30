@@ -406,6 +406,10 @@ body {
     width: 100%;
 }
 
+.chart-layout-wrapper.sidebar-hidden {
+    grid-template-columns: 1fr;
+}
+
 .chart-column {
     min-width: 0; /* Prevents flex/grid blowouts */
 }
@@ -426,8 +430,8 @@ body {
 }
 
 @media (max-width: 1200px) {
-    .chart-layout-wrapper {
-        grid-template-columns: 1fr;
+    .chart-layout-wrapper, .chart-layout-wrapper.sidebar-hidden {
+        grid-template-columns: 1fr !important;
     }
     
     .intelligence-sidebar {
