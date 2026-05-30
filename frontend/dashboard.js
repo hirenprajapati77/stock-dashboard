@@ -484,6 +484,7 @@ class MarketIntelligence {
         if (countEl) countEl.textContent = `Early Setups Today: ${setups.length}`;
         content.innerHTML = setups.slice(0, 5).map(s => {
             const sector = (s.sector || '').toString().replace('NIFTY_', '').replace('_', ' ');
+            const currency = sector.toUpperCase().includes('US PORTFOLIO') ? '$' : '₹';
             const state = (s.sectorState || 'NEUTRAL').toString();
             const stateColor = state === 'LEADING' ? 'text-green-400' : (state === 'IMPROVING' ? 'text-blue-400' : 'text-gray-400');
             const details = s.details || {};
@@ -505,7 +506,7 @@ class MarketIntelligence {
                         </div>
                         <div class="text-right">
                             <div class="text-[10px] text-gray-500 uppercase font-bold">Price</div>
-                            <div class="text-sm font-bold text-white mono">₹${s.price ?? '—'}</div>
+                            <div class="text-sm font-bold text-white mono">${currency}${s.price ?? '—'}</div>
                         </div>
                     </div>
                     <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">

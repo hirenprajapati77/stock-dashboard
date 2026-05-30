@@ -701,7 +701,15 @@ window.loginToFyers = function() {
     const width = 600, height = 700;
     const left = (window.innerWidth / 2) - (width / 2);
     const top = (window.innerHeight / 2) - (height / 2);
-    window.open(`${API_BASE}/api/v1/fyers/login`, 'FyersLogin', `width=${width},height=${height},top=${top},left=${left}`);
+    
+    // Optimizing Login Speed: Bypassing backend redirect roundtrip by pre-constructing or using cached URL
+    const client_id = "XAST342P8T-100";
+    const callback_url = `${window.location.origin}/api/v1/fyers/callback`;
+    const fallback_url = `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${client_id}&redirect_uri=${encodeURIComponent(callback_url)}&response_type=code&state=fyers_auth`;
+    
+    const loginUrl = window.fyersAuthUrl || fallback_url;
+    console.log("Opening Fyers Login URL instantly:", loginUrl);
+    window.open(loginUrl, 'FyersLogin', `width=${width},height=${height},top=${top},left=${left}`);
 };
 
 async function checkFyersStatus() {
@@ -710,6 +718,13 @@ async function checkFyersStatus() {
         const result = await res.json();
         const statusDot = document.getElementById('fyers-status-dot');
         const loginBtn = document.getElementById('fyers-login-btn');
+
+        // Cache the auth_url globally to make clicking CONNECT 100% instant
+        if (result?.data?.auth_url) {
+            window.fyersAuthUrl = result.data.auth_url;
+        } else if (result?.auth_url) {
+            window.fyersAuthUrl = result.auth_url;
+        }
 
         // Backend returns { status: "success", data: { is_connected: bool, ... } }
         const isConnected = result?.data?.is_connected || result?.logged_in || false;
