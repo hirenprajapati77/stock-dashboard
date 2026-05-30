@@ -189,12 +189,20 @@ function toggleAnalysisMode(mode) {
     const rToggle = document.getElementById('rotation-toggle');
     
     if (sToggle) {
+        const prev = sToggle.checked;
         if (isScreener) sToggle.checked = !sToggle.checked;
         else sToggle.checked = false;
+        if (prev !== sToggle.checked) {
+            sToggle.dispatchEvent(new Event('change'));
+        }
     }
     if (rToggle) {
+        const prev = rToggle.checked;
         if (isRotation) rToggle.checked = !rToggle.checked;
         else rToggle.checked = false;
+        if (prev !== rToggle.checked) {
+            rToggle.dispatchEvent(new Event('change'));
+        }
     }
 
     // Update Segmented UI
@@ -205,7 +213,7 @@ function toggleAnalysisMode(mode) {
     if (rBtn) rBtn.classList.toggle('active', rToggle?.checked);
 
     if (sToggle?.checked) loadTopTrades();
-    if (rToggle?.checked) renderRotation();
+    if (rToggle?.checked) fetchRotation();
     
     showToast(`${mode.toUpperCase()} mode ${sToggle?.checked || rToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
 }
