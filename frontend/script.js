@@ -182,11 +182,9 @@ function switchView(view) {
 
 function toggleAnalysisMode(mode) {
     const isScreener = mode === 'screener';
-    const isRotation = mode === 'rotation';
     
     // Update Hidden Checkboxes (for backend logic)
     const sToggle = document.getElementById('screener-toggle');
-    const rToggle = document.getElementById('rotation-toggle');
     
     if (sToggle) {
         const prev = sToggle.checked;
@@ -196,26 +194,15 @@ function toggleAnalysisMode(mode) {
             sToggle.dispatchEvent(new Event('change'));
         }
     }
-    if (rToggle) {
-        const prev = rToggle.checked;
-        if (isRotation) rToggle.checked = !rToggle.checked;
-        else rToggle.checked = false;
-        if (prev !== rToggle.checked) {
-            rToggle.dispatchEvent(new Event('change'));
-        }
-    }
 
     // Update Segmented UI
     const sBtn = document.getElementById('btn-screener');
-    const rBtn = document.getElementById('btn-rotation');
     
     if (sBtn) sBtn.classList.toggle('active', sToggle?.checked);
-    if (rBtn) rBtn.classList.toggle('active', rToggle?.checked);
 
     if (sToggle?.checked) loadTopTrades();
-    if (rToggle?.checked) fetchRotation();
     
-    showToast(`${mode.toUpperCase()} mode ${sToggle?.checked || rToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
+    showToast(`${mode.toUpperCase()} mode ${sToggle?.checked ? 'Enabled' : 'Disabled'}`, 'info');
 }
 
 window.toggleAnalysisMode = toggleAnalysisMode;
