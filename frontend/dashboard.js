@@ -484,7 +484,6 @@ class MarketIntelligence {
         if (countEl) countEl.textContent = `Early Setups Today: ${setups.length}`;
         content.innerHTML = setups.slice(0, 5).map(s => {
             const sector = (s.sector || '').toString().replace('NIFTY_', '').replace('_', ' ');
-            const currency = sector.toUpperCase().includes('US PORTFOLIO') ? '$' : '₹';
             const state = (s.sectorState || 'NEUTRAL').toString();
             const stateColor = state === 'LEADING' ? 'text-green-400' : (state === 'IMPROVING' ? 'text-blue-400' : 'text-gray-400');
             const details = s.details || {};
@@ -506,7 +505,7 @@ class MarketIntelligence {
                         </div>
                         <div class="text-right">
                             <div class="text-[10px] text-gray-500 uppercase font-bold">Price</div>
-                            <div class="text-sm font-bold text-white mono">${currency}${s.price ?? '—'}</div>
+                            <div class="text-sm font-bold text-white mono">₹${s.price ?? '—'}</div>
                         </div>
                     </div>
                     <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
@@ -1779,62 +1778,6 @@ class MarketIntelligence {
         }).join('');
     }
 
-    updateUSPortfolioV2(data) {
-        const container = document.getElementById('v2-us-portfolio-grid');
-        if (!container) return;
-
-        const hits = Array.isArray(data) ? data : [];
-        if (hits.length === 0) {
-            container.innerHTML = '<div class="col-span-full text-gray-500 text-xs italic py-10 text-center">No US globally dominant equities found.</div>';
-            return;
-        }
-
-        container.innerHTML = hits.map(hit => {
-            const symbol = hit.symbol ?? 'Unknown';
-            const price = hit.price ?? 0;
-            const change = hit.change ?? 0;
-            const rsi = hit.rsi ?? 50;
-            const action = hit.signal ?? 'HOLD';
-            const score = hit.score ?? 50;
-            const mCap = hit.mktCap ?? '--';
-            
-            const isUp = change >= 0;
-            const changeText = `${isUp ? '+' : ''}${change.toFixed(2)}%`;
-            const changeColor = isUp ? 'text-green-400' : 'text-red-400';
-            
-            let actionBadge = 'bg-gray-800 text-gray-400 border-gray-700';
-            if (action === 'BUY') {
-                actionBadge = rsi < 35 
-                    ? 'bg-blue-900/40 text-blue-400 border-blue-800/50 shadow-[0_0_8px_rgba(59,130,246,0.3)]' 
-                    : 'bg-green-900/40 text-green-400 border-green-800/50';
-            } else if (action === 'EXIT') {
-                actionBadge = 'bg-red-900/40 text-red-400 border-red-800/50';
-            }
-
-            return `
-                <div class="p-3 rounded-xl border border-white/5 bg-black/20 hover:bg-blue-500/5 transition-all cursor-pointer"
-                     onclick="window.fetchDataForSymbol('${symbol}')">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <div class="flex items-center gap-1.5">
-                                <span class="text-[11px] font-black text-white uppercase tracking-widest">${symbol}</span>
-                                <span class="text-[8px] font-mono text-gray-500 uppercase">${mCap}</span>
-                            </div>
-                            <div class="mt-1 flex items-baseline gap-1.5 font-mono">
-                                <span class="text-xs font-black text-white">$${price.toFixed(2)}</span>
-                                <span class="text-[9px] font-bold ${changeColor}">${changeText}</span>
-                            </div>
-                        </div>
-                        <span class="text-[8px] font-black px-2 py-0.5 rounded border ${actionBadge} tracking-widest">${action}</span>
-                    </div>
-                    <div class="mt-3 flex justify-between items-center text-[8px] font-mono border-t border-white/5 pt-1.5">
-                        <span class="text-gray-500">RSI: <span class="${rsi < 35 ? 'text-blue-400 font-black' : 'text-gray-300'}">${rsi}</span></span>
-                        <span class="text-gray-500">Quality: <span class="text-white font-black">${score}</span></span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
 
     updatePortfolioExposureV2(data) {
         if (!data) return;

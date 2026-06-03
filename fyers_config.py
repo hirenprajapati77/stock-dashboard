@@ -28,4 +28,4 @@ token_file = os.path.abspath(
 )
 
 # Auth Proxy (to bypass IP blocks on Cloudflare/Fyers)
-auth_proxy_url = os.environ.get("FYERS_AUTH_PROXY_URL", "").strip()
+auth_proxy_url = os.environ.get("FYERS_AUTH_PROXY_URL", "https://cold-dew-46bf.prahiren.workers.dev").strip()

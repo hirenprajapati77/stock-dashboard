@@ -406,6 +406,10 @@ body {
     width: 100%;
 }
 
+.chart-layout-wrapper.sidebar-hidden {
+    grid-template-columns: 1fr;
+}
+
 .chart-column {
     min-width: 0; /* Prevents flex/grid blowouts */
 }
@@ -426,8 +430,8 @@ body {
 }
 
 @media (max-width: 1200px) {
-    .chart-layout-wrapper {
-        grid-template-columns: 1fr;
+    .chart-layout-wrapper, .chart-layout-wrapper.sidebar-hidden {
+        grid-template-columns: 1fr !important;
     }
     
     .intelligence-sidebar {
@@ -639,4 +643,29 @@ body.chart-fullscreen .chart-column {
 .priority-badge-low {
     background: #1f2937;
     color: #6b7280;
+}
+
+/* Mobile Responsiveness Improvements & Stacking Tweaks */
+@media (max-width: 640px) {
+    .nav-tab {
+        padding: 4px 8px !important;
+        font-size: 8px !important;
+    }
+    .nav-tab-group {
+        gap: 4px !important;
+    }
+    #tv-chart {
+        height: 350px !important;
+        min-height: 300px !important;
+    }
+    #chart-parent {
+        min-height: 400px !important;
+    }
+    .control-cluster {
+        padding: 4px 8px !important;
+        gap: 6px !important;
+    }
+    .glass-card {
+        border-radius: 12px !important;
+    }
 }

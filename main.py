@@ -396,19 +396,7 @@ async def get_active_sectors_v2(tf: str = "1D"):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/v2/screener/us-portfolio", dependencies=[Depends(login_required)])
-async def get_us_portfolio_v2(tf: str = "1D"):
-    """
-    US Quality-Only Portfolio hits.
-    """
-    try:
-        from app.services.screener_service import ScreenerService
-        res = ScreenerService.get_screener_data(tf)
-        hits = res.get("hits", [])
-        us_hits = [h for h in hits if h.get("sectorKey") == "US_PORTFOLIO"]
-        return {"status": "success", "data": _json_serializable(us_hits)}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+
 
 @app.get("/api/v2/portfolio/exposure", dependencies=[Depends(login_required)])
 async def get_portfolio_exposure_v2(tf: str = "1D"):

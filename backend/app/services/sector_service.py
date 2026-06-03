@@ -37,7 +37,7 @@ class SectorService:
         "NIFTY_AUTO": "^CNXAUTO",
         "NIFTY_REALTY": "^CNXREALTY",
         "NIFTY_PSU_BANK": "^CNXPSUBANK",
-        "NIFTY_50": "^NSEI",
+        "NIFTY_MEDIA": "^CNXMEDIA",
     }
 
     # Configurable quant logic constants
@@ -98,6 +98,13 @@ class SectorService:
         Calculates RS and RM for all sectors vs benchmark.
         Returns data for the last 30 trading sessions for playback.
         """
+        def safe_round(val):
+            if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))) or pd.isna(val):
+                return 0.0
+            try:
+                return float(round(float(val)))
+            except:
+                return 0.0
         # Map UI timeframe to YFinance interval/period
         
         tf_map = {
@@ -203,13 +210,44 @@ class SectorService:
                 b_naive = benchmark_data.copy()
                 
                 # Robust conversion to naive DatetimeIndex
+                def parse_date_series(idx):
+                    try:
+                        return pd.to_datetime(idx, utc=True)
+                    except Exception:
+                        parsed = []
+                        for x in idx:
+                            try:
+                                parsed.append(pd.to_datetime(x, utc=True))
+                            except Exception:
+                                try:
+                                    parsed.append(pd.to_datetime(x).tz_localize('UTC'))
+                                except Exception:
+                                    parsed.append(pd.NaT)
+                        return pd.DatetimeIndex(parsed)
+
                 try:
-                    s_naive.index = pd.to_datetime(s_naive.index, utc=True).tz_localize(None).round('1min')
-                    b_naive.index = pd.to_datetime(b_naive.index, utc=True).tz_localize(None).round('1min')
+                    s_dt = parse_date_series(s_naive.index)
+                    s_naive.index = s_dt.tz_localize(None).round('1min')
                 except Exception as e:
-                    print(f"WARN: Timezone normalization fallback for {name}: {e}")
-                    if hasattr(s_naive.index, 'tz'): s_naive.index = s_naive.index.tz_localize(None).round('1min')
-                    if hasattr(b_naive.index, 'tz'): b_naive.index = b_naive.index.tz_localize(None).round('1min')
+                    print(f"WARN: Timezone normalization fallback for sector index: {e}")
+                    try:
+                        s_dt = pd.to_datetime(s_naive.index, errors='coerce')
+                        s_naive.index = s_dt.tz_localize(None) if hasattr(s_dt, 'tz') and s_dt.tz else s_dt
+                        s_naive.index = s_naive.index.round('1min')
+                    except Exception as inner_e:
+                        print(f"CRITICAL: Failed sector index parse: {inner_e}")
+
+                try:
+                    b_dt = parse_date_series(b_naive.index)
+                    b_naive.index = b_dt.tz_localize(None).round('1min')
+                except Exception as e:
+                    print(f"WARN: Timezone normalization fallback for benchmark index: {e}")
+                    try:
+                        b_dt = pd.to_datetime(b_naive.index, errors='coerce')
+                        b_naive.index = b_dt.tz_localize(None) if hasattr(b_dt, 'tz') and b_dt.tz else b_dt
+                        b_naive.index = b_naive.index.round('1min')
+                    except Exception as inner_e:
+                        print(f"CRITICAL: Failed benchmark index parse: {inner_e}")
 
                 # Deduplicate and align
                 s_naive = s_naive[~s_naive.index.duplicated(keep='last')].sort_index()
@@ -341,13 +379,13 @@ class SectorService:
                     "weight": cls._get_mock_weight(name),
                     "rank": 0, # Placeholder
                     "metrics": {
-                        "breadth": float(round(float(breadth_ratio) * 1000.0) / 10.0),
-                        "relVolume": float(round(float(rel_volume) * 100.0) / 100.0),
+                        "breadth": safe_round(float(breadth_ratio) * 1000.0) / 10.0,
+                        "relVolume": safe_round(float(rel_volume) * 100.0) / 100.0,
                         "state": str(state),
-                        "sr": float(round(float(last_row['sector_return']) * 10000.0) / 10000.0),
-                        "br": float(round(float(last_row['benchmark_return']) * 10000.0) / 10000.0),
-                        "accelerationScore": float(round(float(acc_score) * 100.0) / 100.0),
-                        "breadthScore": float(round(float(breadth_score) * 100.0) / 100.0)
+                        "sr": safe_round(float(last_row['sector_return']) * 10000.0) / 10000.0,
+                        "br": safe_round(float(last_row['benchmark_return']) * 10000.0) / 10000.0,
+                        "accelerationScore": safe_round(float(acc_score) * 100.0) / 100.0,
+                        "breadthScore": safe_round(float(breadth_score) * 100.0) / 100.0
                     }
                 }
                 
@@ -373,7 +411,10 @@ class SectorService:
             
             rotation_score = (0.4 * rs_norm) + (0.3 * acc_norm) + (0.3 * br_score)
             # Integer-based rounding to bypass restrictive round() stubs
-            rot_val = int(float(rotation_score) * 100.0 + 0.5)  # type: ignore
+            if pd.isna(rotation_score) or math.isnan(rotation_score):
+                rot_val = 50.0
+            else:
+                rot_val = int(float(rotation_score) * 100.0 + 0.5)  # type: ignore
             results[name]['metrics']['rotationScore'] = float(rot_val) / 100.0  # type: ignore
 
         # Improvement 2: Sector Panel Sorting
@@ -404,7 +445,10 @@ class SectorService:
             shift = "GAINING" if (rs_trend == "rising" and rm_trend == "accelerating") else \
                     "LOSING" if (rs_trend == "falling" and rm_trend == "decelerating") else "NEUTRAL"
 
-            momentum_score_val = int(float(mom_score) * 100.0 + 0.5)  # type: ignore
+            if pd.isna(mom_score) or math.isnan(mom_score):
+                momentum_score_val = 0
+            else:
+                momentum_score_val = int(float(mom_score) * 100.0 + 0.5)  # type: ignore
             results[name]['metrics']['momentumScore'] = float(momentum_score_val) / 100.0  # type: ignore
             results[name]['metrics']['shift'] = str(shift)
             

@@ -43,8 +43,13 @@ class ConstituentService:
     def get_sector_for_ticker(cls, ticker):
         """
         Finds which NIFTY sector a ticker belongs to.
+        Supports both raw symbols (e.g. TCS) and Yahoo symbols (e.g. TCS.NS).
         """
+        if not ticker:
+            return None
+        clean_ticker = str(ticker).upper().replace(".NS", "").replace(".BO", "").strip()
         for sector, constituents in cls.SECTOR_CONSTITUENTS.items():
-            if ticker in constituents:
+            clean_constituents = [str(c).upper().replace(".NS", "").replace(".BO", "").strip() for c in constituents]
+            if clean_ticker in clean_constituents:
                 return sector
         return None
