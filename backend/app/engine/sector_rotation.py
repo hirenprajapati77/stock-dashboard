@@ -70,7 +70,7 @@ class SectorRotationEngine:
         active_focus = []
 
         for theme, score in ranked[:4]:
-            if score >= 65.0: # Hard gate for active sector focus
+            if score >= 50.0: # Hard gate for active sector focus (lowered to 50.0 for neutral/sideways markets)
                 tags = []
                 if score >= 85.0:
                     tags.append("Institutional Accumulation")

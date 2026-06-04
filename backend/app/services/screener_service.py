@@ -100,6 +100,13 @@ class ScreenerService:
         # Combine hits
         all_hits = in_hits
 
+        # Log trades for performance tracking and outcomes (BUG-04)
+        try:
+            from app.services.trade_tracking_service import TradeTrackingService
+            TradeTrackingService.log_trades(all_hits)
+        except Exception as e:
+            print(f"[Screener] Error logging trades in TradeTrackingService: {e}", flush=True)
+
         # Calculate sector concentration (Rule 15)
         sector_concentration = cls._calculate_sector_concentration(all_hits)
 
@@ -175,18 +182,50 @@ class ScreenerService:
 
     @classmethod
     def _calculate_sector_rotation(cls, timeframe: str) -> Dict[str, float]:
-        """Calculates rotation scores for all themes in our universe."""
-        scores = {}
-        for theme in SectorRotationEngine.THEME_UNIVERSE:
-            # Default rotational metrics
-            scores[theme] = 72.0
-            
-        # Give specific high scores to AI, Pharma, and Defence based on mock flow inputs
-        scores["AI_AUTOMATION"] = 92.5
-        scores["PHARMA_HEALTHCARE"] = 84.2
-        scores["DEFENCE_AEROSPACE"] = 78.4
-        scores["SPECIALTY_CHEMICALS"] = 71.1
+        """Calculates rotation scores for all themes using LIVE sector data from SectorService.
         
+        Maps NSE sector indices (NIFTY_BANK, NIFTY_IT, ...) to SectorRotationEngine's
+        THEME_UNIVERSE keys using rotationScore from real market data.
+        """
+        # Base defaults for all themes (fallback if sector fetch fails)
+        scores: Dict[str, float] = {}
+        for theme in SectorRotationEngine.THEME_UNIVERSE:
+            scores[theme] = 55.0  # Neutral default
+
+        # NSE Sector Index → Theme mapping
+        SECTOR_TO_THEME = {
+            "NIFTY_IT":       "AI_AUTOMATION",
+            "NIFTY_PHARMA":   "PHARMA_HEALTHCARE",
+            "NIFTY_BANK":     "DIGITAL_INFRA",
+            "NIFTY_AUTO":     "ELECTRIC_VEHICLES",
+            "NIFTY_ENERGY":   "RENEWABLE_ENERGY",
+            "NIFTY_METAL":    "SPECIALTY_CHEMICALS",
+            "NIFTY_FMCG":     "CYBERSECURITY",
+            "NIFTY_REALTY":   "DATA_CENTERS",
+            "NIFTY_PSU_BANK": "DEFENCE_AEROSPACE",
+            "NIFTY_MEDIA":    "CLOUD_COMPUTING",
+        }
+
+        try:
+            rotation_data, _ = SectorService.get_rotation_data(timeframe=timeframe, include_constituents=False)
+            if rotation_data:
+                for nse_sector, theme_key in SECTOR_TO_THEME.items():
+                    sector_info = rotation_data.get(nse_sector)
+                    if not sector_info:
+                        continue
+                    metrics = sector_info.get("metrics", {})
+                    # Use rotationScore (0-100) if available, else momentumScore, else state-based default
+                    rot_score = metrics.get("rotationScore") or metrics.get("momentumScore")
+                    if rot_score is not None:
+                        scores[theme_key] = float(rot_score)
+                    else:
+                        # Fallback: derive from state
+                        state = metrics.get("state", "NEUTRAL")
+                        state_scores = {"LEADING": 85.0, "IMPROVING": 68.0, "WEAKENING": 50.0, "LAGGING": 35.0, "NEUTRAL": 55.0}
+                        scores[theme_key] = state_scores.get(state, 55.0)
+        except Exception as e:
+            print(f"[SectorRotation] Warning: Live fetch failed ({e}). Using neutral defaults.")
+
         return scores
 
     @classmethod

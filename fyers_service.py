@@ -130,13 +130,28 @@ class FyersService:
         if not cls._access_token: cls.load_token()
         if not cls._access_token: return None, "No token"
         
+        tf_map = {
+            "1m": "1", "5m": "5", "10m": "10", "15m": "15", 
+            "30m": "30", "60m": "60", "1H": "60", 
+            "2H": "120", "4H": "240",
+            "1D": "D", "1W": "W", "1M": "M"
+        }
+        fyers_tf = tf_map.get(timeframe, "D")
+        
         from datetime import datetime, timedelta
         _today = datetime.now().strftime("%Y-%m-%d")
-        _one_year_ago = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        
+        if fyers_tf in ["1", "5", "10", "15"]:
+            days = 60
+        elif fyers_tf in ["30", "60", "120", "240"]:
+            days = 180
+        else:
+            days = 365
+        _one_year_ago = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         
         fyers_symbol = symbol if ":" in symbol else f"NSE:{symbol}-EQ"
         headers = {"Authorization": f"{fyers_config.app_id}:{cls._access_token}"}
-        params = {"symbol": fyers_symbol, "resolution": "D", "date_format": "1",
+        params = {"symbol": fyers_symbol, "resolution": fyers_tf, "date_format": "1",
                   "range_from": _one_year_ago, "range_to": _today, "cont_flag": "1"}
         
         try:

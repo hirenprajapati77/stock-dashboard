@@ -30,8 +30,16 @@ class OptionSelector:
         strat, offset = OptionSelector.select_strategy(action, adx, trend)
         
         # Increment logic
-        increment = 50 if "NIFTY" in symbol else 10
-        if price > 10000: increment = 100
+        if "BANKNIFTY" in symbol:
+            increment = 100
+        elif "FINNIFTY" in symbol:
+            increment = 50
+        elif "NIFTY" in symbol:
+            increment = 50
+        else:
+            increment = 10 if price < 1000 else (20 if price < 5000 else 50)
+            if price > 10000:
+                increment = 100
         
         atm_strike = round(price / increment) * increment
         
