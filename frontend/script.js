@@ -289,8 +289,8 @@ function renderLocalOutcomesFallback(listElement, localOutcomes) {
 
 window.loadRecentOutcomes = loadRecentOutcomes;
 
-// Initial call
-loadRecentOutcomes();
+// Initial call deferred to after TradingAssistant is defined and initialized
+// loadRecentOutcomes();
 
 // Redundant window mapping removed
 
