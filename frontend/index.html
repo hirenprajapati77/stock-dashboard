@@ -1606,7 +1606,7 @@
     <script src="intelligence_ux.js?v=1.8"></script>
     <script>
       // Wake up Render on page load to prevent cold start
-      fetch('/ping').catch(() => {});
+      fetch('/api/ping').catch(() => {});
 
       // Bug Fix: Sync intraday TF buttons with the select dropdown
       document.querySelectorAll('#intraday-tf-toggle [data-tf]').forEach(btn => {
