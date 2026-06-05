@@ -374,7 +374,7 @@ class ScreenerService:
                 if risk_res["status"] == "REJECT" and not is_earnings_exit:
                     signal_status = "WATCHLIST"
 
-                entry_tag = "STRONG_ENTRY" if signal_status == "FRESH BREAKOUT" else ("ENTRY_READY" if signal_status == "CONFIRMED BREAKOUT" else ("AVOID" if "EXIT" in signal_status else "WATCHLIST"))
+                entry_tag = "STRONG_ENTRY" if signal_status == "FRESH BREAKOUT" else ("ENTRY_READY" if signal_status == "CONFIRMED BREAKOUT" else ("AVOID" if ("EXIT" in signal_status or "AVOID" in signal_status) else "WATCHLIST"))
 
                 # Standardize outputs
                 hits.append({
