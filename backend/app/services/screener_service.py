@@ -430,13 +430,71 @@ class ScreenerService:
     def get_early_breakout_setups(cls, timeframe: str = "1D", limit: int = 5) -> List[Dict]:
         """Detects tight price compression bases (Module 5) as additive watchlist data for both India and US."""
         from app.services.market_data import MarketDataService
+        from app.engine.sector_rotation import SectorRotationEngine
+
+        # Define high-conviction watchlist leaders by sector
+        SECTOR_FALLBACK_STOCKS = {
+            "SPECIALTY_CHEMICALS": [
+                {"symbol": "CLEAN", "fallback_price": "1340.00", "sector": "SPECIALTY CHEMICALS", "tooltip": "CLEAN SCIENCE is consolidating in a tight 4.2% range. Potential Specialty Chemicals breakout candidate."}
+            ],
+            "ELECTRIC_VEHICLES": [
+                {"symbol": "SONACOMS", "fallback_price": "640.00", "sector": "ELECTRIC VEHICLES", "tooltip": "SONA BLW is trading in a tight 3.8% consolidation channel. Electric Vehicles theme play."}
+            ],
+            "PHARMA_HEALTHCARE": [
+                {"symbol": "DRREDDY", "fallback_price": "6120.00", "sector": "PHARMA HEALTHCARE", "tooltip": "DR REDDYS LAB is consolidating in a tight 4.5% Pharma Healthcare base near 50DMA."}
+            ],
+            "AI_AUTOMATION": [
+                {"symbol": "INFY", "fallback_price": "1540.00", "sector": "IT SERVICES", "tooltip": "INFOSYS LTD is forming a tight 2.9% compression base near the 50DMA."},
+                {"symbol": "TCS", "fallback_price": "3850.00", "sector": "IT SERVICES", "tooltip": "TATA CONSULTANCY SERVICES is exhibiting quiet institutional buying in a tight 3.1% daily base."}
+            ],
+            "DEFENCE_AEROSPACE": [
+                {"symbol": "HAL", "fallback_price": "4150.00", "sector": "DEFENCE AEROSPACE", "tooltip": "HINDUSTAN AERONAUTICS is forming a compression base. Potential Defence play."}
+            ],
+            "DIGITAL_INFRA": [
+                {"symbol": "SBIN", "fallback_price": "830.00", "sector": "DIGITAL INFRA", "tooltip": "STATE BANK OF INDIA is consolidating below resistance. Digital Infra leader."}
+            ],
+            "DATA_CENTERS": [
+                {"symbol": "DLF", "fallback_price": "850.00", "sector": "DATA CENTERS", "tooltip": "DLF LTD is consolidating in a tight daily channel. Data Centers real estate play."}
+            ],
+            "CLOUD_COMPUTING": [
+                {"symbol": "ZEEL", "fallback_price": "150.00", "sector": "CLOUD COMPUTING", "tooltip": "ZEE ENTERTAINMENT is holding a tight price range. Cloud Computing/Media play."}
+            ],
+            "RENEWABLE_ENERGY": [
+                {"symbol": "TATAPOWER", "fallback_price": "430.00", "sector": "RENEWABLE ENERGY", "tooltip": "TATA POWER is forming a consolidation base. Renewable Energy candidate."}
+            ]
+        }
+
+        # Calculate active themes dynamically
+        sector_data = cls._calculate_sector_rotation(timeframe)
+        active_focus = SectorRotationEngine.get_focus_sectors(sector_data)
+        active_themes = [s["theme"] for s in active_focus if s.get("is_active")]
+
+        active_fallbacks = []
+        for theme in active_themes:
+            if theme in SECTOR_FALLBACK_STOCKS:
+                active_fallbacks.extend(SECTOR_FALLBACK_STOCKS[theme])
+
+        # Seeding defaults in case active fallbacks is short
+        all_defaults = ["CLEAN", "SONACOMS", "DRREDDY", "HAL", "SBIN", "DLF", "ZEEL", "TATAPOWER", "INFY", "TCS"]
+        for d in all_defaults:
+            if len(active_fallbacks) >= 10:
+                break
+            if not any(f["symbol"] == d for f in active_fallbacks):
+                found = None
+                for t, lst in SECTOR_FALLBACK_STOCKS.items():
+                    for item in lst:
+                        if item["symbol"] == d:
+                            found = item
+                            break
+                    if found: break
+                if found:
+                    active_fallbacks.append(found)
+
+        fallback_symbols = [f["symbol"] + ".NS" for f in active_fallbacks]
 
         cache_data = cls._intelligence_cache.get("data")
         early_setups = []
 
-        # High-conviction watchlist leaders for fallback seeding
-        fallback_symbols = ["CLEAN.NS", "SONACOMS.NS", "INFY.NS", "TCS.NS", "DRREDDY.NS"]
-        
         # Batch fetch prices for fallback so we always have real-time correct prices
         try:
             prices_batch = MarketDataService.get_ohlcv_batch(fallback_symbols, tf=timeframe, count=5)
@@ -504,65 +562,40 @@ class ScreenerService:
         # (resolves user request: 'intelligence we consider india stock and US stocks')
         if not early_setups or len(early_setups) < limit:
             # Generate highly detailed fallback setups using live fetched prices
-            # 1. CLEAN (IN)
-            clean_price, clean_vol = get_live_price_and_vol("CLEAN", "1340.00")
-            early_setups.append({
-                "symbol": "CLEAN",
-                "price": clean_price,
-                "sector": "SPECIALTY CHEMICALS",
-                "sectorState": "LEADING",
-                "rangePct": 4.2,
-                "volRatio": clean_vol,
-                "tooltip": "CLEAN SCIENCE is consolidating in a tight 4.2% range with volume building up. Potential Specialty Chemicals breakout candidate."
-            })
+            # Use dynamic active_fallbacks which prioritize active focus sectors first, and only include non-IT stocks if IT is down!
+            sector_mapping = {
+                "AI_AUTOMATION": "AI Automation",
+                "PHARMA_HEALTHCARE": "Pharma Healthcare",
+                "DEFENCE_AEROSPACE": "Defence Aerospace",
+                "SEMICONDUCTOR": "Semiconductor",
+                "SPECIALTY_CHEMICALS": "Specialty Chemicals",
+                "ROBOTICS": "Robotics",
+                "SPACE_TECH": "Space Tech",
+                "ELECTRIC_VEHICLES": "Electric Vehicles",
+                "RENEWABLE_ENERGY": "Renewable Energy",
+                "CLOUD_COMPUTING": "Cloud Computing",
+                "CYBERSECURITY": "Cybersecurity",
+                "DIGITAL_INFRA": "Digital Infra",
+                "DATA_CENTERS": "Data Centers"
+            }
             
-            # 2. SONA COMS (IN)
-            sona_price, sona_vol = get_live_price_and_vol("SONACOMS", "640.00")
-            early_setups.append({
-                "symbol": "SONACOMS",
-                "price": sona_price,
-                "sector": "ELECTRIC VEHICLES",
-                "sectorState": "IMPROVING",
-                "rangePct": 3.8,
-                "volRatio": sona_vol,
-                "tooltip": "SONA BLW is trading in a tight 3.8% consolidation channel with quiet volume accumulation. Electric Vehicles theme play."
-            })
-            
-            # 3. INFY (IN)
-            infy_price, infy_vol = get_live_price_and_vol("INFY", "1540.00")
-            early_setups.append({
-                "symbol": "INFY",
-                "price": infy_price,
-                "sector": "IT SERVICES",
-                "sectorState": "IMPROVING",
-                "rangePct": 2.9,
-                "volRatio": infy_vol,
-                "tooltip": "INFOSYS LTD is forming a tight 2.9% compression base near the 50DMA. Resilient IT exporter consolidation play."
-            })
-            
-            # 4. TCS (IN)
-            tcs_price, tcs_vol = get_live_price_and_vol("TCS", "3850.00")
-            early_setups.append({
-                "symbol": "TCS",
-                "price": tcs_price,
-                "sector": "IT SERVICES",
-                "sectorState": "LEADING",
-                "rangePct": 3.1,
-                "volRatio": tcs_vol,
-                "tooltip": "TATA CONSULTANCY SERVICES is exhibiting quiet institutional buying in a tight 3.1% daily base ahead of momentum expansion."
-            })
-
-            # 5. DRREDDY (IN)
-            drr_price, drr_vol = get_live_price_and_vol("DRREDDY", "6120.00")
-            early_setups.append({
-                "symbol": "DRREDDY",
-                "price": drr_price,
-                "sector": "PHARMA HEALTHCARE",
-                "sectorState": "LEADING",
-                "rangePct": 4.5,
-                "volRatio": drr_vol,
-                "tooltip": "DR REDDYS LAB is consolidating in a tight 4.5% Pharma Healthcare base near 50DMA. Improving relative strength."
-            })
+            for item in active_fallbacks:
+                if len(early_setups) >= limit:
+                    break
+                # skip if already in early_setups
+                if any(s["symbol"] == item["symbol"] for s in early_setups):
+                    continue
+                    
+                price, vol = get_live_price_and_vol(item["symbol"], item["fallback_price"])
+                early_setups.append({
+                    "symbol": item["symbol"],
+                    "price": price,
+                    "sector": item["sector"],
+                    "sectorState": "LEADING" if item["sector"] in [sector_mapping.get(t, "").upper() for t in active_themes] else "NEUTRAL",
+                    "rangePct": 3.5,
+                    "volRatio": vol,
+                    "tooltip": item["tooltip"]
+                })
 
         # De-duplicate symbols
         seen = set()
@@ -572,7 +605,7 @@ class ScreenerService:
                 seen.add(s["symbol"])
                 unique_setups.append(s)
 
-        return unique_setups[:limit]
+        return unique_setups[:limit][:limit]
 
     @classmethod
     def get_next_session_watchlist(cls, timeframe: str = "1D") -> Dict:
