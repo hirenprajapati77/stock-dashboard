@@ -159,6 +159,9 @@ class MarketDataService:
             if 'timestamp' in cols:
                 idx = cols.index('timestamp')
                 df.set_index(df.columns[idx], inplace=True)
+            elif 'datetime' in cols:
+                idx = cols.index('datetime')
+                df.set_index(df.columns[idx], inplace=True)
             elif 'date' in cols:
                 idx = cols.index('date')
                 df.set_index(df.columns[idx], inplace=True)
