@@ -595,6 +595,7 @@ async def get_market_status():
 
 # Cause 4 Fix: /ping endpoint wakes up Render free-tier on page load (called from frontend)
 @app.get("/ping")
+@app.get("/api/ping")
 async def ping():
     return {"status": "ok", "ts": datetime.now().isoformat()}
 

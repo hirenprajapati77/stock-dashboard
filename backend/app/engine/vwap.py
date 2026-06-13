@@ -33,16 +33,17 @@ class VWAPEngine:
             df['date'] = df.index.date
             cum_pv = df.groupby('date')['pv'].cumsum()
             cum_vol = df.groupby('date')['volume'].cumsum()
-            vwap = cum_pv / cum_vol
+            vwap = cum_pv / cum_vol.replace(0, np.nan)
+            vwap = vwap.ffill().bfill()
         else:
             # Daily/Weekly rolling VWAP (e.g., 20-day rolling window)
             window = min(20, len(df))
             rolling_pv = df['pv'].rolling(window=window).sum()
             rolling_vol = df['volume'].rolling(window=window).sum()
-            vwap = rolling_pv / rolling_vol
+            vwap = rolling_pv / rolling_vol.replace(0, np.nan)
             # Fallback for initial bars
-            fallback = df['pv'].cumsum() / df['volume'].cumsum()
-            vwap = vwap.fillna(fallback)
+            fallback = df['pv'].cumsum() / df['volume'].cumsum().replace(0, np.nan)
+            vwap = vwap.fillna(fallback).ffill().bfill()
             
         return vwap.round(2)
 

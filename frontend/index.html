@@ -808,10 +808,10 @@
                         <h2 class="text-sm font-black uppercase tracking-widest text-white">Execution Edge & Narrative</h2>
                     </div>
                     <div class="flex items-center gap-2">
-                        <div id="ee-score-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 hidden">
+                        <div id="ee-header-score-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 hidden">
                             Score: --
                         </div>
-                        <div id="ee-execution-badge" class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-400 border border-gray-700 shadow-lg">
+                        <div id="ee-header-execution-badge" class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gray-800 text-gray-400 border border-gray-700 shadow-lg">
                             WAITING
                         </div>
                     </div>
@@ -821,7 +821,7 @@
                     <!-- Primary Execution Card (Always Visible) -->
                     <div id="ee-primary-card" class="bg-gray-900/60 p-5 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden group">
                         <div class="absolute top-0 right-0 p-3">
-                            <div id="ee-score-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 hidden">Score: --</div>
+                            <div id="ee-card-score-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 hidden">Score: --</div>
                         </div>
 
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
@@ -1281,8 +1281,8 @@
                                         <span>Session VWAP</span>
                                     </div>
                                     <div class="flex items-center gap-2">
-                                        <span id="vwap-val" class="font-black text-white">—</span>
-                                        <span id="vwap-dist" class="px-1 py-0.5 rounded text-[8px] font-black bg-gray-800 text-gray-400">—</span>
+                                        <span id="vwap-val" class="font-black text-white">Calculating...</span>
+                                        <span id="vwap-dist" class="px-1 py-0.5 rounded text-[8px] font-black bg-gray-800 text-gray-400">0.00%</span>
                                     </div>
                                 </div>
 
@@ -1400,8 +1400,9 @@
                                 <div class="flex items-center gap-2 font-mono text-[10px]">
                                     <span id="fund-52l" class="text-down font-bold">—</span>
                                     <div class="flex-grow h-1 bg-gray-800 rounded-full relative overflow-hidden">
-                                        <div id="fund-range-bar" class="h-full bg-blue-600 w-0"></div>
+                                        <div id="fund-progress" class="h-full bg-blue-600 w-0"></div>
                                     </div>
+                                    <span id="fund-52h" class="text-up font-bold">—</span>
                                 </div>
                             </div>
                         </div>
@@ -1605,7 +1606,7 @@
     <script src="intelligence_ux.js?v=1.8"></script>
     <script>
       // Wake up Render on page load to prevent cold start
-      fetch('/ping').catch(() => {});
+      fetch('/api/ping').catch(() => {});
 
       // Bug Fix: Sync intraday TF buttons with the select dropdown
       document.querySelectorAll('#intraday-tf-toggle [data-tf]').forEach(btn => {

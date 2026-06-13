@@ -206,15 +206,27 @@ function loadRecentOutcomes(data = null) {
     const list = document.getElementById('recent-outcomes-list');
     if (!list) return;
     
+    // Fallback: Check local storage outcomes count
+    const localOutcomes = (TradingAssistant && TradingAssistant.state && TradingAssistant.state.outcomes) || [];
+    
     // Clear list if we are awaiting or have no data
     if (!data && !window._lastTradePerfData) {
+        if (localOutcomes.length > 0) {
+            renderLocalOutcomesFallback(list, localOutcomes);
+            return;
+        }
         list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-1">Syncing recent outcomes...</div>';
         return;
     }
     
     // If no data, try to pull from window cache
     const d = data || window._lastTradePerfData;
-    if (!d) return;
+    if (!d) {
+        if (localOutcomes.length > 0) {
+            renderLocalOutcomesFallback(list, localOutcomes);
+        }
+        return;
+    }
     
     window._lastTradePerfData = d;
     
@@ -224,6 +236,10 @@ function loadRecentOutcomes(data = null) {
     const outcomes = [...winners, ...losers];
     
     if (outcomes.length === 0) {
+        if (localOutcomes.length > 0) {
+            renderLocalOutcomesFallback(list, localOutcomes);
+            return;
+        }
         list.innerHTML = '<div class="text-[9px] text-gray-600 italic text-center py-1">No recent outcomes recorded...</div>';
         return;
     }
@@ -247,10 +263,34 @@ function loadRecentOutcomes(data = null) {
         `;
     }).join('');
 }
+
+function renderLocalOutcomesFallback(listElement, localOutcomes) {
+    listElement.innerHTML = localOutcomes.slice(0, 3).map(o => {
+        const isWin = o.status === "TARGET HIT";
+        const isLoss = o.status === "SL HIT";
+        const statusLabel = o.status === "RUNNING" ? "Running" : (isWin ? "Target Hit" : "SL Hit");
+        const pnlText = isWin ? "+2.0R" : (isLoss ? "-1.0R" : "0.0R");
+        const colorClass = isWin ? 'text-green-400' : (isLoss ? 'text-red-400' : 'text-yellow-400');
+        
+        return `
+        <div class="flex items-center justify-between group cursor-pointer hover:bg-white/5 p-1 rounded transition-colors" onclick="document.getElementById('symbol-input').value='${o.symbol}'; fetchData();">
+            <div class="flex flex-col">
+                <span class="text-[10px] font-black text-white group-hover:text-indigo-400 transition-colors">${o.symbol}</span>
+                <span class="text-[8px] text-gray-500 font-bold uppercase">Manual Log</span>
+            </div>
+            <div class="text-right">
+                <span class="text-[10px] font-black ${colorClass}">${pnlText}</span>
+                <div class="status-helper">${statusLabel}</div>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
 window.loadRecentOutcomes = loadRecentOutcomes;
 
-// Initial call
-loadRecentOutcomes();
+// Initial call deferred to after TradingAssistant is defined and initialized
+// loadRecentOutcomes();
 
 // Redundant window mapping removed
 
@@ -285,11 +325,11 @@ function getATMStrike(symbol, price) {
     let step = 100;
     const sym = symbol.toUpperCase();
     
-    if (sym.includes("NIFTY50") || sym.includes("NIFTY")) {
-        step = 50;
-    } else if (sym.includes("BANKNIFTY")) {
+    if (sym.includes("BANKNIFTY")) {
         step = 100;
     } else if (sym.includes("FINNIFTY")) {
+        step = 50;
+    } else if (sym.includes("NIFTY50") || sym.includes("NIFTY")) {
         step = 50;
     } else {
         // For stocks, we assume a 10 step for large caps, 5 for others
@@ -310,20 +350,30 @@ const TradingAssistant = {
     
     init() {
         try {
+            console.log("[TA] Reading key 'tradingAssistant' from localStorage...");
             // 1. Try to load new consolidated state
             const stored = localStorage.getItem('tradingAssistant');
             if (stored) {
                 const parsed = JSON.parse(stored);
-                if (parsed.version === this.version) {
-                    this.state = parsed;
-                } else {
-                    // Version mismatch - try to preserve watchlist/alerts if they exist
-                    console.log("[TA] Version mismatch, migrating data...");
-                    this.state.watchlist = parsed.watchlist || [];
-                    this.state.alerts = parsed.alerts || [];
-                    this.state.outcomes = parsed.outcomes || [];
-                    this.save();
+                console.log("[TA] Successfully read consolidated state from localStorage:", parsed);
+                if (parsed && typeof parsed === 'object') {
+                    if (parsed.version === this.version) {
+                        this.state = parsed;
+                    } else {
+                        // Version mismatch - try to preserve watchlist/alerts robustly if they exist
+                        console.log("[TA] Version mismatch (local: " + parsed.version + " vs code: " + this.version + "), robustly migrating data...");
+                        if (Array.isArray(parsed)) {
+                            this.state.watchlist = parsed;
+                        } else {
+                            this.state.watchlist = parsed.watchlist || parsed.pinnedSymbols || [];
+                            this.state.alerts = parsed.alerts || [];
+                            this.state.outcomes = parsed.outcomes || [];
+                        }
+                        this.save();
+                    }
                 }
+            } else {
+                console.log("[TA] No existing consolidated state 'tradingAssistant' found.");
             }
             
             // 2. Migration from legacy pinnedSymbols
@@ -361,6 +411,7 @@ const TradingAssistant = {
     save() {
         try {
             this.state.version = this.version;
+            console.log("[TA] Writing consolidated state to localStorage 'tradingAssistant':", this.state);
             localStorage.setItem('tradingAssistant', JSON.stringify(this.state));
             this.renderAll();
         } catch (e) {
@@ -396,6 +447,46 @@ const TradingAssistant = {
         }
     },
 
+    recalculateLiveRiskReward() {
+        const cmpEl = document.getElementById('cmp');
+        if (!cmpEl) return;
+        const cmp = parseFloat(cmpEl.textContent.replace(/[^\d.]/g, ''));
+        if (isNaN(cmp) || cmp <= 0) return;
+
+        const slEl = document.getElementById('stop-loss');
+        const targetEl = document.getElementById('nearest-resistance') || document.getElementById('hero-target');
+        
+        if (!slEl || !targetEl) return;
+        
+        const sl = parseFloat(slEl.textContent.replace(/[^\d.]/g, ''));
+        const target = parseFloat(targetEl.textContent.replace(/[^\d.]/g, ''));
+        
+        if (isNaN(sl) || isNaN(target) || sl <= 0 || target <= 0) return;
+        
+        const risk = Math.abs(cmp - sl);
+        const reward = Math.abs(target - cmp);
+        
+        if (risk > 0) {
+            const rr = reward / risk;
+            const rrEl = document.getElementById('risk-reward');
+            const heroRREl = document.getElementById('hero-rr');
+            
+            let label = 'HOLD';
+            if (rr >= 2.0) label = 'STRONG BUY';
+            else if (rr >= 1.5) label = 'BUY';
+            else if (rr < 1.0) label = 'REJECT';
+            
+            const rrText = `${rr.toFixed(2)} (${label})`;
+            
+            if (rrEl) {
+                rrEl.textContent = rrText;
+            }
+            if (heroRREl) {
+                heroRREl.textContent = rr.toFixed(2);
+            }
+        }
+    },
+
     updateMainPrice(symbol, quote) {
         const cmpEl = document.getElementById('cmp');
         const eePriceEl = document.getElementById('ee-underlying-price');
@@ -410,6 +501,9 @@ const TradingAssistant = {
             changeEl.textContent = `${quote.chp >= 0 ? '+' : ''}${quote.chp.toFixed(2)}%`;
             changeEl.className = `text-xs font-medium ${quote.chp >= 0 ? 'text-up' : 'text-down'}`;
         }
+        
+        // Dynamically recalculate live Risk Reward (BUG-07)
+        this.recalculateLiveRiskReward();
     },
     
     addAlert(symbol, type) {
@@ -427,11 +521,32 @@ const TradingAssistant = {
         this.save();
     },
     
-    addOutcome(symbol, entry, sl) {
+    async addOutcome(symbol, entry, sl) {
         if (!this.state.outcomes.find(o => o.symbol === symbol && o.status === "RUNNING")) {
             this.state.outcomes.push({ symbol, entry, sl, targets: [], status: "RUNNING" });
             this.save();
             showToast(`🚀 Trade logged: ${symbol}`, 'success');
+            
+            // Post to backend manually logged trade (BUG-04)
+            try {
+                const cleanEntry = parseFloat(String(entry).replace(/[^\d.-]/g, ''));
+                const cleanSL = parseFloat(String(sl).replace(/[^\d.-]/g, ''));
+                await fetch(`${API_BASE}/api/v1/log-trade`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        entry: cleanEntry,
+                        stopLoss: cleanSL,
+                        target: cleanEntry * 1.02 // default target 2% higher
+                    })
+                });
+                if (window.fetchIntelligence) {
+                    window.fetchIntelligence();
+                }
+            } catch (e) {
+                console.error("[TA] Failed to log manual trade to backend:", e);
+            }
         }
     },
     
@@ -507,28 +622,33 @@ const TradingAssistant = {
     
     renderOutcomes() {
         const list = document.getElementById('ta-outcomes-list');
-        if (!list) return;
-        if (this.state.outcomes.length === 0) {
-            list.innerHTML = '<div class="text-[10px] text-gray-500 italic text-center py-2">No active trades.</div>';
-            return;
+        if (list) {
+            if (this.state.outcomes.length === 0) {
+                list.innerHTML = '<div class="text-[10px] text-gray-500 italic text-center py-2">No active trades.</div>';
+            } else {
+                list.innerHTML = this.state.outcomes.map(o => {
+                    let statusBadge = '';
+                    if (o.status === "RUNNING") statusBadge = '<span class="text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">RUNNING ⏳</span>';
+                    else if (o.status === "TARGET HIT") statusBadge = '<span class="text-[10px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">TARGET HIT ✅</span>';
+                    else statusBadge = '<span class="text-[10px] font-bold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">SL HIT ❌</span>';
+                    
+                    return `
+                    <div class="flex items-center justify-between bg-gray-900/50 p-2 rounded border border-gray-800">
+                        <span class="text-xs font-bold text-white cursor-pointer hover:text-blue-400" onclick="document.getElementById('symbol-input').value='${o.symbol}'; fetchData(false);">${o.symbol}</span>
+                        <div class="flex items-center gap-2">
+                            ${statusBadge}
+                            <button onclick="TradingAssistant.removeOutcome('${o.symbol}', '${o.status}')" class="text-gray-600 hover:text-gray-400 transition-colors ml-1 px-1"><i class="fas fa-times text-[10px]"></i></button>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+            }
         }
         
-        list.innerHTML = this.state.outcomes.map(o => {
-            let statusBadge = '';
-            if (o.status === "RUNNING") statusBadge = '<span class="text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">RUNNING ⏳</span>';
-            else if (o.status === "TARGET HIT") statusBadge = '<span class="text-[10px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">TARGET HIT ✅</span>';
-            else statusBadge = '<span class="text-[10px] font-bold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded cursor-pointer" onclick="TradingAssistant.cycleOutcomeStatus(\''+o.symbol+'\')">SL HIT ❌</span>';
-            
-            return `
-            <div class="flex items-center justify-between bg-gray-900/50 p-2 rounded border border-gray-800">
-                <span class="text-xs font-bold text-white cursor-pointer hover:text-blue-400" onclick="document.getElementById('symbol-input').value='${o.symbol}'; fetchData(false);">${o.symbol}</span>
-                <div class="flex items-center gap-2">
-                    ${statusBadge}
-                    <button onclick="TradingAssistant.removeOutcome('${o.symbol}', '${o.status}')" class="text-gray-600 hover:text-gray-400 transition-colors ml-1 px-1"><i class="fas fa-times text-[10px]"></i></button>
-                </div>
-            </div>
-            `;
-        }).join('');
+        // Synchronize with the Dashboard's Recent Outcomes panel (BUG-04)
+        if (typeof loadRecentOutcomes === 'function') {
+            loadRecentOutcomes();
+        }
     },
     
     renderWatchlist() {
@@ -1487,7 +1607,19 @@ function toViewModel(data) {
     const score = extractScore(d?.meta_score, extractScore(data?.score, 0));
     const riskLevel = score >= 60 ? "LOW" : "HIGH";
     const premium = parseFloat(opt.premium_entry || opt.premium || 0);
-    const lotSize = parseInt(opt.lot_size || (data?.meta?.symbol?.includes('NIFTY') ? 50 : 25));
+    let lotSize = parseInt(opt.lot_size || 0);
+    if (!lotSize) {
+        const sym = (data?.meta?.symbol || "").toUpperCase();
+        if (sym.includes("BANKNIFTY")) {
+            lotSize = 15;
+        } else if (sym.includes("FINNIFTY")) {
+            lotSize = 25;
+        } else if (sym.includes("NIFTY")) {
+            lotSize = 50;
+        } else {
+            lotSize = 25;
+        }
+    }
 
     // Smart Strike Mapping (ATM Suggestion)
     let strike = opt.strike;
@@ -1596,6 +1728,31 @@ function getExecutionState(vm) {
 function renderScore(vm) {
     const scoreBadge = document.getElementById('ai-confidence-badge');
     const score = extractScore(vm?.score, 0);
+    
+    // Update the Execution Edge score badges (BUG-03)
+    const eeBadges = [
+        document.getElementById('ee-header-score-badge'),
+        document.getElementById('ee-card-score-badge')
+    ];
+    eeBadges.forEach(badge => {
+        if (badge) {
+            if (!score) {
+                badge.classList.add('hidden');
+            } else {
+                badge.classList.remove('hidden');
+                badge.innerText = `Score: ${Math.round(score)}`;
+                badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border ';
+                if (score >= 85) {
+                    badge.classList.add('bg-green-900/30', 'text-green-400', 'border-green-500/50');
+                } else if (score >= 65) {
+                    badge.classList.add('bg-yellow-900/30', 'text-yellow-400', 'border-yellow-500/50');
+                } else {
+                    badge.classList.add('bg-red-900/30', 'text-red-400', 'border-red-500/50');
+                }
+            }
+        }
+    });
+
     if (!scoreBadge || !score) {
         if (scoreBadge) scoreBadge.classList.add('hidden');
         return;
@@ -1729,13 +1886,13 @@ function updateExecutionEdge(data) {
         fill.style.width = `${confidence}%`;
         fill.className = `h-full transition-all duration-1000 ${
             confidence > 70 ? 'bg-green-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-            confidence > 40 ? 'bg-blue-500' : 'bg-gray-600'
+            confidence > 40 ? 'bg-blue-500' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
         }`;
     }
     if (label) {
         label.textContent = confidence > 70 ? "HIGH CONVICTION" : confidence > 40 ? "MID CONVICTION" : "LOW CONVICTION";
         label.className = `text-[7px] font-black uppercase tracking-widest ${
-            confidence > 70 ? 'text-green-400' : confidence > 40 ? 'text-blue-400' : 'text-gray-500'
+            confidence > 70 ? 'text-green-400' : confidence > 40 ? 'text-blue-400' : 'text-red-400'
         }`;
     }
 
@@ -1746,6 +1903,11 @@ function updateExecutionEdge(data) {
         aiExpl.innerHTML = formatted.bullets.length > 0 
             ? formatted.bullets.map(b => `<div class="flex gap-2 mb-2"><i class="fas fa-caret-right text-indigo-500 mt-0.5"></i> <span>${b}</span></div>`).join('')
             : "No specific structural narrative for the current price action.";
+    }
+
+    const eeNarrative = document.getElementById('ee-narrative');
+    if (eeNarrative) {
+        eeNarrative.textContent = vm.narrative || "No specific structural narrative for the current price action.";
     }
 
     // Analysis Tab Title
@@ -1761,18 +1923,25 @@ function updateExecutionEdge(data) {
     const undPrice = document.getElementById('ee-underlying-price');
     if (undPrice) undPrice.textContent = formatVal(vm.underlyingPrice);
 
-    // Execution State Badge
+    // Execution State Badges (Header & Card) (BUG-03)
     const stateColor = getExecutionState(vm);
-    const badgeEl = document.getElementById('ee-execution-badge');
-    if (badgeEl) {
-        badgeEl.innerText = vm.executionSignal !== "-" ? vm.executionSignal : (vm.setupState !== "-" ? vm.setupState : "WAITING");
-        badgeEl.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-lg ${
-            stateColor === "green" ? "bg-green-900/30 text-green-400 border-green-500/50" :
-            stateColor === "yellow" ? "bg-yellow-900/30 text-yellow-400 border-yellow-500/50" :
-            stateColor === "indigo" ? "bg-indigo-900/30 text-indigo-400 border-indigo-500/50" :
-            "bg-red-900/30 text-red-400 border-red-500/50"
-        }`;
-    }
+    const badges = [
+        document.getElementById('ee-header-execution-badge'),
+        document.getElementById('ee-execution-badge')
+    ];
+    const signalText = vm.executionSignal !== "-" ? vm.executionSignal : (vm.setupState !== "-" ? vm.setupState : "WAITING");
+    
+    badges.forEach(badgeEl => {
+        if (badgeEl) {
+            badgeEl.innerText = signalText;
+            badgeEl.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-lg ${
+                stateColor === "green" ? "bg-green-900/30 text-green-400 border-green-500/50" :
+                stateColor === "yellow" ? "bg-yellow-900/30 text-yellow-400 border-yellow-500/50" :
+                stateColor === "indigo" ? "bg-indigo-900/30 text-indigo-400 border-indigo-500/50" :
+                "bg-red-900/30 text-red-400 border-red-500/50"
+            }`;
+        }
+    });
     
     renderScore(vm);
 
@@ -2441,7 +2610,7 @@ function updateUI(data, isBackground = false) {
             const peEl = document.getElementById('fund-pe');
             if (peEl) {
                 if (isIndex) {
-                    peEl.textContent = 'N/A (Index)';
+                    peEl.textContent = 'Not applicable for Index';
                     peEl.className = 'text-xs font-black text-gray-500 italic';
                 } else {
                     peEl.textContent = f.pe_ratio && f.pe_ratio > 0 ? f.pe_ratio : 'N/A';
@@ -2456,7 +2625,7 @@ function updateUI(data, isBackground = false) {
             const roeEl = document.getElementById('fund-roe');
             if (roeEl) {
                 if (isIndex) {
-                    roeEl.textContent = 'N/A (Index)';
+                    roeEl.textContent = 'Not applicable for Index';
                     roeEl.className = 'text-xs font-black text-gray-500 italic';
                 } else {
                     roeEl.textContent = f.roe && f.roe > 0 ? `${f.roe}%` : 'N/A';
@@ -2470,8 +2639,8 @@ function updateUI(data, isBackground = false) {
                 // Show 52W range for index from API data.meta if fundamentals lack it
                 const hi = f['52w_high'] || data.meta?.yearHigh;
                 const lo = f['52w_low']  || data.meta?.yearLow;
-                setTxt('fund-52h', hi ? `₹${parseFloat(hi).toLocaleString()}` : 'N/A (Index)');
-                setTxt('fund-52l', lo ? `₹${parseFloat(lo).toLocaleString()}` : 'N/A (Index)');
+                setTxt('fund-52h', hi ? `₹${parseFloat(hi).toLocaleString()}` : '—');
+                setTxt('fund-52l', lo ? `₹${parseFloat(lo).toLocaleString()}` : '—');
                 const progress = document.getElementById('fund-progress');
                 if (progress && hi && lo && hi > lo) {
                     const p = ((data.meta.cmp - lo) / (hi - lo)) * 100;
@@ -2536,10 +2705,11 @@ function updateUI(data, isBackground = false) {
             const vwapEv = advDet.vwap || {};
             const vwapPrice = vwapEv.vwap_price;
             const vwapDist  = vwapEv.distance_pct;
-            setTextEl('vwap-val',  vwapPrice ? vwapPrice.toFixed(2) : '—');
+            const hasVwap = vwapPrice !== undefined && vwapPrice !== null && !isNaN(vwapPrice) && vwapPrice > 0;
+            setTextEl('vwap-val', hasVwap ? `₹${parseFloat(vwapPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A');
             if (document.getElementById('vwap-dist')) {
                 const distEl = document.getElementById('vwap-dist');
-                if (vwapDist !== undefined && vwapDist !== null) {
+                if (hasVwap && vwapDist !== undefined && vwapDist !== null) {
                     const sign = vwapDist >= 0 ? '+' : '';
                     distEl.textContent = `${sign}${vwapDist.toFixed(2)}%`;
                     distEl.className = 'px-1 py-0.5 rounded text-[8px] font-black '
@@ -3907,3 +4077,5 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+window.recalculateLiveRiskReward = () => TradingAssistant.recalculateLiveRiskReward();

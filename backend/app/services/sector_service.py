@@ -120,16 +120,40 @@ class SectorService:
             "1M": {"interval": "1mo", "period": "5y"}
         }
         
-        # 0. Check Cache
+        # 0. Check Cache partitioned by timeframe with thread-safety (stampede protection)
         from app.services.market_status_service import MarketStatusService
         market_status = MarketStatusService.get_market_status()
         ttl = cls.CACHE_TTL if market_status["mode"] in ["OPEN", "PRE_MARKET"] else 3600 * 12
 
         current_time = float(time.time())
-        if (cls._cache["data"] is not None and 
-            cls._cache["timeframe"] == timeframe and 
-            (current_time - float(cls._cache["timestamp"] or 0.0)) < ttl):
-            return cls._cache["data"], cls._cache["alerts"]
+        
+        # Initialize class-level lock and partitions dynamically if needed
+        if not hasattr(cls, '_cache_lock') or cls._cache_lock is None:
+            import threading
+            cls._cache_lock = threading.Lock()
+            cls._cache_by_tf = {}
+            cls._fetch_locks = {}
+
+        with cls._cache_lock:
+            cached = cls._cache_by_tf.get(timeframe)
+            if (cached is not None and cached.get("data") is not None and
+                (current_time - float(cached.get("timestamp", 0.0))) < ttl):
+                if cached["data"]:
+                    return cached["data"], cached["alerts"]
+            
+            if timeframe not in cls._fetch_locks:
+                import threading
+                cls._fetch_locks[timeframe] = threading.Lock()
+            t_lock = cls._fetch_locks[timeframe]
+
+        with t_lock:
+            # Double-check inside timeframe lock
+            with cls._cache_lock:
+                cached = cls._cache_by_tf.get(timeframe)
+                if (cached is not None and cached.get("data") is not None and
+                    (current_time - float(cached.get("timestamp", 0.0))) < ttl):
+                    if cached["data"]:
+                        return cached["data"], cached["alerts"]
 
         normalized_timeframe = "1D" if timeframe == "Daily" else timeframe
         config = tf_map.get(normalized_timeframe, {"interval": "1d", "period": "1y"})
@@ -513,13 +537,19 @@ class SectorService:
         # Sort alerts by timestamp asc (Oldest first) so frontend prepends them correctly (Newest at top)
         all_alerts.sort(key=lambda x: x['timestamp'])
         
-        # Update Cache
-        cls._cache = {
-            "data": results,
-            "alerts": all_alerts,
-            "timestamp": time.time(),
-            "timeframe": normalized_timeframe
-        }
+        # Update Cache partitioned by timeframe and legacy cache
+        with cls._cache_lock:
+            cls._cache_by_tf[timeframe] = {
+                "data": results,
+                "alerts": all_alerts,
+                "timestamp": time.time()
+            }
+            cls._cache = {
+                "data": results,
+                "alerts": all_alerts,
+                "timestamp": time.time(),
+                "timeframe": normalized_timeframe
+            }
         
         # Save to Fallback file for persistence across restarts/failures
         cls._save_fallback(results, all_alerts, normalized_timeframe)

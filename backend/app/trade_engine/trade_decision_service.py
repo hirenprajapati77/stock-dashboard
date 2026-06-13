@@ -47,6 +47,33 @@ class TradeDecisionService:
         reasons: List[str] = []
         warnings: List[str] = []
 
+        # Sanitize incoming context attributes to protect against null/NaN/inf values
+        import math
+        
+        def safe_float(v, default=0.0):
+            if v is None:
+                return default
+            try:
+                val = float(v)
+                if math.isnan(val) or math.isinf(val):
+                    return default
+                return val
+            except (ValueError, TypeError):
+                return default
+
+        context.price = safe_float(context.price)
+        context.open = safe_float(context.open)
+        context.high = safe_float(context.high)
+        context.low = safe_float(context.low)
+        context.close = safe_float(context.close)
+        context.prev_close = safe_float(context.prev_close)
+        context.atr = safe_float(context.atr, 1.0)
+        context.adx = safe_float(context.adx, 20.0)
+        context.volume_ratio = safe_float(context.volume_ratio, 1.0)
+        context.daily_volume_ratio = safe_float(context.daily_volume_ratio, 1.0)
+        context.supports = [safe_float(s) for s in (context.supports or []) if s is not None]
+        context.resistances = [safe_float(r) for r in (context.resistances or []) if r is not None]
+
         # ── 1. MARKET CONTEXT ──────────────────────────────────────────────
         m_context = MarketContextEngine.analyze(context)
         reasons.append(f"Market: {m_context.market_bias} | Vol: {m_context.volatility} | Strength: {m_context.strength}")
